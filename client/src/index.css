@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply antialiased; }
+  
+  /* Scrollbar styling */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-steel-200 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-steel-500; }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-xl border border-steel-100 shadow-sm;
+  }
+  .stat-value {
+    @apply text-2xl font-bold tracking-tight text-navy-800;
+  }
+  .stat-label {
+    @apply text-xs font-medium uppercase tracking-wider text-steel-500;
+  }
+  .btn-primary {
+    @apply px-4 py-2 bg-navy-700 text-white rounded-lg font-medium
+           hover:bg-navy-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply px-4 py-2 bg-steel-100 text-navy-800 rounded-lg font-medium
+           hover:bg-steel-200 transition-colors;
+  }
+  .input-field {
+    @apply w-full px-3 py-2 border border-steel-200 rounded-lg bg-white
+           focus:outline-none focus:ring-2 focus:ring-navy-700/20 focus:border-navy-700
+           placeholder:text-steel-500 text-sm;
+  }
+}
+
+/* Markdown rendering in AI responses */
+.ai-response h2 { @apply text-base font-bold mt-4 mb-2 text-navy-800; }
+.ai-response h3 { @apply text-sm font-semibold mt-3 mb-1 text-navy-700; }
+.ai-response p { @apply text-sm mb-2 leading-relaxed; }
+.ai-response ul { @apply list-disc pl-5 mb-2 text-sm; }
+.ai-response ol { @apply list-decimal pl-5 mb-2 text-sm; }
+.ai-response li { @apply mb-1; }
+.ai-response table { @apply w-full text-xs border-collapse mb-3; }
+.ai-response thead th { @apply bg-steel-50 px-3 py-1.5 text-left font-semibold border border-steel-200; }
+.ai-response tbody td { @apply px-3 py-1.5 border border-steel-100; }
+.ai-response code { @apply font-mono text-xs bg-steel-50 px-1 py-0.5 rounded; }
+.ai-response strong { @apply font-semibold; }
