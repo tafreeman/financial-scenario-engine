@@ -14,7 +14,7 @@ import {
   buildContextSnapshot,
   saveScenario,
 } from "./db.js";
-import { runScenario, parseIntent, narrateResult, agenticScenario } from "./ai.js";
+import { parseIntent, narrateResult, agenticScenario } from "./ai.js";
 import { executeScenario } from "./engine/executor.js";
 import { handleExcelImportV1, handleExcelImportV2 } from "./import/excel/index.js";
 
@@ -101,12 +101,8 @@ apiRouter.get("/rates", (_req, res) => {
 });
 
 // ---- AI Scenario ----
-apiRouter.post("/scenario", async (req: Request, res: Response) => {
-  const { query } = req.body;
-  if (!query) { res.status(400).json({ error: "query required" }); return; }
-  const result = await runScenario(query);
-  res.json(result);
-});
+// V1 removed — it sent raw financial data to LLM and let it hallucinate numbers.
+// Use V2 (deterministic engine + optional narration) or V3 (agentic tool-calling) instead.
 
 apiRouter.get("/scenarios", (req, res) => {
   const limit = req.query.limit ? Number(req.query.limit) : 50;

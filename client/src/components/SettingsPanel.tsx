@@ -42,7 +42,7 @@ export default function SettingsPanel() {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await api.runScenario("Reply with exactly: CONNECTION_OK");
+      const result = await api.runScenarioV3("What is the current burn rate?");
       if (result.error) {
         setTestResult({ ok: false, message: result.error });
       } else if (result.content) {

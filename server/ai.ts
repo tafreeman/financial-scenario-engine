@@ -2,39 +2,7 @@ import { getConfig, buildContextSnapshot, saveScenario } from "./db.js";
 import type { ScenarioOperation, ScenarioResult } from "./engine/types.js";
 import { executeScenario } from "./engine/executor.js";
 
-const SYSTEM_PROMPT = `You are a financial impact analyst for a federal professional services organization.
-You have access to real-time project staffing, rate card, and budget data.
-
-YOUR ROLE:
-- Quantify the financial impact of staffing changes across projects
-- Calculate burn rate changes, margin impact, and cost deltas
-- Compare pre-change vs post-change financial positions
-- Flag risks: budget overruns, margin compression, rate mismatches
-
-RESPONSE FORMAT — always structure as:
-
-## Impact Summary
-2-3 sentences on the key finding.
-
-## Financial Delta
-| Metric | Before | After | Change |
-Show numbers: cost change, margin change, burn rate change.
-
-## Assumptions
-What you inferred from the data.
-
-## Risks
-Concerns or flags.
-
-## Recommendation
-One clear, actionable next step.
-
-RULES:
-- Be precise with numbers. Show your math.
-- Use the workbook data provided — do not invent numbers.
-- If data is missing, state what you need.
-- Format currency with $ and commas.
-- Format percentages to one decimal.`;
+// ─── AI Config ───────────────────────────────────────────────────────────────
 
 /** Centralized AI config with defaults applied */
 function getAiConfig() {
@@ -52,63 +20,6 @@ export interface AiResponse {
   model: string;
   tokensUsed?: number;
   error?: string;
-}
-
-export async function runScenario(userQuery: string): Promise<AiResponse> {
-  const { pat, model, endpoint, temperature, maxTokens } = getAiConfig();
-
-  if (!pat) {
-    return { content: "", model, error: "No GitHub PAT configured. Go to Settings to add one." };
-  }
-
-  // Build context from live DB
-  const context = buildContextSnapshot();
-
-  const fullSystemPrompt = `${SYSTEM_PROMPT}\n\nCURRENT WORKBOOK STATE:\n${context}`;
-
-  const payload = {
-    model,
-    max_tokens: maxTokens,
-    temperature,
-    messages: [
-      { role: "system", content: fullSystemPrompt },
-      { role: "user", content: userQuery },
-    ],
-  };
-
-  try {
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${pat}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const errBody = await resp.text();
-      return {
-        content: "",
-        model,
-        error: `HTTP ${resp.status}: ${resp.statusText}\n${errBody.slice(0, 500)}`,
-      };
-    }
-
-    const data = await resp.json();
-
-    const content = data.choices?.[0]?.message?.content ?? "(empty response)";
-    const tokensUsed = data.usage?.total_tokens;
-
-    // Persist to history
-    saveScenario(userQuery, content, context, model);
-
-    return { content, model, tokensUsed };
-  } catch (err: any) {
-    return { content: "", model, error: `Request failed: ${err.message}` };
-  }
 }
 
 // ─── V2: Structured Intent Parsing ───────────────────────────────────────────
