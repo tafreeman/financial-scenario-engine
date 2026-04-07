@@ -13,7 +13,7 @@ import {
 } from "../db.js";
 import { calcProjectLabor } from "./labor.js";
 import { calcProjectMarginFromLabor } from "./margin.js";
-import { fuzzyMatch, ROLE_ABBREVIATIONS } from "./matching.js";
+import { fuzzyMatch, fuzzyMatchWithConfidence, ROLE_ABBREVIATIONS } from "./matching.js";
 import { calcBudgetMetrics } from "./budget.js";
 import { calcEvm, calcPlannedValue, calcEarnedValue } from "./evm.js";
 import { calcUtilization } from "./utilization.js";
@@ -65,21 +65,31 @@ export function loadPortfolioSnapshot(): PortfolioSnapshot {
 
 // ─── Name Resolution ─────────────────────────────────────────────────────────
 
-/** Fuzzy match a project name against the portfolio */
+/** Fuzzy match a project name against the portfolio, with confidence info */
 export function resolveProject(
   name: string,
-  portfolio: PortfolioSnapshot
+  portfolio: PortfolioSnapshot,
+  warnings?: string[]
 ): ProjectSnapshot | null {
   if (name.toLowerCase().trim() === "all") return null; // signals portfolio-level operation
-  return fuzzyMatch(name, portfolio.projects, p => p.name);
+  const result = fuzzyMatchWithConfidence(name, portfolio.projects, p => p.name);
+  if (result.item && result.confidence < 0.7 && warnings) {
+    warnings.push(`Low confidence match: "${name}" resolved to "${result.item.name}" (${result.quality} match, ${Math.round(result.confidence * 100)}% confidence).`);
+  }
+  return result.item;
 }
 
-/** Fuzzy match a role name against labor categories */
+/** Fuzzy match a role name against labor categories, with confidence info */
 export function resolveRole(
   name: string,
-  categories: LaborCategory[]
+  categories: LaborCategory[],
+  warnings?: string[]
 ): LaborCategory | null {
-  return fuzzyMatch(name, categories, c => c.name, ROLE_ABBREVIATIONS);
+  const result = fuzzyMatchWithConfidence(name, categories, c => c.name, ROLE_ABBREVIATIONS);
+  if (result.item && result.confidence < 0.7 && warnings) {
+    warnings.push(`Low confidence match: "${name}" resolved to "${result.item.name}" (${result.quality} match, ${Math.round(result.confidence * 100)}% confidence).`);
+  }
+  return result.item;
 }
 
 // ─── Metric Computation Helpers ──────────────────────────────────────────────
@@ -105,7 +115,7 @@ export function executeScenario(operation: ScenarioOperation, preloadedPortfolio
   let targetProject: ProjectSnapshot | null = null;
 
   if (projectName && projectName.toLowerCase() !== "all") {
-    targetProject = resolveProject(projectName, portfolio);
+    targetProject = resolveProject(projectName, portfolio, warnings);
     if (!targetProject) {
       warnings.push(`Could not resolve project "${projectName}". Showing portfolio-level analysis.`);
     }
@@ -469,8 +479,8 @@ function handleReallocation(
     );
   }
 
-  const fromProject = resolveProject(projectNames[0], portfolio);
-  const toProject = resolveProject(projectNames[1], portfolio);
+  const fromProject = resolveProject(projectNames[0], portfolio, warnings);
+  const toProject = resolveProject(projectNames[1], portfolio, warnings);
 
   if (!fromProject || !toProject) {
     warnings.push("Could not resolve one or both projects for reallocation.");
