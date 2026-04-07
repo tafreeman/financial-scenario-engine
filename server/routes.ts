@@ -16,6 +16,7 @@ import {
 } from "./db.js";
 import { parseIntent, narrateResult, agenticScenario } from "./ai.js";
 import { executeScenario } from "./engine/executor.js";
+import { generateNarrative } from "./engine/narrative.js";
 import { handleExcelImportV1, handleExcelImportV2 } from "./import/excel/index.js";
 
 export const apiRouter = Router();
@@ -109,9 +110,9 @@ apiRouter.get("/scenarios", (req, res) => {
   res.json(getScenarioHistory(limit));
 });
 
-// ---- AI Scenario V2 (deterministic engine + LLM narration) ----
+// ---- AI Scenario V2 (deterministic engine + narrative) ----
 apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
-  const { query, skip_narrative } = req.body;
+  const { query, skip_narrative, use_llm_narrative } = req.body;
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
   try {
@@ -127,17 +128,24 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
       engineResult.warnings.unshift(operation._fallback_reason);
     }
 
-    // Step 3: LLM narrates the pre-computed results (optional)
+    // Step 3: Generate narrative (template-based by default, LLM if explicitly requested)
     let narrative = "";
     let model = "";
     let tokensUsed = 0;
     if (!skip_narrative) {
-      const narration = await narrateResult(operation, engineResult);
-      narrative = narration.content;
-      model = narration.model;
-      tokensUsed = narration.tokensUsed || 0;
-      if (narration.error) {
-        narrative = `(Narration unavailable: ${narration.error})`;
+      if (use_llm_narrative) {
+        // LLM narration (opt-in) — sends computed results to LLM for prose generation
+        const narration = await narrateResult(operation, engineResult);
+        narrative = narration.content;
+        model = narration.model;
+        tokensUsed = narration.tokensUsed || 0;
+        if (narration.error) {
+          narrative = `(Narration unavailable: ${narration.error})`;
+        }
+      } else {
+        // Template-based narrative (default) — fully local, no LLM call
+        narrative = generateNarrative(engineResult);
+        model = "template";
       }
     }
 
