@@ -241,7 +241,7 @@ export function generateNarrative(result: ScenarioResult): string {
     for (const p of result.portfolio.project_summaries) {
       table += `| ${p.name} | ${fmt(p.monthly_burn)} | ${fmtPct(p.margin_pct)} | ${p.months_remaining.toFixed(1)} |\n`;
     }
-    table += `| **Portfolio Total** | **${fmt(result.portfolio.total_burn)}** | **${fmtPct(result.portfolio.total_margin_pct)}** | **${fmt(result.portfolio.total_margin_dollars)}/mo** |\n`;
+    table += `| **Portfolio Total** | **${fmt(result.portfolio.total_burn)}** | **${fmtPct(result.portfolio.total_margin_pct)}** | **${fmt(result.portfolio.total_margin_dollars)}/mo margin** |\n`;
     sections.push(table);
   }
 
