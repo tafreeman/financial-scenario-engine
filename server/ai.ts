@@ -210,7 +210,7 @@ export async function parseIntent(
   const { pat, model, endpoint } = getAiConfig();
 
   if (!pat) {
-    return { action: "burn_rate_check" };
+    return { action: "burn_rate_check", _fallback: true, _fallback_reason: "No AI provider configured. Defaulting to burn rate check." };
   }
 
   const payload = {
@@ -236,7 +236,7 @@ export async function parseIntent(
     });
 
     if (!resp.ok) {
-      return { action: "burn_rate_check" };
+      return { action: "burn_rate_check", _fallback: true, _fallback_reason: `LLM request failed (HTTP ${resp.status}). Defaulting to burn rate check.` };
     }
 
     const data = await resp.json();
@@ -248,12 +248,12 @@ export async function parseIntent(
 
     // Validate minimum shape
     if (!parsed.action || typeof parsed.action !== "string") {
-      return { action: "burn_rate_check" };
+      return { action: "burn_rate_check", _fallback: true, _fallback_reason: "Could not parse your query into a specific operation. Showing burn rate analysis instead." };
     }
 
     return parsed as ScenarioOperation;
   } catch {
-    return { action: "burn_rate_check" };
+    return { action: "burn_rate_check", _fallback: true, _fallback_reason: "Could not parse your query into a specific operation. Showing burn rate analysis instead." };
   }
 }
 

@@ -126,6 +126,11 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
     // Step 2: Deterministic engine computes results
     const engineResult = executeScenario(operation);
 
+    // Surface fallback warning if parseIntent could not understand the query
+    if (operation._fallback && operation._fallback_reason) {
+      engineResult.warnings.unshift(operation._fallback_reason);
+    }
+
     // Step 3: LLM narrates the pre-computed results (optional)
     let narrative = "";
     let model = "";
