@@ -1,4 +1,4 @@
-import { getConfig, buildContextSnapshot, saveScenario } from "./db.js";
+import { getConfig, buildAnonymizedContextSnapshot, saveScenario } from "./db.js";
 import type { ScenarioOperation, ScenarioResult } from "./engine/types.js";
 import { executeScenario } from "./engine/executor.js";
 
@@ -457,7 +457,7 @@ export async function agenticScenario(userQuery: string): Promise<AgenticRespons
     };
   }
 
-  const context = buildContextSnapshot();
+  const context = buildAnonymizedContextSnapshot();
   const scenariosExplored: ScenarioResult[] = [];
   let totalTokens = 0;
   const messages: any[] = [

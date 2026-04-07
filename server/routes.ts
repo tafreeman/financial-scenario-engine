@@ -11,7 +11,7 @@ import {
   removeStaffing,
   addProject,
   updateProject,
-  buildContextSnapshot,
+  buildAnonymizedContextSnapshot,
   saveScenario,
 } from "./db.js";
 import { parseIntent, narrateResult, agenticScenario } from "./ai.js";
@@ -115,8 +115,8 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
   try {
-    // Step 1: LLM parses intent into structured operation
-    const context = buildContextSnapshot();
+    // Step 1: LLM parses intent into structured operation (anonymized context sent to LLM)
+    const context = buildAnonymizedContextSnapshot();
     const operation = await parseIntent(query, context);
 
     // Step 2: Deterministic engine computes results
@@ -155,7 +155,7 @@ apiRouter.post("/scenario/v2/parse-only", async (req: Request, res: Response) =>
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
   try {
-    const context = buildContextSnapshot();
+    const context = buildAnonymizedContextSnapshot();
     const operation = await parseIntent(query, context);
     res.json(operation);
   } catch (err: any) {
