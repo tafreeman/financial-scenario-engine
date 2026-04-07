@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
-import { Save, CheckCircle, XCircle, Key, Cpu, Link, Shield } from "lucide-react";
+import { Save, CheckCircle, XCircle, Key, Cpu, Link, Shield, Server } from "lucide-react";
 import { api } from "../api";
 
 export default function SettingsPanel() {
   const [config, setConfig] = useState<Record<string, string>>({});
   const [pat, setPat] = useState("");
+  const [llmProvider, setLlmProvider] = useState("github");
   const [model, setModel] = useState("openai/gpt-4.1");
   const [endpoint, setEndpoint] = useState("https://models.github.ai/inference/chat/completions");
+  const [ollamaModel, setOllamaModel] = useState("llama3.2");
+  const [ollamaEndpoint, setOllamaEndpoint] = useState("http://localhost:11434/v1/chat/completions");
   const [temperature, setTemperature] = useState("0.2");
   const [maxTokens, setMaxTokens] = useState("2000");
   const [saving, setSaving] = useState(false);
@@ -17,8 +20,11 @@ export default function SettingsPanel() {
   useEffect(() => {
     api.getConfig().then((c) => {
       setConfig(c);
+      setLlmProvider(c.llm_provider || "github");
       setModel(c.model || "openai/gpt-4.1");
       setEndpoint(c.endpoint || "https://models.github.ai/inference/chat/completions");
+      setOllamaModel(c.ollama_model || "llama3.2");
+      setOllamaEndpoint(c.ollama_endpoint || "http://localhost:11434/v1/chat/completions");
       setTemperature(c.temperature || "0.2");
       setMaxTokens(c.max_tokens || "2000");
     });
@@ -27,7 +33,12 @@ export default function SettingsPanel() {
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
-    const updates: Record<string, string> = { model, endpoint, temperature, max_tokens: maxTokens };
+    const updates: Record<string, string> = {
+      llm_provider: llmProvider,
+      model, endpoint,
+      ollama_model: ollamaModel, ollama_endpoint: ollamaEndpoint,
+      temperature, max_tokens: maxTokens,
+    };
     if (pat.trim()) updates.github_pat = pat.trim();
     await api.updateConfig(updates);
     setSaving(false);
@@ -55,69 +66,142 @@ export default function SettingsPanel() {
     }
   };
 
+  const isOllama = llmProvider === "ollama";
+
   return (
     <div className="max-w-2xl space-y-6">
-      {/* PAT */}
+      {/* LLM Provider Selection */}
       <div className="card p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Key size={16} className="text-navy-700" />
-          <h2 className="text-sm font-semibold text-navy-800">GitHub Personal Access Token</h2>
+          <Server size={16} className="text-navy-700" />
+          <h2 className="text-sm font-semibold text-navy-800">LLM Provider</h2>
         </div>
-        <p className="text-xs text-steel-500 mb-3">
-          Create a fine-grained PAT at{" "}
-          <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noreferrer"
-             className="text-navy-700 underline">
-            github.com/settings/tokens
-          </a>{" "}
-          with <code className="text-[10px] bg-steel-50 px-1 py-0.5 rounded">models:read</code> permission.
-          The token is stored in the local SQLite database and only transmitted to GitHub's API over HTTPS.
-        </p>
-        <div className="flex gap-2">
-          <input
-            type="password"
-            className="input-field flex-1 font-mono text-xs"
-            placeholder={config.github_pat_masked ? `Current: ${config.github_pat_masked}` : "github_pat_..."}
-            value={pat}
-            onChange={(e) => setPat(e.target.value)}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setLlmProvider("github")}
+            className={`p-3 rounded-lg border-2 text-left transition-colors ${
+              !isOllama
+                ? "border-navy-700 bg-navy-50"
+                : "border-steel-200 hover:border-steel-300"
+            }`}
+          >
+            <p className="text-sm font-semibold text-navy-800">GitHub Models</p>
+            <p className="text-[10px] text-steel-500 mt-0.5">Cloud API — requires PAT</p>
+            <p className="text-[10px] text-amber-600 mt-0.5">Anonymized context sent to cloud</p>
+          </button>
+          <button
+            onClick={() => setLlmProvider("ollama")}
+            className={`p-3 rounded-lg border-2 text-left transition-colors ${
+              isOllama
+                ? "border-emerald-500 bg-emerald-50"
+                : "border-steel-200 hover:border-steel-300"
+            }`}
+          >
+            <p className="text-sm font-semibold text-navy-800">Ollama (Local)</p>
+            <p className="text-[10px] text-steel-500 mt-0.5">Fully local — no data leaves machine</p>
+            <p className="text-[10px] text-emerald-600 mt-0.5">✓ Maximum data privacy</p>
+          </button>
         </div>
-        {config.github_pat_masked && (
-          <p className="text-[10px] text-emerald-600 mt-1.5 flex items-center gap-1">
-            <CheckCircle size={10} /> PAT configured ({config.github_pat_masked})
-          </p>
-        )}
-        {!config.github_pat_masked && !pat && (
-          <p className="text-[10px] text-amber-600 mt-1.5">
-            No PAT configured. Also checks GITHUB_TOKEN environment variable.
-          </p>
-        )}
       </div>
+
+      {/* PAT — only shown for GitHub provider */}
+      {!isOllama && (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Key size={16} className="text-navy-700" />
+            <h2 className="text-sm font-semibold text-navy-800">GitHub Personal Access Token</h2>
+          </div>
+          <p className="text-xs text-steel-500 mb-3">
+            Create a fine-grained PAT at{" "}
+            <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noreferrer"
+               className="text-navy-700 underline">
+              github.com/settings/tokens
+            </a>{" "}
+            with <code className="text-[10px] bg-steel-50 px-1 py-0.5 rounded">models:read</code> permission.
+            The token is stored in the local SQLite database and only transmitted to GitHub's API over HTTPS.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              className="input-field flex-1 font-mono text-xs"
+              placeholder={config.github_pat_masked ? `Current: ${config.github_pat_masked}` : "github_pat_..."}
+              value={pat}
+              onChange={(e) => setPat(e.target.value)}
+            />
+          </div>
+          {config.github_pat_masked && (
+            <p className="text-[10px] text-emerald-600 mt-1.5 flex items-center gap-1">
+              <CheckCircle size={10} /> PAT configured ({config.github_pat_masked})
+            </p>
+          )}
+          {!config.github_pat_masked && !pat && (
+            <p className="text-[10px] text-amber-600 mt-1.5">
+              No PAT configured. Also checks GITHUB_TOKEN environment variable.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Model config */}
       <div className="card p-5">
         <div className="flex items-center gap-2 mb-4">
           <Cpu size={16} className="text-navy-700" />
-          <h2 className="text-sm font-semibold text-navy-800">Model Configuration</h2>
+          <h2 className="text-sm font-semibold text-navy-800">
+            {isOllama ? "Ollama Configuration" : "GitHub Models Configuration"}
+          </h2>
         </div>
         <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-steel-500 block mb-1">Model</label>
-            <select className="input-field" value={model} onChange={(e) => setModel(e.target.value)}>
-              <option value="openai/gpt-4.1">openai/gpt-4.1 (recommended)</option>
-              <option value="openai/gpt-4o">openai/gpt-4o</option>
-              <option value="openai/gpt-4.1-mini">openai/gpt-4.1-mini (faster, cheaper)</option>
-              <option value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct</option>
-              <option value="deepseek/deepseek-r1">deepseek/deepseek-r1</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-steel-500 block mb-1">Endpoint</label>
-            <input
-              className="input-field font-mono text-xs"
-              value={endpoint}
-              onChange={(e) => setEndpoint(e.target.value)}
-            />
-          </div>
+          {isOllama ? (
+            <>
+              <div>
+                <label className="text-xs font-medium text-steel-500 block mb-1">Ollama Model</label>
+                <select className="input-field" value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
+                  <option value="llama3.2">llama3.2 (recommended, 3B)</option>
+                  <option value="llama3.1">llama3.1 (8B)</option>
+                  <option value="llama3.3">llama3.3 (70B, if available)</option>
+                  <option value="mistral">mistral (7B)</option>
+                  <option value="phi3">phi3 (3.8B, fast)</option>
+                  <option value="qwen2.5-coder">qwen2.5-coder (7B, code-focused)</option>
+                  <option value="deepseek-r1">deepseek-r1 (if available)</option>
+                </select>
+                <p className="text-[10px] text-steel-500 mt-1">
+                  Install models with: <code className="bg-steel-50 px-1 rounded">ollama pull {ollamaModel}</code>
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-steel-500 block mb-1">Ollama Endpoint</label>
+                <input
+                  className="input-field font-mono text-xs"
+                  value={ollamaEndpoint}
+                  onChange={(e) => setOllamaEndpoint(e.target.value)}
+                />
+                <p className="text-[10px] text-steel-500 mt-1">
+                  Start Ollama with: <code className="bg-steel-50 px-1 rounded">ollama serve</code>
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="text-xs font-medium text-steel-500 block mb-1">Model</label>
+                <select className="input-field" value={model} onChange={(e) => setModel(e.target.value)}>
+                  <option value="openai/gpt-4.1">openai/gpt-4.1 (recommended)</option>
+                  <option value="openai/gpt-4o">openai/gpt-4o</option>
+                  <option value="openai/gpt-4.1-mini">openai/gpt-4.1-mini (faster, cheaper)</option>
+                  <option value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct</option>
+                  <option value="deepseek/deepseek-r1">deepseek/deepseek-r1</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-steel-500 block mb-1">Endpoint</label>
+                <input
+                  className="input-field font-mono text-xs"
+                  value={endpoint}
+                  onChange={(e) => setEndpoint(e.target.value)}
+                />
+              </div>
+            </>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-steel-500 block mb-1">
@@ -187,21 +271,36 @@ export default function SettingsPanel() {
             <span className="text-emerald-500 mt-0.5">●</span>
             All data stored locally in <code className="bg-steel-50 px-1 rounded">data/finimpact.db</code> (SQLite)
           </li>
-          <li className="flex items-start gap-2">
-            <span className="text-emerald-500 mt-0.5">●</span>
-            PAT is only transmitted to <code className="bg-steel-50 px-1 rounded">models.github.ai</code> via HTTPS
-          </li>
+          {isOllama ? (
+            <>
+              <li className="flex items-start gap-2">
+                <span className="text-emerald-500 mt-0.5">●</span>
+                <strong>Ollama mode: NO data leaves your machine.</strong> All LLM inference runs locally.
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-emerald-500 mt-0.5">●</span>
+                Suitable for classified and sensitive environments — zero cloud dependency
+              </li>
+            </>
+          ) : (
+            <>
+              <li className="flex items-start gap-2">
+                <span className="text-emerald-500 mt-0.5">●</span>
+                PAT is only transmitted to <code className="bg-steel-50 px-1 rounded">models.github.ai</code> via HTTPS
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-emerald-500 mt-0.5">●</span>
+                Anonymized context sent to LLM — person names are stripped, only financial structure shared
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-amber-500 mt-0.5">●</span>
+                For DoD environments: verify GitHub Models API is approved for your data classification level
+              </li>
+            </>
+          )}
           <li className="flex items-start gap-2">
             <span className="text-emerald-500 mt-0.5">●</span>
             No telemetry, no external analytics, no cloud storage
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-emerald-500 mt-0.5">●</span>
-            Workbook context is sent to the AI model as part of each query — ensure data classification allows this
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-amber-500 mt-0.5">●</span>
-            For DoD environments: verify GitHub Models API is approved for your data classification level
           </li>
         </ul>
       </div>

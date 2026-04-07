@@ -78,6 +78,9 @@ function initSchema() {
     insertConfig.run("endpoint", "https://models.github.ai/inference/chat/completions");
     insertConfig.run("temperature", "0.2");
     insertConfig.run("max_tokens", "2000");
+    insertConfig.run("llm_provider", "github");
+    insertConfig.run("ollama_model", "llama3.2");
+    insertConfig.run("ollama_endpoint", "http://localhost:11434/v1/chat/completions");
   }
 
   // Seed sample data if empty

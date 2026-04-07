@@ -30,7 +30,7 @@ export default function App() {
               Financial Impact Analyzer
             </h1>
             <p className="text-[10px] text-steel-200 tracking-widest uppercase mt-0.5">
-              GitHub Models AI · Portable Edition
+              Local + Cloud AI · Portable Edition
             </p>
           </div>
         </div>
