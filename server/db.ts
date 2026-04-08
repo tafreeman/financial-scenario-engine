@@ -78,6 +78,9 @@ function initSchema() {
     insertConfig.run("endpoint", "https://models.github.ai/inference/chat/completions");
     insertConfig.run("temperature", "0.2");
     insertConfig.run("max_tokens", "2000");
+    insertConfig.run("llm_provider", "github");
+    insertConfig.run("ollama_model", "llama3.2");
+    insertConfig.run("ollama_endpoint", "http://localhost:11434/v1/chat/completions");
   }
 
   // Seed sample data if empty
@@ -239,6 +242,46 @@ export function buildContextSnapshot(): string {
     ctx += `  ${s.project_name} | ${s.labor_category} | ${s.person_name || "TBD"} | `;
     ctx += `${s.hours_per_week}hrs/wk | Cost=$${Math.round(s.monthly_cost)}/mo | `;
     ctx += `Revenue=$${Math.round(s.monthly_revenue)}/mo | Margin=${(s.margin * 100).toFixed(1)}%\n`;
+  }
+
+  ctx += "\nRATE CARD:\n";
+  for (const c of categories as any[]) {
+    ctx += `  ${c.name}: Bill=$${c.bill_rate}/hr, Cost=$${c.cost_rate}/hr, `;
+    ctx += `Margin=${(c.margin * 100).toFixed(1)}%\n`;
+  }
+
+  return ctx;
+}
+
+/**
+ * Build an anonymized context snapshot that strips person names (PII)
+ * while preserving project names and role names (needed for LLM intent mapping).
+ * Financial figures are kept because the LLM needs them to reason about scenarios,
+ * but no personally identifiable information leaves the machine.
+ */
+export function buildAnonymizedContextSnapshot(): string {
+  const projects = getProjectsWithBurn();
+  const staffing = getStaffingByProject();
+  const categories = getLaborCategories();
+
+  let ctx = "CURRENT PROJECTS:\n";
+  for (const p of projects) {
+    ctx += `  ${p.name}: Budget=$${p.total_budget.toLocaleString()}, `;
+    ctx += `Spent=$${p.spent_to_date.toLocaleString()}, `;
+    ctx += `Remaining=$${Math.round(p.remaining).toLocaleString()}, `;
+    ctx += `Monthly Burn=$${Math.round(p.monthly_burn).toLocaleString()}, `;
+    ctx += `Months Left=${p.months_left.toFixed(1)}, `;
+    ctx += `Status=${p.status}\n`;
+  }
+
+  ctx += "\nCURRENT STAFFING:\n";
+  let staffIndex = 1;
+  for (const s of staffing as any[]) {
+    if (s.is_active !== 1) continue;
+    ctx += `  ${s.project_name} | ${s.labor_category} | Staff-${staffIndex} | `;
+    ctx += `${s.hours_per_week}hrs/wk | Cost=$${Math.round(s.monthly_cost)}/mo | `;
+    ctx += `Revenue=$${Math.round(s.monthly_revenue)}/mo | Margin=${(s.margin * 100).toFixed(1)}%\n`;
+    staffIndex++;
   }
 
   ctx += "\nRATE CARD:\n";

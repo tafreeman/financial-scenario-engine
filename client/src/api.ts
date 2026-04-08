@@ -81,12 +81,6 @@ export const api = {
   getScenarios: (limit?: number) =>
     request<any[]>(`/scenarios${limit ? `?limit=${limit}` : ""}`),
 
-  runScenario: (query: string) =>
-    request<{ content: string; model: string; error?: string }>("/scenario", {
-      method: "POST",
-      body: JSON.stringify({ query }),
-    }),
-
   runScenarioV2: (query: string, skipNarrative?: boolean) =>
     request<V2Response>("/scenario/v2", {
       method: "POST",

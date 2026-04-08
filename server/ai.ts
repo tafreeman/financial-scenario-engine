@@ -1,44 +1,29 @@
-import { getConfig, buildContextSnapshot, saveScenario } from "./db.js";
+import { getConfig, buildAnonymizedContextSnapshot } from "./db.js";
 import type { ScenarioOperation, ScenarioResult } from "./engine/types.js";
 import { executeScenario } from "./engine/executor.js";
 
-const SYSTEM_PROMPT = `You are a financial impact analyst for a federal professional services organization.
-You have access to real-time project staffing, rate card, and budget data.
+// ─── AI Config ───────────────────────────────────────────────────────────────
 
-YOUR ROLE:
-- Quantify the financial impact of staffing changes across projects
-- Calculate burn rate changes, margin impact, and cost deltas
-- Compare pre-change vs post-change financial positions
-- Flag risks: budget overruns, margin compression, rate mismatches
-
-RESPONSE FORMAT — always structure as:
-
-## Impact Summary
-2-3 sentences on the key finding.
-
-## Financial Delta
-| Metric | Before | After | Change |
-Show numbers: cost change, margin change, burn rate change.
-
-## Assumptions
-What you inferred from the data.
-
-## Risks
-Concerns or flags.
-
-## Recommendation
-One clear, actionable next step.
-
-RULES:
-- Be precise with numbers. Show your math.
-- Use the workbook data provided — do not invent numbers.
-- If data is missing, state what you need.
-- Format currency with $ and commas.
-- Format percentages to one decimal.`;
+/** Supported LLM providers */
+export type LlmProvider = "github" | "ollama";
 
 /** Centralized AI config with defaults applied */
 function getAiConfig() {
+  const provider = (getConfig("llm_provider") || "github") as LlmProvider;
+
+  if (provider === "ollama") {
+    return {
+      provider: "ollama" as const,
+      pat: "", // not needed for Ollama
+      model: getConfig("ollama_model") || "llama3.2",
+      endpoint: getConfig("ollama_endpoint") || "http://localhost:11434/v1/chat/completions",
+      temperature: parseFloat(getConfig("temperature") || "0.2"),
+      maxTokens: parseInt(getConfig("max_tokens") || "2000", 10),
+    };
+  }
+
   return {
+    provider: "github" as const,
     pat: getConfig("github_pat") || process.env.GITHUB_TOKEN || "",
     model: getConfig("model") || "openai/gpt-4.1",
     endpoint: getConfig("endpoint") || "https://models.github.ai/inference/chat/completions",
@@ -47,68 +32,24 @@ function getAiConfig() {
   };
 }
 
+/** Check if any LLM provider is configured and available */
+function isProviderConfigured(): { ok: boolean; error?: string } {
+  const config = getAiConfig();
+  if (config.provider === "ollama") {
+    // Ollama doesn't need a PAT — it just needs to be running locally
+    return { ok: true };
+  }
+  if (!config.pat) {
+    return { ok: false, error: "No GitHub PAT configured. Go to Settings to add one, or switch to Ollama for fully local operation." };
+  }
+  return { ok: true };
+}
+
 export interface AiResponse {
   content: string;
   model: string;
   tokensUsed?: number;
   error?: string;
-}
-
-export async function runScenario(userQuery: string): Promise<AiResponse> {
-  const { pat, model, endpoint, temperature, maxTokens } = getAiConfig();
-
-  if (!pat) {
-    return { content: "", model, error: "No GitHub PAT configured. Go to Settings to add one." };
-  }
-
-  // Build context from live DB
-  const context = buildContextSnapshot();
-
-  const fullSystemPrompt = `${SYSTEM_PROMPT}\n\nCURRENT WORKBOOK STATE:\n${context}`;
-
-  const payload = {
-    model,
-    max_tokens: maxTokens,
-    temperature,
-    messages: [
-      { role: "system", content: fullSystemPrompt },
-      { role: "user", content: userQuery },
-    ],
-  };
-
-  try {
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${pat}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const errBody = await resp.text();
-      return {
-        content: "",
-        model,
-        error: `HTTP ${resp.status}: ${resp.statusText}\n${errBody.slice(0, 500)}`,
-      };
-    }
-
-    const data = await resp.json();
-
-    const content = data.choices?.[0]?.message?.content ?? "(empty response)";
-    const tokensUsed = data.usage?.total_tokens;
-
-    // Persist to history
-    saveScenario(userQuery, content, context, model);
-
-    return { content, model, tokensUsed };
-  } catch (err: any) {
-    return { content: "", model, error: `Request failed: ${err.message}` };
-  }
 }
 
 // ─── V2: Structured Intent Parsing ───────────────────────────────────────────
@@ -207,14 +148,15 @@ export async function parseIntent(
   userQuery: string,
   contextSnapshot: string
 ): Promise<ScenarioOperation> {
-  const { pat, model, endpoint } = getAiConfig();
+  const config = getAiConfig();
+  const providerCheck = isProviderConfigured();
 
-  if (!pat) {
-    return { action: "burn_rate_check" };
+  if (!providerCheck.ok) {
+    return { action: "burn_rate_check", _fallback: true, _fallback_reason: providerCheck.error };
   }
 
   const payload = {
-    model,
+    model: config.model,
     max_tokens: 500,
     temperature: 0,
     messages: [
@@ -224,22 +166,7 @@ export async function parseIntent(
   };
 
   try {
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${pat}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      return { action: "burn_rate_check" };
-    }
-
-    const data = await resp.json();
+    const data = await chatRequest(config.endpoint, config.pat, payload);
     const content = data.choices?.[0]?.message?.content ?? "";
 
     // Strip markdown fences if the model wraps its response
@@ -248,12 +175,15 @@ export async function parseIntent(
 
     // Validate minimum shape
     if (!parsed.action || typeof parsed.action !== "string") {
-      return { action: "burn_rate_check" };
+      return { action: "burn_rate_check", _fallback: true, _fallback_reason: "Could not parse your query into a specific operation. Showing burn rate analysis instead." };
     }
 
     return parsed as ScenarioOperation;
-  } catch {
-    return { action: "burn_rate_check" };
+  } catch (err: any) {
+    const hint = config.provider === "ollama"
+      ? " Is Ollama running? Try: ollama serve"
+      : "";
+    return { action: "burn_rate_check", _fallback: true, _fallback_reason: `Could not parse your query (${err.message}).${hint} Showing burn rate analysis instead.` };
   }
 }
 
@@ -296,14 +226,15 @@ export async function narrateResult(
   operation: ScenarioOperation,
   result: ScenarioResult
 ): Promise<AiResponse> {
-  const { pat, model, endpoint } = getAiConfig();
+  const config = getAiConfig();
+  const providerCheck = isProviderConfigured();
 
-  if (!pat) {
-    return { content: "", model, error: "No GitHub PAT configured. Go to Settings to add one." };
+  if (!providerCheck.ok) {
+    return { content: "", model: config.model, error: providerCheck.error };
   }
 
   const payload = {
-    model,
+    model: config.model,
     max_tokens: 1500,
     temperature: 0.3,
     messages: [
@@ -316,33 +247,13 @@ export async function narrateResult(
   };
 
   try {
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${pat}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const errBody = await resp.text();
-      return {
-        content: "",
-        model,
-        error: `HTTP ${resp.status}: ${resp.statusText}\n${errBody.slice(0, 500)}`,
-      };
-    }
-
-    const data = await resp.json();
+    const data = await chatRequest(config.endpoint, config.pat, payload);
     const content = data.choices?.[0]?.message?.content ?? "(empty response)";
     const tokensUsed = data.usage?.total_tokens;
 
-    return { content, model, tokensUsed };
+    return { content, model: config.model, tokensUsed };
   } catch (err: any) {
-    return { content: "", model, error: `Narration failed: ${err.message}` };
+    return { content: "", model: config.model, error: `Narration failed: ${err.message}` };
   }
 }
 
@@ -514,16 +425,23 @@ function processToolCalls(
   }
 }
 
-/** Make a chat completion request to the GitHub Models API */
+/** Make a chat completion request to the configured LLM provider (GitHub Models or Ollama) */
 async function chatRequest(endpoint: string, pat: string, payload: any): Promise<any> {
+  const config = getAiConfig();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (config.provider === "github") {
+    headers["Accept"] = "application/vnd.github+json";
+    headers["Authorization"] = `Bearer ${pat}`;
+    headers["X-GitHub-Api-Version"] = "2022-11-28";
+  }
+  // Ollama's OpenAI-compatible endpoint needs no auth headers
+
   const resp = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${pat}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -537,16 +455,17 @@ async function chatRequest(endpoint: string, pat: string, payload: any): Promise
 
 /** Run an agentic analysis where the LLM calls the engine multiple times */
 export async function agenticScenario(userQuery: string): Promise<AgenticResponse> {
-  const { pat, model, endpoint } = getAiConfig();
+  const config = getAiConfig();
+  const providerCheck = isProviderConfigured();
 
-  if (!pat) {
+  if (!providerCheck.ok) {
     return {
-      content: "", model, tokensUsed: 0, scenarios_explored: [],
-      error: "No GitHub PAT configured. Go to Settings to add one.",
+      content: "", model: config.model, tokensUsed: 0, scenarios_explored: [],
+      error: providerCheck.error,
     };
   }
 
-  const context = buildContextSnapshot();
+  const context = buildAnonymizedContextSnapshot();
   const scenariosExplored: ScenarioResult[] = [];
   let totalTokens = 0;
   const messages: any[] = [
@@ -558,8 +477,8 @@ export async function agenticScenario(userQuery: string): Promise<AgenticRespons
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     try {
-      const data = await chatRequest(endpoint, pat, {
-        model, max_tokens: 2000, temperature: 0.2, messages, tools: [SCENARIO_TOOL], tool_choice: "auto",
+      const data = await chatRequest(config.endpoint, config.pat, {
+        model: config.model, max_tokens: 2000, temperature: 0.2, messages, tools: [SCENARIO_TOOL], tool_choice: "auto",
       });
       totalTokens += data.usage?.total_tokens ?? 0;
 
@@ -572,22 +491,25 @@ export async function agenticScenario(userQuery: string): Promise<AgenticRespons
       if (choice.finish_reason === "stop" || !choice.message.tool_calls?.length) {
         return {
           content: choice.message.content ?? "(empty response)",
-          model, tokensUsed: totalTokens, scenarios_explored: scenariosExplored,
+          model: config.model, tokensUsed: totalTokens, scenarios_explored: scenariosExplored,
         };
       }
 
       // Execute tool calls and feed results back
       processToolCalls(choice.message.tool_calls, messages, scenariosExplored);
     } catch (err: any) {
+      const hint = config.provider === "ollama"
+        ? " Is Ollama running? Try: ollama serve"
+        : "";
       return {
-        content: "", model, tokensUsed: totalTokens, scenarios_explored: scenariosExplored,
-        error: `Agentic loop failed at iteration ${iteration}: ${err.message}`,
+        content: "", model: config.model, tokensUsed: totalTokens, scenarios_explored: scenariosExplored,
+        error: `Agentic loop failed at iteration ${iteration}: ${err.message}${hint}`,
       };
     }
   }
 
   // Exceeded max iterations — request final summary
-  return requestFinalSummary(endpoint, pat, model, messages, totalTokens, scenariosExplored);
+  return requestFinalSummary(config.endpoint, config.pat, config.model, messages, totalTokens, scenariosExplored);
 }
 
 async function requestFinalSummary(

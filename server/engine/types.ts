@@ -111,6 +111,10 @@ export interface ScenarioOperation {
 
   // Composite (for complex what-ifs)
   sub_operations?: ScenarioOperation[];
+
+  // Metadata: set when parseIntent falls back to a default action
+  _fallback?: boolean;
+  _fallback_reason?: string;
 }
 
 // ─── Calculation Result Types ────────────────────────────────────────────────

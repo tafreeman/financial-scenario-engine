@@ -11,11 +11,12 @@ import {
   removeStaffing,
   addProject,
   updateProject,
-  buildContextSnapshot,
+  buildAnonymizedContextSnapshot,
   saveScenario,
 } from "./db.js";
-import { runScenario, parseIntent, narrateResult, agenticScenario } from "./ai.js";
+import { parseIntent, narrateResult, agenticScenario } from "./ai.js";
 import { executeScenario } from "./engine/executor.js";
+import { generateNarrative } from "./engine/narrative.js";
 import { handleExcelImportV1, handleExcelImportV2 } from "./import/excel/index.js";
 
 export const apiRouter = Router();
@@ -101,42 +102,50 @@ apiRouter.get("/rates", (_req, res) => {
 });
 
 // ---- AI Scenario ----
-apiRouter.post("/scenario", async (req: Request, res: Response) => {
-  const { query } = req.body;
-  if (!query) { res.status(400).json({ error: "query required" }); return; }
-  const result = await runScenario(query);
-  res.json(result);
-});
+// V1 removed — it sent raw financial data to LLM and let it hallucinate numbers.
+// Use V2 (deterministic engine + optional narration) or V3 (agentic tool-calling) instead.
 
 apiRouter.get("/scenarios", (req, res) => {
   const limit = req.query.limit ? Number(req.query.limit) : 50;
   res.json(getScenarioHistory(limit));
 });
 
-// ---- AI Scenario V2 (deterministic engine + LLM narration) ----
+// ---- AI Scenario V2 (deterministic engine + narrative) ----
 apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
-  const { query, skip_narrative } = req.body;
+  const { query, skip_narrative, use_llm_narrative } = req.body;
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
   try {
-    // Step 1: LLM parses intent into structured operation
-    const context = buildContextSnapshot();
+    // Step 1: LLM parses intent into structured operation (anonymized context sent to LLM)
+    const context = buildAnonymizedContextSnapshot();
     const operation = await parseIntent(query, context);
 
     // Step 2: Deterministic engine computes results
     const engineResult = executeScenario(operation);
 
-    // Step 3: LLM narrates the pre-computed results (optional)
+    // Surface fallback warning if parseIntent could not understand the query
+    if (operation._fallback && operation._fallback_reason) {
+      engineResult.warnings.unshift(operation._fallback_reason);
+    }
+
+    // Step 3: Generate narrative (template-based by default, LLM if explicitly requested)
     let narrative = "";
     let model = "";
     let tokensUsed = 0;
     if (!skip_narrative) {
-      const narration = await narrateResult(operation, engineResult);
-      narrative = narration.content;
-      model = narration.model;
-      tokensUsed = narration.tokensUsed || 0;
-      if (narration.error) {
-        narrative = `(Narration unavailable: ${narration.error})`;
+      if (use_llm_narrative) {
+        // LLM narration (opt-in) — sends computed results to LLM for prose generation
+        const narration = await narrateResult(operation, engineResult);
+        narrative = narration.content;
+        model = narration.model;
+        tokensUsed = narration.tokensUsed || 0;
+        if (narration.error) {
+          narrative = `(Narration unavailable: ${narration.error})`;
+        }
+      } else {
+        // Template-based narrative (default) — fully local, no LLM call
+        narrative = generateNarrative(engineResult);
+        model = "template";
       }
     }
 
@@ -154,7 +163,7 @@ apiRouter.post("/scenario/v2/parse-only", async (req: Request, res: Response) =>
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
   try {
-    const context = buildContextSnapshot();
+    const context = buildAnonymizedContextSnapshot();
     const operation = await parseIntent(query, context);
     res.json(operation);
   } catch (err: any) {
