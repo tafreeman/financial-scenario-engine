@@ -73,25 +73,52 @@ npm run dev
 ## Project Structure
 
 ```
-financial-impact-tool/
-├── server/                  # Express + TypeScript backend
-│   ├── index.ts             # Entry point, static file serving
-│   ├── db.ts                # SQLite schema, seed data, queries
-│   ├── ai.ts                # GitHub Models API client + system prompt
-│   └── routes.ts            # REST API endpoints
-├── client/                  # React + Vite + Tailwind frontend
+fin-impact-tool/
+├── server/                     # Express + TypeScript backend
+│   ├── index.ts                # Entry point, static file serving
+│   ├── db.ts                   # SQLite schema, seed data, queries
+│   ├── ai.ts                   # LLM client (GitHub Models + Ollama) + prompts
+│   ├── routes.ts               # REST API endpoints
+│   ├── engine/                 # Financial calculation engine (pure functions)
+│   │   ├── types.ts            # Shared types and constants
+│   │   ├── labor.ts            # Labor cost/revenue metrics
+│   │   ├── margin.ts           # Margin and profitability calculations
+│   │   ├── budget.ts           # Burn rate and budget exhaustion
+│   │   ├── evm.ts              # Earned Value Management (CPI, SPI, EAC, …)
+│   │   ├── utilization.ts      # Utilization rate metrics
+│   │   ├── scenarios.ts        # Staffing mutation functions (swap/add/remove)
+│   │   ├── portfolio.ts        # Portfolio-level aggregation
+│   │   ├── matching.ts         # Fuzzy role-name matching
+│   │   ├── narrative.ts        # Template-based markdown narrative renderer
+│   │   ├── executor.ts         # Scenario orchestration (load → calc → impact)
+│   │   ├── index.ts            # Barrel export
+│   │   └── __tests__/          # Vitest unit tests (98 tests, 7 files)
+│   └── import/
+│       └── excel/              # Excel workbook import module
+│           ├── v1/             # V1 handler
+│           ├── shared/         # Shared parser + types
+│           └── index.ts        # Barrel export
+├── client/                     # React + Vite + Tailwind frontend
 │   └── src/
-│       ├── App.tsx           # Shell with tab navigation
-│       ├── api.ts            # Typed fetch client
+│       ├── App.tsx             # Shell with tab navigation
+│       ├── api.ts              # Typed fetch client
+│       ├── format.ts           # Number/currency formatting helpers
 │       └── components/
-│           ├── Dashboard.tsx  # Budget overview + stat cards
-│           ├── Chat.tsx       # AI scenario query + history
+│           ├── Dashboard.tsx   # Budget overview + stat cards
+│           ├── Chat.tsx        # AI scenario query + history
+│           ├── ScenarioCards.tsx # Structured scenario result display
 │           ├── StaffingView.tsx # Staffing CRUD + rate card
-│           └── SettingsPanel.tsx # PAT, model config, test
-├── data/                    # SQLite database (auto-created)
+│           └── SettingsPanel.tsx # PAT, model config, provider selection
+├── tests/
+│   └── e2e/                    # Playwright E2E tests
+│       ├── ui/                 # UI workflow tests
+│       └── excel/              # Excel import endpoint tests
+├── data/                       # SQLite database (auto-created)
 │   └── finimpact.db
-├── start.bat                # Windows one-click launcher
-├── package.json             # Root deps (server)
+├── start.bat                   # Windows one-click launcher
+├── package.json                # Root deps (server + tooling)
+├── vitest.config.ts            # Unit test config
+├── playwright.config.ts        # E2E test config
 └── README.md
 ```
 
@@ -108,21 +135,48 @@ financial-impact-tool/
 | POST | `/api/staffing` | Add staffing assignment |
 | DELETE | `/api/staffing/:id` | Deactivate staffing |
 | GET | `/api/rates` | Labor category rate card |
-| POST | `/api/scenario` | Run AI scenario query |
+| POST | `/api/scenario/v2` | Run scenario: LLM intent → engine → narrative |
+| POST | `/api/scenario/v2/parse-only` | Parse query to structured operation (no compute) |
+| POST | `/api/scenario/v3` | Agentic scenario (tool-calling loop) |
 | GET | `/api/scenarios` | Query history |
 | GET | `/api/config` | Get config (PAT masked) |
 | PUT | `/api/config` | Update config |
-| POST | `/api/import/excel` | Upload Excel for preview |
+| POST | `/api/import/excel` | Upload Excel workbook for sheet preview (v1) |
+| POST | `/api/import/excel/v2` | Upload Excel workbook for sheet preview (v2) |
 
 ## AI System Prompt
 
 The AI receives a structured system prompt that includes:
-1. Role definition (financial impact analyst)
+1. Role definition (financial scenario parser / financial impact analyst)
 2. Required response format (Summary → Delta → Assumptions → Risks → Recommendation)
-3. Live database snapshot (projects, staffing, rates, budget, burn rates)
+3. Live database snapshot (projects, staffing, rates, budget, burn rates — anonymized: person names replaced with `Staff-N`)
 
 Every query automatically injects the current workbook state so the AI
 reasons about actual numbers, not hypotheticals.
+
+### Scenario Pipeline (V2)
+
+```
+User query
+   │
+   ▼  (LLM — anonymized context)
+parseIntent()  →  ScenarioOperation (structured JSON)
+   │
+   ▼  (deterministic, no LLM)
+executeScenario()  →  ScenarioResult (numbers + deltas)
+   │
+   ▼  (template-based by default; LLM optional)
+generateNarrative()  →  Markdown prose
+```
+
+### LLM Providers
+
+| Provider | Config key `llm_provider` | Notes |
+|----------|--------------------------|-------|
+| GitHub Models API | `github` (default) | Requires PAT with `models:read` scope |
+| Ollama (local) | `ollama` | No PAT needed; requires a running Ollama server |
+
+Switch providers via the Settings tab or by editing `llm_provider` in the config table.
 
 ## Data
 
@@ -172,7 +226,43 @@ project/staffing data, or build an import pipeline from your GPS Pricing workboo
 | Runtime | Node.js 18+ | Portable, no compilation step |
 | Server | Express + TypeScript | Minimal, well-known |
 | Database | SQLite (better-sqlite3) | Zero-config, single file, portable |
-| AI | GitHub Models API | Approved toolchain, PAT auth, multi-model |
+| AI (cloud) | GitHub Models API | Approved toolchain, PAT auth, multi-model |
+| AI (local) | Ollama | Fully offline alternative; no PAT required |
+| Calc Engine | Pure TypeScript (`server/engine/`) | Deterministic, fully tested, no LLM dependency |
 | Frontend | React 19 + Vite + Tailwind | Fast dev, small bundle |
 | Markdown | react-markdown | Renders AI response tables and formatting |
 | Excel | SheetJS (xlsx) | Parse uploaded workbooks |
+
+## Testing
+
+### Unit Tests (Vitest)
+
+Tests cover the financial calculation engine (`server/engine/`).
+
+```bash
+npm install
+npx vitest run          # run once
+npx vitest              # watch mode
+```
+
+98 tests across 7 files: `labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative`.
+
+### E2E Tests (Playwright)
+
+```bash
+npm run test:e2e        # run Playwright tests (requires running server)
+```
+
+Tests live in `tests/e2e/ui/` (UI workflows) and `tests/e2e/excel/` (import endpoint).
+
+---
+
+## Further Reading
+
+| Document | Description |
+|----------|-------------|
+| [`server/engine/README.md`](server/engine/README.md) | Calculation engine architecture, modules, and public API |
+| [`client/README.md`](client/README.md) | React frontend setup, components, and build |
+| [`server/import/excel/README.md`](server/import/excel/README.md) | Excel import module and response shapes |
+| [`AGENTS.md`](AGENTS.md) | Guide for AI coding assistants working in this repo |
+| [`playwright-tester-training-prompt.md`](playwright-tester-training-prompt.md) | Playwright test authoring guide |
