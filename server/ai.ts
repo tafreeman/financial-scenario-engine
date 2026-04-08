@@ -1,4 +1,4 @@
-import { getConfig, buildAnonymizedContextSnapshot, saveScenario } from "./db.js";
+import { getConfig, buildAnonymizedContextSnapshot } from "./db.js";
 import type { ScenarioOperation, ScenarioResult } from "./engine/types.js";
 import { executeScenario } from "./engine/executor.js";
 

@@ -13,7 +13,7 @@ import {
 } from "../db.js";
 import { calcProjectLabor } from "./labor.js";
 import { calcProjectMarginFromLabor } from "./margin.js";
-import { fuzzyMatch, fuzzyMatchWithConfidence, ROLE_ABBREVIATIONS } from "./matching.js";
+import { fuzzyMatchWithConfidence, ROLE_ABBREVIATIONS } from "./matching.js";
 import { calcBudgetMetrics } from "./budget.js";
 import { calcEvm, calcPlannedValue, calcEarnedValue } from "./evm.js";
 import { calcUtilization } from "./utilization.js";

@@ -73,7 +73,7 @@ describe("generateNarrative", () => {
     expect(narrative).toContain("Before");
     expect(narrative).toContain("After");
     expect(narrative).toContain("decrease");
-    expect(narrative).toContain("$-11,500");
+    expect(narrative).toContain("-$11,500");
   });
 
   it("generates a narrative for portfolio analysis", () => {

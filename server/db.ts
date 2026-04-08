@@ -277,6 +277,7 @@ export function buildAnonymizedContextSnapshot(): string {
   ctx += "\nCURRENT STAFFING:\n";
   let staffIndex = 1;
   for (const s of staffing as any[]) {
+    if (s.is_active !== 1) continue;
     ctx += `  ${s.project_name} | ${s.labor_category} | Staff-${staffIndex} | `;
     ctx += `${s.hours_per_week}hrs/wk | Cost=$${Math.round(s.monthly_cost)}/mo | `;
     ctx += `Revenue=$${Math.round(s.monthly_revenue)}/mo | Margin=${(s.margin * 100).toFixed(1)}%\n`;

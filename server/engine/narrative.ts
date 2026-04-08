@@ -8,13 +8,13 @@ import type { ScenarioResult } from "./types.js";
 
 /** Format a number as a dollar string: "$1,234" */
 function fmt(n: number): string {
-  return "$" + Math.round(n).toLocaleString();
+  return "$" + Math.round(n).toLocaleString("en-US");
 }
 
 /** Format a signed delta: "+$1,234" or "-$1,234" */
 function fmtDelta(n: number): string {
-  const sign = n >= 0 ? "+" : "";
-  return sign + fmt(n);
+  const sign = n >= 0 ? "+" : "-";
+  return sign + fmt(Math.abs(n));
 }
 
 /** Format percentage to one decimal: "24.5%" */
@@ -56,11 +56,11 @@ function renderImpactSummary(result: ScenarioResult): string {
   if (result.impact) {
     const { cost_delta_monthly, margin_delta_pct, headcount_delta, months_remaining_delta } = result.impact;
     const costDir = cost_delta_monthly > 0 ? "increase" : cost_delta_monthly < 0 ? "decrease" : "no change in";
-    const lines = [`This **${label}** on **${project}** would result in a monthly cost ${costDir} of **${fmtDelta(cost_delta_monthly)}**.`];
+    const lines = [`This **${label}** on **${project}** would result in a monthly cost ${costDir} of **${fmt(Math.abs(cost_delta_monthly))}**.`];
 
     if (margin_delta_pct !== 0) {
       const marginDir = margin_delta_pct > 0 ? "improve" : "decrease";
-      lines.push(`Margin would ${marginDir} by **${fmtPctDelta(margin_delta_pct)}** percentage points.`);
+      lines.push(`Margin would ${marginDir} by **${fmtPct(Math.abs(margin_delta_pct))}** percentage points.`);
     }
     if (headcount_delta !== 0) {
       lines.push(`Net headcount change: **${headcount_delta > 0 ? "+" : ""}${headcount_delta}**.`);
@@ -236,12 +236,12 @@ export function generateNarrative(result: ScenarioResult): string {
   // Portfolio table
   if (result.portfolio) {
     sections.push("\n\n## Portfolio Overview\n");
-    let table = "| Project | Burn / Mo | Margin | Months Left |\n";
-    table += "|---------|-----------|--------|-------------|\n";
+    let table = "| Project | Burn / Mo | Margin | Margin $ / Mo | Months Left |\n";
+    table += "|---------|-----------|--------|----------------|-------------|\n";
     for (const p of result.portfolio.project_summaries) {
-      table += `| ${p.name} | ${fmt(p.monthly_burn)} | ${fmtPct(p.margin_pct)} | ${p.months_remaining.toFixed(1)} |\n`;
+      table += `| ${p.name} | ${fmt(p.monthly_burn)} | ${fmtPct(p.margin_pct)} | — | ${p.months_remaining.toFixed(1)} |\n`;
     }
-    table += `| **Portfolio Total** | **${fmt(result.portfolio.total_burn)}** | **${fmtPct(result.portfolio.total_margin_pct)}** | **${fmt(result.portfolio.total_margin_dollars)}/mo margin** |\n`;
+    table += `| **Portfolio Total** | **${fmt(result.portfolio.total_burn)}** | **${fmtPct(result.portfolio.total_margin_pct)}** | **${fmt(result.portfolio.total_margin_dollars)}/mo** | **—** |\n`;
     sections.push(table);
   }
 
