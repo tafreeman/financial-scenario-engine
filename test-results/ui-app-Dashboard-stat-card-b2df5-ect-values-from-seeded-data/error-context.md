@@ -1,0 +1,86 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - heading "Financial Impact Analyzer" [level=1] [ref=e10]
+        - paragraph [ref=e11]: Local + Cloud AI · Portable Edition
+  - navigation [ref=e12]:
+    - generic [ref=e13]:
+      - button "Dashboard" [ref=e14] [cursor=pointer]:
+        - img [ref=e15]
+        - text: Dashboard
+      - button "AI Analyst" [ref=e20] [cursor=pointer]:
+        - img [ref=e21]
+        - text: AI Analyst
+      - button "Staffing" [ref=e23] [cursor=pointer]:
+        - img [ref=e24]
+        - text: Staffing
+      - button "Settings" [ref=e29] [cursor=pointer]:
+        - img [ref=e30]
+        - text: Settings
+  - main [ref=e33]:
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e38]: Total Budget
+            - img [ref=e39]
+          - generic [ref=e41]: $4,030,000
+        - generic [ref=e42]:
+          - generic [ref=e43]:
+            - generic [ref=e44]: Monthly Burn
+            - img [ref=e45]
+          - generic [ref=e48]: $199,830
+        - generic [ref=e49]:
+          - generic [ref=e50]:
+            - generic [ref=e51]: Blended Margin
+            - img [ref=e52]
+          - generic [ref=e54]: 26.8%
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]: Headcount
+            - img [ref=e58]
+          - generic [ref=e63]: "8"
+      - generic [ref=e64]:
+        - heading "Project Budget Overview" [level=2] [ref=e66]
+        - table [ref=e68]:
+          - rowgroup [ref=e69]:
+            - row "Project Budget Spent Remaining Burn/Mo Months Left Health" [ref=e70]:
+              - columnheader "Project" [ref=e71]
+              - columnheader "Budget" [ref=e72]
+              - columnheader "Spent" [ref=e73]
+              - columnheader "Remaining" [ref=e74]
+              - columnheader "Burn/Mo" [ref=e75]
+              - columnheader "Months Left" [ref=e76]
+              - columnheader "Health" [ref=e77]
+          - rowgroup [ref=e78]:
+            - row "Project Alpha $1,250,000 $485,000 $765,000 $71,662 10.7" [ref=e79]:
+              - cell "Project Alpha" [ref=e80]
+              - cell "$1,250,000" [ref=e81]
+              - cell "$485,000" [ref=e82]
+              - cell "$765,000" [ref=e83]
+              - cell "$71,662" [ref=e84]
+              - cell "10.7" [ref=e85]
+              - cell [ref=e86]
+            - row "Project Beta $2,100,000 $1,340,000 $760,000 $88,332 8.6" [ref=e90]:
+              - cell "Project Beta" [ref=e91]
+              - cell "$2,100,000" [ref=e92]
+              - cell "$1,340,000" [ref=e93]
+              - cell "$760,000" [ref=e94]
+              - cell "$88,332" [ref=e95]
+              - cell "8.6" [ref=e96]
+              - cell [ref=e97]
+            - row "Project Gamma $680,000 $210,000 $470,000 $39,836 11.8" [ref=e101]:
+              - cell "Project Gamma" [ref=e102]
+              - cell "$680,000" [ref=e103]
+              - cell "$210,000" [ref=e104]
+              - cell "$470,000" [ref=e105]
+              - cell "$39,836" [ref=e106]
+              - cell "11.8" [ref=e107]
+              - cell [ref=e108]
+  - contentinfo [ref=e112]: Data stored locally in SQLite · PAT transmitted only to models.github.ai via HTTPS
+```

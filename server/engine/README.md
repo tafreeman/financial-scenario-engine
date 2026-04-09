@@ -1,6 +1,6 @@
 # Financial Calculation Engine
 
-Pure-TypeScript calculation engine for project financial analysis. Lives in `server/engine/` and is imported by the Express server routes, but has **no I/O dependencies** — no database calls, no HTTP calls, no side effects. All functions are synchronous and deterministic.
+TypeScript calculation engine for project financial analysis. The calculation modules in `server/engine/` are synchronous and deterministic; the main exception is `executor.ts`, which loads data from `server/db.ts` and orchestrates those pure calculations.
 
 ## Architecture Overview
 
@@ -142,7 +142,7 @@ All mutation functions return **new arrays** — input is never modified.
 
 | Function | Input | Output |
 |----------|-------|--------|
-| `calcPortfolioMetrics(snapshots, categories)` | All projects | portfolio totals + `ProjectSummary[]` |
+| `calcPortfolioMetrics(projects)` | `ProjectSnapshot[]` | portfolio totals + `ProjectSummary[]` |
 
 ---
 
@@ -161,7 +161,7 @@ Also exports `ROLE_ABBREVIATIONS` dictionary for common aliases.
 
 ### `executor.ts` — Scenario orchestration
 
-Entry point for running a complete scenario. Loads data from the database, calls engine functions, and assembles the `ScenarioResult` envelope.
+Entry point for running a complete scenario. This is the engine boundary that loads data from the database, calls the pure calculation functions, and assembles the `ScenarioResult` envelope.
 
 | Export | Description |
 |--------|-------------|
@@ -219,8 +219,8 @@ Test files:
 
 ## Design Principles
 
-1. **Pure functions** — No I/O. All inputs explicit, all outputs returned. Easy to test.
+1. **Pure computation** — Calculation modules take explicit inputs and return explicit outputs.
 2. **Immutability** — Mutation functions return new arrays; never modify inputs.
 3. **Safe arithmetic** — `safeDivide()` prevents `Infinity`/`NaN` from propagating.
 4. **Determinism** — Same inputs always produce the same output. The LLM provides intent; the engine provides numbers.
-5. **Separation from AI** — The engine has no knowledge of LLM providers or prompts. `executor.ts` is the only module that touches the database.
+5. **Separation from AI** — The engine has no knowledge of LLM providers or prompts. `executor.ts` is the database-backed adapter at the edge of the engine.
