@@ -3,6 +3,9 @@ dist/
 client/dist/
 client/node_modules/
 data/*.db
+data/*.db-shm
 *.db-journal
 *.db-wal
+client/*.tsbuildinfo
+test-results/
 .env
