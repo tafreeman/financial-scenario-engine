@@ -7,5 +7,6 @@ data/*.db-shm
 *.db-journal
 *.db-wal
 *.tsbuildinfo
+client/*.tsbuildinfo
 test-results/
 .env
