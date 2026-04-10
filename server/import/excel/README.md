@@ -87,6 +87,8 @@ Run:
 npm run test:e2e
 ```
 
+The Playwright config auto-builds the client and starts the server for you.
+
 Or target just the excel tests:
 ```bash
 npx playwright test tests/e2e/excel/

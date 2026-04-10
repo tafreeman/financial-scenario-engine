@@ -65,24 +65,25 @@ Displays:
 
 ### `Chat.tsx`
 
-AI scenario interface. Posts natural-language queries to `POST /api/scenario/v2`.
+AI scenario interface. Posts natural-language queries to `POST /api/scenario/v3`.
 
 Features:
 - Query input with submit
+- Quick-query chips for common scenario prompts
 - Renders AI narrative (markdown)
-- Expandable engine result detail via `ScenarioCards`
+- Expandable scenario accordions with `ScenarioCards`
 - Query history sidebar (from `GET /api/scenarios`)
 
 ---
 
 ### `ScenarioCards.tsx`
 
-Renders a structured `ScenarioResult` as tabbed metric cards:
-- Current state (labor, margin, budget)
-- Projected state (for mutation scenarios)
-- Impact deltas with color-coded arrows
-- Warnings banner
-- EVM metrics (when present)
+Renders a structured `ScenarioResult` with:
+- Warning banners
+- Impact delta cards
+- Before/after comparison tables for mutation scenarios
+- Current-state summary cards for analysis-only results
+- Portfolio summary tables when the result is portfolio-wide
 
 ---
 
@@ -120,12 +121,12 @@ Key functions:
 | `getDashboard()` | `GET /api/dashboard` | Portfolio summary |
 | `getProjects()` | `GET /api/projects` | Project list |
 | `addProject(data)` | `POST /api/projects` | Create project |
-| `updateProject(id, data)` | `PATCH /api/projects/:id` | Update project |
 | `getStaffing(projectId?)` | `GET /api/staffing` | Staffing list |
 | `addStaffing(data)` | `POST /api/staffing` | Add assignment |
 | `removeStaffing(id)` | `DELETE /api/staffing/:id` | Deactivate assignment |
 | `getRates()` | `GET /api/rates` | Rate card |
-| `runScenario(query, opts)` | `POST /api/scenario/v2` | Run AI scenario |
+| `runScenarioV2(query, skipNarrative?)` | `POST /api/scenario/v2` | Run deterministic scenario + optional narrative |
+| `runScenarioV3(query)` | `POST /api/scenario/v3` | Run agentic scenario exploration |
 | `getScenarios()` | `GET /api/scenarios` | Query history |
 | `getConfig()` | `GET /api/config` | Config (PAT masked) |
 | `updateConfig(data)` | `PUT /api/config` | Update config |
