@@ -13,6 +13,8 @@ import {
   Zap,
 } from "lucide-react";
 
+const REPOSITORY_URL = "https://github.com/tafreeman/fin-impact-tool";
+
 const featureCards = [
   {
     title: "Scenario analysis that stays grounded in data",
@@ -97,7 +99,7 @@ export default function SiteApp() {
               <a href="#workflow" className="transition hover:text-white">Workflow</a>
               <a href="#architecture" className="transition hover:text-white">Architecture</a>
               <a
-                href="https://github.com/tafreeman/fin-impact-tool"
+                href={REPOSITORY_URL}
                 className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 font-medium text-white transition hover:border-sky-300 hover:bg-white/5"
               >
                 <Github size={16} />
@@ -130,7 +132,7 @@ export default function SiteApp() {
                 <ArrowRight size={16} />
               </a>
               <a
-                href="https://github.com/tafreeman/fin-impact-tool#readme"
+                href={`${REPOSITORY_URL}#readme`}
                 className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/5"
               >
                 Read the README
