@@ -10,3 +10,6 @@ data/*.db-shm
 client/*.tsbuildinfo
 test-results/
 .env
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/node_modules/
