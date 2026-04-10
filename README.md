@@ -3,6 +3,33 @@
 Portable, browser-based project financial analysis tool with a deterministic TypeScript engine and an optional LLM layer.
 Runs locally on Node.js, ships with a Windows launcher, and keeps data in a local SQLite file.
 
+## GitHub Pages Site
+
+This repository now includes a dedicated **GitHub Pages** site built with the
+same **React + Vite + Tailwind** stack as the application UI.
+
+- **Why Vite?** The repo already uses Vite for the frontend, so Pages now uses
+  the same toolchain instead of introducing an unrelated publishing stack.
+- **What gets published?** A modern, static product/documentation site for the
+  repo — not the full analyzer runtime.
+- **Why not publish the app itself?** The analyzer depends on the local Express
+  server, SQLite database, and runtime API routes, which GitHub Pages cannot
+  host.
+
+### Pages Commands
+
+```bash
+npm run build:pages
+cd client && npm run preview:pages
+```
+
+### Deployment
+
+GitHub Pages deployment is automated in
+`.github/workflows/deploy-pages.yml`.
+On pushes to `main`, GitHub Actions builds the static site and deploys the
+artifact from `client/dist-pages`.
+
 ## What It Does
 
 PMs can ask natural-language questions and get structured financial analysis backed by live project data:
@@ -42,6 +69,7 @@ The LLM helps parse intent and optionally narrate results, but the calculation e
 
 ### Prerequisites
 - **Node.js 18+** — [download](https://nodejs.org/)
+- **GitHub PAT** with `models:read` scope — required only for AI-powered scenario analysis, not for launching the local app shell — [create one](https://github.com/settings/tokens?type=beta)
 - **Optional:** GitHub PAT with `models:read` scope for the GitHub Models provider — [create one](https://github.com/settings/tokens?type=beta)
 - **Optional:** Ollama for fully local inference
 
@@ -54,6 +82,7 @@ The LLM helps parse intent and optionally narrate results, but the calculation e
 
 ### Option B: Manual
 ```bash
+npm run setup
 npm run install:all
 npm run build
 npm start

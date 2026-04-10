@@ -1,11 +1,12 @@
 node_modules/
-dist/
 client/dist/
+client/dist-pages/
 client/node_modules/
 data/*.db
 data/*.db-shm
 *.db-journal
 *.db-wal
+*.tsbuildinfo
 client/*.tsbuildinfo
 test-results/
 .env

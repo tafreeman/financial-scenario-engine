@@ -9,6 +9,7 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "cd client && npm run dev",
     "build": "cd client && npm run build",
+    "build:pages": "cd client && npm run build:pages",
     "start": "tsx server/index.ts",
     "setup": "npm run install:all && npm run build",
     "test": "vitest run",
