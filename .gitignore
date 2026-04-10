@@ -1,9 +1,9 @@
 node_modules/
 dist/
 dist-pages/
-client/dist/
 client/node_modules/
 data/*.db
+data/*.db-shm
 *.db-journal
 *.db-wal
 .env

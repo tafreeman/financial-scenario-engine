@@ -26,7 +26,7 @@ cd client && npm run preview:pages
 ### Deployment
 
 GitHub Pages deployment is automated in
-`/home/runner/work/fin-impact-tool/fin-impact-tool/.github/workflows/deploy-pages.yml`.
+`.github/workflows/deploy-pages.yml`.
 On pushes to `main`, GitHub Actions builds the static site and deploys the
 artifact from `client/dist-pages`.
 
