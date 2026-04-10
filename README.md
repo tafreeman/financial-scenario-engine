@@ -3,6 +3,33 @@
 Portable, browser-based tool for AI-powered project financial scenario analysis.
 Runs locally on Windows — no cloud hosting, no deployment, no accounts.
 
+## GitHub Pages Site
+
+This repository now includes a dedicated **GitHub Pages** site built with the
+same **React + Vite + Tailwind** stack as the application UI.
+
+- **Why Vite?** The repo already uses Vite for the frontend, so Pages now uses
+  the same toolchain instead of introducing an unrelated publishing stack.
+- **What gets published?** A modern, static product/documentation site for the
+  repo — not the full analyzer runtime.
+- **Why not publish the app itself?** The analyzer depends on the local Express
+  server, SQLite database, and runtime API routes, which GitHub Pages cannot
+  host.
+
+### Pages Commands
+
+```bash
+npm run build:pages
+cd client && npm run preview:pages
+```
+
+### Deployment
+
+GitHub Pages deployment is automated in
+`/home/runner/work/fin-impact-tool/fin-impact-tool/.github/workflows/deploy-pages.yml`.
+On pushes to `main`, GitHub Actions builds the static site and deploys the
+artifact from `client/dist-pages`.
+
 ## What It Does
 
 PMs type a natural-language question and get a structured financial impact analysis:
