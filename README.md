@@ -74,7 +74,7 @@ database and produces structured analysis with numbers, tables, and recommendati
 
 ### Prerequisites
 - **Node.js 18+** — [download](https://nodejs.org/)
-- **GitHub PAT** with `models:read` scope — [create one](https://github.com/settings/tokens?type=beta)
+- **GitHub PAT** with `models:read` scope — required only for AI-powered scenario analysis, not for launching the local app shell — [create one](https://github.com/settings/tokens?type=beta)
 
 ### Option A: Double-click (easiest)
 1. Double-click `start.bat`
@@ -84,9 +84,8 @@ database and produces structured analysis with numbers, tables, and recommendati
 
 ### Option B: Manual
 ```bash
-npm install
-cd client && npm install && npm run build && cd ..
-npx tsx server/index.ts
+npm run setup
+npm start
 ```
 
 ### Option C: Development (hot reload)
