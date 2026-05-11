@@ -2,10 +2,9 @@ import {
   safeDivide,
   type ProjectSnapshot,
   type StaffingRecord,
-  type LaborMetrics,
   type ProjectSummary,
 } from "./types.js";
-import { calcProjectLabor, monthlyCost, monthlyRevenue } from "./labor.js";
+import { calcProjectLabor, monthlyCost } from "./labor.js";
 import { calcProjectMarginFromLabor } from "./margin.js";
 import { calcRemainingBudget, calcMonthsRemaining } from "./budget.js";
 

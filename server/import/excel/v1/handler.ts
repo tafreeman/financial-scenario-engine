@@ -9,7 +9,7 @@ export function handleExcelImportV1(req: Request, res: Response) {
 
   try {
     res.json(parseWorkbookPreview(req.file.buffer));
-  } catch (error: any) {
-    res.status(400).json({ error: `Failed to parse Excel: ${error.message}` });
+  } catch (error: unknown) {
+    res.status(400).json({ error: `Failed to parse Excel: ${error instanceof Error ? error.message : String(error)}` });
   }
 }
