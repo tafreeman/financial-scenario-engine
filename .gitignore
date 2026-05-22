@@ -15,3 +15,6 @@ docs/.vitepress/cache/
 docs/node_modules/
 .vs/*
 .vscode/*
+.claude/
+.clone/
+_analysis/

@@ -1,7 +1,15 @@
 # Financial Impact Analyzer
 
+[![CI](https://github.com/tafreeman/fin-impact-tool/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/fin-impact-tool/actions/workflows/deploy-pages.yml)
+[![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen)](#testing)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Portable, browser-based project financial analysis tool with a deterministic TypeScript engine and an optional LLM layer.
 Runs locally on Node.js, ships with a Windows launcher, and keeps data in a local SQLite file.
+
+> **Development note:** Built through interactive, AI-assisted development — design,
+> architecture, and code were authored and reviewed by the maintainer with AI tooling
+> used as a pair-programming aid. All commits are human-owned.
 
 ## GitHub Pages Site
 
@@ -301,5 +309,3 @@ Tests live in `tests/e2e/ui/` (UI workflows) and `tests/e2e/excel/` (import endp
 | [`server/engine/README.md`](server/engine/README.md) | Calculation engine architecture, modules, and public API |
 | [`client/README.md`](client/README.md) | React frontend setup, components, and build |
 | [`server/import/excel/README.md`](server/import/excel/README.md) | Excel import module and response shapes |
-| [`AGENTS.md`](AGENTS.md) | Guide for AI coding assistants working in this repo |
-| [`playwright-tester-training-prompt.md`](playwright-tester-training-prompt.md) | Playwright test authoring guide |
