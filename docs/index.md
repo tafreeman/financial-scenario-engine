@@ -17,7 +17,7 @@ hero:
       link: /api/
     - theme: alt
       text: View on GitHub
-      link: https://github.com/tafreeman/fin-impact-tool
+      link: https://github.com/tafreeman/financial-scenario-engine
 
 features:
   - icon: ⚡

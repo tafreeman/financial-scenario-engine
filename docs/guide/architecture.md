@@ -32,7 +32,7 @@
 ## Project Structure
 
 ```
-fin-impact-tool/
+financial-scenario-engine/
 ├── server/                     Express + TypeScript backend
 │   ├── index.ts                Entry point, static file serving
 │   ├── db.ts                   SQLite schema, seed data, queries

@@ -13,7 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 
-const REPOSITORY_URL = "https://github.com/tafreeman/fin-impact-tool";
+const REPOSITORY_URL = "https://github.com/tafreeman/financial-scenario-engine";
 
 const featureCards = [
   {

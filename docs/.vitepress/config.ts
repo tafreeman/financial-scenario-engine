@@ -4,14 +4,14 @@ export default defineConfig({
   title: "Financial Impact Analyzer",
   description:
     "Portable, browser-based project financial analysis tool with a deterministic TypeScript engine and an optional LLM layer.",
-  base: "/fin-impact-tool/",
+  base: "/financial-scenario-engine/",
   head: [
     [
       "link",
       {
         rel: "icon",
         type: "image/svg+xml",
-        href: "/fin-impact-tool/logo.svg",
+        href: "/financial-scenario-engine/logo.svg",
       },
     ],
   ],
@@ -113,12 +113,12 @@ export default defineConfig({
     socialLinks: [
       {
         icon: "github",
-        link: "https://github.com/tafreeman/fin-impact-tool",
+        link: "https://github.com/tafreeman/financial-scenario-engine",
       },
     ],
     editLink: {
       pattern:
-        "https://github.com/tafreeman/fin-impact-tool/edit/main/docs/:path",
+        "https://github.com/tafreeman/financial-scenario-engine/edit/main/docs/:path",
       text: "Edit this page on GitHub",
     },
     search: {

@@ -1,6 +1,6 @@
 # Financial Impact Analyzer
 
-[![CI](https://github.com/tafreeman/fin-impact-tool/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/fin-impact-tool/actions/workflows/deploy-pages.yml)
+[![CI](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
 [![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen)](#testing)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -107,7 +107,7 @@ npm run dev
 ## Project Structure
 
 ```
-fin-impact-tool/
+financial-scenario-engine/
 ├── server/                     # Express + TypeScript backend
 │   ├── index.ts                # Entry point, static file serving
 │   ├── db.ts                   # SQLite schema, seed data, queries
