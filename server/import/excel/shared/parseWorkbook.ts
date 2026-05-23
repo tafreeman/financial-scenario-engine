@@ -1,18 +1,26 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import type { ExcelImportPreviewResponse, ExcelPreview } from "./types.js";
 
 export const MAX_PREVIEW_SHEETS = 10;
 export const MAX_PREVIEW_ROWS = 20;
 
-export function parseWorkbookPreview(buffer: Uint8Array): ExcelImportPreviewResponse {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const sheetNames = workbook.SheetNames;
+export async function parseWorkbookPreview(buffer: Uint8Array): Promise<ExcelImportPreviewResponse> {
+  const workbook = new ExcelJS.Workbook();
+  // exceljs types predate generic Buffer<T>; safe at runtime since Buffer is a Uint8Array view
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await workbook.xlsx.load(buffer as any);
+
+  const sheetNames = workbook.worksheets.map((ws) => ws.name);
   const preview: ExcelPreview = {};
 
-  for (const name of sheetNames.slice(0, MAX_PREVIEW_SHEETS)) {
-    const sheet = workbook.Sheets[name];
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-    preview[name] = data.slice(0, MAX_PREVIEW_ROWS).map((row) => (Array.isArray(row) ? row : [row]));
+  for (const ws of workbook.worksheets.slice(0, MAX_PREVIEW_SHEETS)) {
+    const rows: unknown[][] = [];
+    ws.eachRow({ includeEmpty: true }, (row) => {
+      if (rows.length >= MAX_PREVIEW_ROWS) return;
+      const values = (row.values as unknown[]).slice(1).map((v) => (v == null ? "" : v));
+      rows.push(values);
+    });
+    preview[ws.name] = rows;
   }
 
   return { sheets: sheetNames, preview };

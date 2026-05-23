@@ -1,42 +1,14 @@
-# Financial Impact Analyzer
+# Financial Scenario Engine
 
 [![CI](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
 [![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen)](#testing)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Portable, browser-based project financial analysis tool with a deterministic TypeScript engine and an optional LLM layer.
-Runs locally on Node.js, ships with a Windows launcher, and keeps data in a local SQLite file.
+A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results. All project data lives in a local SQLite file; inference runs via GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
 
 > **Development note:** Built through interactive, AI-assisted development — design,
 > architecture, and code were authored and reviewed by the maintainer with AI tooling
 > used as a pair-programming aid. All commits are human-owned.
-
-## GitHub Pages Site
-
-This repository now includes a dedicated **GitHub Pages** site built with the
-same **React + Vite + Tailwind** stack as the application UI.
-
-- **Why Vite?** The repo already uses Vite for the frontend, so Pages now uses
-  the same toolchain instead of introducing an unrelated publishing stack.
-- **What gets published?** A modern, static product/documentation site for the
-  repo — not the full analyzer runtime.
-- **Why not publish the app itself?** The analyzer depends on the local Express
-  server, SQLite database, and runtime API routes, which GitHub Pages cannot
-  host.
-
-### Pages Commands
-
-```bash
-npm run build:pages
-cd client && npm run preview:pages
-```
-
-### Deployment
-
-GitHub Pages deployment is automated in
-`.github/workflows/deploy-pages.yml`.
-On pushes to `main`, GitHub Actions builds the static site and deploys the
-artifact from `client/dist-pages`.
 
 ## What It Does
 
@@ -77,8 +49,7 @@ The LLM helps parse intent and optionally narrate results, but the calculation e
 
 ### Prerequisites
 - **Node.js 18+** — [download](https://nodejs.org/)
-- **GitHub PAT** with `models:read` scope — required only for AI-powered scenario analysis, not for launching the local app shell — [create one](https://github.com/settings/tokens?type=beta)
-- **Optional:** GitHub PAT with `models:read` scope for the GitHub Models provider — [create one](https://github.com/settings/tokens?type=beta)
+- **Optional:** GitHub PAT with `models:read` scope for AI-powered scenario analysis — [create one](https://github.com/settings/tokens?type=beta)
 - **Optional:** Ollama for fully local inference
 
 ### Option A: Double-click (easiest)
@@ -103,6 +74,109 @@ npm run dev
 # Server: http://localhost:3000
 # Client dev: http://localhost:5173 (proxies /api to :3000)
 ```
+
+## AI Workflows
+
+The app supports two AI-assisted flows:
+
+1. **V2** — LLM parses intent, the deterministic engine computes results, and the app returns template or LLM narration
+2. **V3** — agentic analysis uses the `run_scenario` tool loop to explore one or more scenarios with exact engine outputs
+
+Cloud LLM requests use an anonymized context snapshot where person names are replaced with `Staff-N`.
+
+### Scenario Pipeline (V2)
+
+```
+User query
+   │
+   ▼  (LLM — anonymized context)
+parseIntent()  →  ScenarioOperation (structured JSON)
+   │
+   ▼  (deterministic, no LLM)
+executeScenario()  →  ScenarioResult (numbers + deltas)
+   │
+   ▼  (template-based by default; LLM optional)
+generateNarrative()  →  Markdown prose
+```
+
+### LLM Providers
+
+| Provider | Config key `llm_provider` | Notes |
+|----------|--------------------------|-------|
+| GitHub Models API | `github` (default) | Requires PAT with `models:read` scope |
+| Ollama (local) | `ollama` | No PAT needed; requires a running Ollama server |
+
+Switch providers via the Settings tab or by editing `llm_provider` in the config table.
+
+## Data
+
+### Storage
+All data lives in `data/finimpact.db` — a single SQLite file. Back up by copying this file.
+Delete it to reset to sample data (auto-recreated on next startup).
+
+### Sample Data (seeded on first run)
+- 3 projects: Alpha ($1.25M), Beta ($2.1M), Gamma ($680K)
+- 8 labor categories with bill/cost rates
+- 8 staffing assignments across projects
+
+### Importing from Excel
+POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2` for workbook preview.
+The current implementation returns sheet names plus up to the first 20 rows for up to 10 previewed sheets.
+Full import mapping into SQLite is still a future phase.
+
+## Security
+
+- PAT stored in local SQLite only — never logged, never cached externally
+- PAT transmitted exclusively to `models.github.ai` over HTTPS with TLS when the GitHub provider is selected
+- Ollama mode keeps inference local to the machine
+- No telemetry, no analytics, and no external cloud dependency outside the selected LLM provider
+- Server binds to `localhost` only — not accessible from other machines
+- For federal environments: verify GitHub Models API data classification approval
+
+## Tech Stack
+
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Runtime | Node.js 18+ | Portable, no compilation step |
+| Server | Express + TypeScript | Minimal, well-known |
+| Database | SQLite (better-sqlite3) | Zero-config, single file, portable |
+| AI (cloud) | GitHub Models API | Approved toolchain, PAT auth, multi-model |
+| AI (local) | Ollama | Fully offline alternative; no PAT required |
+| Calc Engine | Pure TypeScript (`server/engine/`) | Deterministic, fully tested, no LLM dependency |
+| Frontend | React 19 + Vite + Tailwind | Fast dev, small bundle |
+| Markdown | react-markdown | Renders AI response tables and formatting |
+| Excel | ExcelJS | Parse uploaded workbooks |
+
+## Testing
+
+### Unit Tests (Vitest)
+
+Tests cover the financial calculation engine (`server/engine/`).
+
+```bash
+npm test                # same as vitest run
+npx vitest run          # run once
+npx vitest              # watch mode
+```
+
+98 tests across 7 files: `labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative`.
+
+### E2E Tests (Playwright)
+
+```bash
+npm run test:e2e
+```
+
+Playwright auto-builds the client and starts the app server on port `3100`.
+On a fresh machine, install browser dependencies first:
+
+```bash
+npx playwright install --with-deps chromium
+```
+
+Tests live in `tests/e2e/ui/` (UI workflows) and `tests/e2e/excel/` (import endpoint).
+
+---
 
 ## Project Structure
 
@@ -178,64 +252,6 @@ financial-scenario-engine/
 | POST | `/api/import/excel` | Upload Excel workbook for sheet preview (v1) |
 | POST | `/api/import/excel/v2` | Upload Excel workbook for sheet preview (v2) |
 
-## AI Workflows
-
-The app supports two AI-assisted flows:
-
-1. **V2** — LLM parses intent, the deterministic engine computes results, and the app returns template or LLM narration
-2. **V3** — agentic analysis uses the `run_scenario` tool loop to explore one or more scenarios with exact engine outputs
-
-Cloud LLM requests use an anonymized context snapshot where person names are replaced with `Staff-N`.
-
-### Scenario Pipeline (V2)
-
-```
-User query
-   │
-   ▼  (LLM — anonymized context)
-parseIntent()  →  ScenarioOperation (structured JSON)
-   │
-   ▼  (deterministic, no LLM)
-executeScenario()  →  ScenarioResult (numbers + deltas)
-   │
-   ▼  (template-based by default; LLM optional)
-generateNarrative()  →  Markdown prose
-```
-
-### LLM Providers
-
-| Provider | Config key `llm_provider` | Notes |
-|----------|--------------------------|-------|
-| GitHub Models API | `github` (default) | Requires PAT with `models:read` scope |
-| Ollama (local) | `ollama` | No PAT needed; requires a running Ollama server |
-
-Switch providers via the Settings tab or by editing `llm_provider` in the config table.
-
-## Data
-
-### Storage
-All data lives in `data/finimpact.db` — a single SQLite file. Back up by copying this file.
-Delete it to reset to sample data (auto-recreated on next startup).
-
-### Sample Data (seeded on first run)
-- 3 projects: Alpha ($1.25M), Beta ($2.1M), Gamma ($680K)
-- 8 labor categories with bill/cost rates
-- 8 staffing assignments across projects
-
-### Importing from Excel
-POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2` for workbook preview.
-The current implementation returns sheet names plus up to the first 20 rows for up to 10 previewed sheets.
-Full import mapping into SQLite is still a future phase.
-
-## Security
-
-- PAT stored in local SQLite only — never logged, never cached externally
-- PAT transmitted exclusively to `models.github.ai` over HTTPS with TLS when the GitHub provider is selected
-- Ollama mode keeps inference local to the machine
-- No telemetry, no analytics, and no external cloud dependency outside the selected LLM provider
-- Server binds to `localhost` only — not accessible from other machines
-- For federal environments: verify GitHub Models API data classification approval
-
 ## Customization
 
 ### Adding Labor Categories
@@ -257,48 +273,26 @@ These control parsing, narrative output, and agentic scenario behavior.
 Replace the seed data in `server/db.ts` → `seedSampleData()` with actual
 project/staffing data, or build an import pipeline from your GPS Pricing workbook.
 
-## Tech Stack
+---
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Runtime | Node.js 18+ | Portable, no compilation step |
-| Server | Express + TypeScript | Minimal, well-known |
-| Database | SQLite (better-sqlite3) | Zero-config, single file, portable |
-| AI (cloud) | GitHub Models API | Approved toolchain, PAT auth, multi-model |
-| AI (local) | Ollama | Fully offline alternative; no PAT required |
-| Calc Engine | Pure TypeScript (`server/engine/`) | Deterministic, fully tested, no LLM dependency |
-| Frontend | React 19 + Vite + Tailwind | Fast dev, small bundle |
-| Markdown | react-markdown | Renders AI response tables and formatting |
-| Excel | SheetJS (xlsx) | Parse uploaded workbooks |
+## GitHub Pages Site
 
-## Testing
+This repository includes a static **GitHub Pages** site built with the same React + Vite + Tailwind stack as the application UI.
 
-### Unit Tests (Vitest)
+- **Why?** The repo uses Vite for the frontend, so Pages reuses the same toolchain instead of introducing an unrelated publishing stack.
+- **What's published?** A static product/documentation site — not the full analyzer runtime (which requires a local Express server and SQLite).
 
-Tests cover the financial calculation engine (`server/engine/`).
+### Pages Commands
 
 ```bash
-npm test                # same as vitest run
-npx vitest run          # run once
-npx vitest              # watch mode
+npm run build:pages
+cd client && npm run preview:pages
 ```
 
-98 tests across 7 files: `labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative`.
+### Deployment
 
-### E2E Tests (Playwright)
-
-```bash
-npm run test:e2e
-```
-
-Playwright auto-builds the client and starts the app server on port `3100`.
-On a fresh machine, install browser dependencies first:
-
-```bash
-npx playwright install --with-deps chromium
-```
-
-Tests live in `tests/e2e/ui/` (UI workflows) and `tests/e2e/excel/` (import endpoint).
+GitHub Pages deployment is automated in `.github/workflows/deploy-pages.yml`.
+On pushes to `main`, GitHub Actions builds the static site and deploys the artifact from `client/dist-pages`.
 
 ---
 
