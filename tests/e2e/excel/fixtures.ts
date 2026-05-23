@@ -1,8 +1,8 @@
 import { expect } from "@playwright/test";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
-export function buildWorkbookBuffer() {
-  const workbook = XLSX.utils.book_new();
+export async function buildWorkbookBuffer(): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
 
   const staffingRows = [
     ["project", "role", "person", "hours_per_week"],
@@ -20,13 +20,24 @@ export function buildWorkbookBuffer() {
     ["Beta", 240000, 90000],
   ];
 
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(staffingRows), "Staffing");
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(budgetRows), "Budget");
+  const staffingSheet = workbook.addWorksheet("Staffing");
+  staffingRows.forEach((row) => staffingSheet.addRow(row));
 
-  return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+  const budgetSheet = workbook.addWorksheet("Budget");
+  budgetRows.forEach((row) => budgetSheet.addRow(row));
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
 }
 
-export async function expectExcelPreviewContract(response: { ok(): boolean; status(): number; json(): Promise<any> }) {
+export async function expectExcelPreviewContract(response: {
+  ok(): boolean;
+  status(): number;
+  json(): Promise<{
+    sheets: string[];
+    preview: Record<string, (string | number)[][]>;
+  }>;
+}) {
   if (!response.ok()) {
     throw new Error(`Expected successful response but got ${response.status()}`);
   }

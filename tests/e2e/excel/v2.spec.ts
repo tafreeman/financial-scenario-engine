@@ -8,7 +8,7 @@ test.describe("Excel import interface v2", () => {
         file: {
           name: "financial-impact-v2.xlsx",
           mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          buffer: buildWorkbookBuffer(),
+          buffer: await buildWorkbookBuffer(),
         },
       },
     });
