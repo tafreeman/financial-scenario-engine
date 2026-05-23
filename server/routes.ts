@@ -19,6 +19,21 @@ import { executeScenario } from "./engine/executor.js";
 import { generateNarrative } from "./engine/narrative.js";
 import { handleExcelImportV1, handleExcelImportV2 } from "./import/excel/index.js";
 
+interface StaffingRow {
+  id: number;
+  person_name: string | null;
+  hours_per_week: number;
+  is_active: number;
+  project_name: string;
+  project_id: number;
+  labor_category: string;
+  bill_rate: number;
+  cost_rate: number;
+  monthly_cost: number;
+  monthly_revenue: number;
+  margin: number;
+}
+
 export const apiRouter = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -30,7 +45,7 @@ apiRouter.get("/health", (_req, res) => {
 // ---- Dashboard summary ----
 apiRouter.get("/dashboard", (_req, res) => {
   const projects = getProjectsWithBurn();
-  const staffing = getStaffingByProject() as any[];
+  const staffing = getStaffingByProject() as StaffingRow[];
 
   const totalBudget = projects.reduce((s, p) => s + p.total_budget, 0);
   const totalSpent = projects.reduce((s, p) => s + p.spent_to_date, 0);
@@ -66,8 +81,8 @@ apiRouter.post("/projects", (req: Request, res: Response) => {
   try {
     const result = addProject(name, total_budget || 0, start_date || "", end_date || "");
     res.json({ id: result.lastInsertRowid });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -153,8 +168,8 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
     saveScenario(query, narrative, JSON.stringify(engineResult), model);
 
     res.json({ engine: engineResult, narrative, model, tokensUsed });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -166,8 +181,8 @@ apiRouter.post("/scenario/v2/parse-only", async (req: Request, res: Response) =>
     const context = buildAnonymizedContextSnapshot();
     const operation = await parseIntent(query, context);
     res.json(operation);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -183,8 +198,8 @@ apiRouter.post("/scenario/v3", async (req: Request, res: Response) => {
     saveScenario(query, result.content, JSON.stringify(result.scenarios_explored), result.model);
 
     res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

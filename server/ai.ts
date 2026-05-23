@@ -1,6 +1,32 @@
 import { getConfig, buildAnonymizedContextSnapshot } from "./db.js";
 import type { ScenarioOperation, ScenarioResult } from "./engine/types.js";
 import { executeScenario } from "./engine/executor.js";
+import { scenarioOperationSchema } from "./engine/validation.js";
+
+// ─── OpenAI-compatible API response types ────────────────────────────────────
+
+interface ToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+}
+
+interface ChatChoice {
+  message: ChatMessage;
+  finish_reason: "stop" | "tool_calls" | string;
+}
+
+interface ChatResponse {
+  choices: ChatChoice[];
+  usage?: { total_tokens: number };
+}
 
 // ─── AI Config ───────────────────────────────────────────────────────────────
 
@@ -173,17 +199,21 @@ export async function parseIntent(
     const cleaned = content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
     const parsed = JSON.parse(cleaned);
 
-    // Validate minimum shape
-    if (!parsed.action || typeof parsed.action !== "string") {
-      return { action: "burn_rate_check", _fallback: true, _fallback_reason: "Could not parse your query into a specific operation. Showing burn rate analysis instead." };
+    // Validate against schema — catches malformed LLM output at the boundary
+    const validation = scenarioOperationSchema.safeParse(parsed);
+    if (!validation.success) {
+      return {
+        action: "burn_rate_check",
+        _fallback: true,
+        _fallback_reason: `Could not parse your query into a valid operation. Showing burn rate analysis instead.`,
+      };
     }
-
-    return parsed as ScenarioOperation;
-  } catch (err: any) {
+    return validation.data;
+  } catch (err: unknown) {
     const hint = config.provider === "ollama"
       ? " Is Ollama running? Try: ollama serve"
       : "";
-    return { action: "burn_rate_check", _fallback: true, _fallback_reason: `Could not parse your query (${err.message}).${hint} Showing burn rate analysis instead.` };
+    return { action: "burn_rate_check", _fallback: true, _fallback_reason: `Could not parse your query (${err instanceof Error ? err.message : String(err)}).${hint} Showing burn rate analysis instead.` };
   }
 }
 
@@ -252,8 +282,8 @@ export async function narrateResult(
     const tokensUsed = data.usage?.total_tokens;
 
     return { content, model: config.model, tokensUsed };
-  } catch (err: any) {
-    return { content: "", model: config.model, error: `Narration failed: ${err.message}` };
+  } catch (err: unknown) {
+    return { content: "", model: config.model, error: `Narration failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
@@ -408,8 +438,8 @@ export interface AgenticResponse {
 
 /** Process tool calls from an LLM response, execute them, and append results to messages */
 function processToolCalls(
-  toolCalls: any[],
-  messages: any[],
+  toolCalls: ToolCall[],
+  messages: ChatMessage[],
   scenariosExplored: ScenarioResult[]
 ): void {
   for (const toolCall of toolCalls) {
@@ -419,14 +449,14 @@ function processToolCalls(
       const result = executeScenario(operation);
       scenariosExplored.push(result);
       messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result) });
-    } catch (err: any) {
-      messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify({ error: err.message }) });
+    } catch (err: unknown) {
+      messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }) });
     }
   }
 }
 
 /** Make a chat completion request to the configured LLM provider (GitHub Models or Ollama) */
-async function chatRequest(endpoint: string, pat: string, payload: any): Promise<any> {
+async function chatRequest(endpoint: string, pat: string, payload: Record<string, unknown>): Promise<ChatResponse> {
   const config = getAiConfig();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -468,7 +498,7 @@ export async function agenticScenario(userQuery: string): Promise<AgenticRespons
   const context = buildAnonymizedContextSnapshot();
   const scenariosExplored: ScenarioResult[] = [];
   let totalTokens = 0;
-  const messages: any[] = [
+  const messages: ChatMessage[] = [
     { role: "system", content: `${AGENTIC_SYSTEM_PROMPT}\n\nCURRENT PROJECT DATA:\n${context}` },
     { role: "user", content: userQuery },
   ];
@@ -497,13 +527,13 @@ export async function agenticScenario(userQuery: string): Promise<AgenticRespons
 
       // Execute tool calls and feed results back
       processToolCalls(choice.message.tool_calls, messages, scenariosExplored);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const hint = config.provider === "ollama"
         ? " Is Ollama running? Try: ollama serve"
         : "";
       return {
         content: "", model: config.model, tokensUsed: totalTokens, scenarios_explored: scenariosExplored,
-        error: `Agentic loop failed at iteration ${iteration}: ${err.message}${hint}`,
+        error: `Agentic loop failed at iteration ${iteration}: ${err instanceof Error ? err.message : String(err)}${hint}`,
       };
     }
   }
@@ -514,17 +544,17 @@ export async function agenticScenario(userQuery: string): Promise<AgenticRespons
 
 async function requestFinalSummary(
   endpoint: string, pat: string, model: string,
-  messages: any[], totalTokens: number, scenariosExplored: ScenarioResult[]
+  messages: ChatMessage[], totalTokens: number, scenariosExplored: ScenarioResult[]
 ): Promise<AgenticResponse> {
   messages.push({ role: "user", content: "Please provide your final analysis based on the scenarios you've explored so far." });
   try {
-    const data = await chatRequest(endpoint, pat, { model, max_tokens: 2000, temperature: 0.2, messages });
+    const data = await chatRequest(endpoint, pat, { model, max_tokens: 2000, temperature: 0.2, messages: messages as unknown as Record<string, unknown>[] });
     totalTokens += data.usage?.total_tokens ?? 0;
     return {
       content: data.choices?.[0]?.message?.content ?? "(no final response)",
       model, tokensUsed: totalTokens, scenarios_explored: scenariosExplored,
     };
-  } catch (_err: any) {
+  } catch (_err: unknown) {
     return {
       content: "Analysis reached iteration limit. See explored scenarios for computed data.",
       model, tokensUsed: totalTokens, scenarios_explored: scenariosExplored,

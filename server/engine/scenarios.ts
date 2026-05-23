@@ -1,5 +1,4 @@
 import {
-  WEEKS_PER_MONTH,
   safeDivide,
   type ScenarioOperation,
   type ScenarioImpact,
@@ -10,9 +9,7 @@ import {
   type BudgetMetrics,
   type ProjectSnapshot,
 } from "./types.js";
-import { calcProjectLabor, monthlyCost } from "./labor.js";
-import { calcProjectMargin } from "./margin.js";
-import { calcBudgetMetrics, calcRemainingBudget } from "./budget.js";
+import { calcRemainingBudget } from "./budget.js";
 import { fuzzyMatch, ROLE_ABBREVIATIONS } from "./matching.js";
 
 // ─── Staffing Mutation Functions ─────────────────────────────────────────────
@@ -165,7 +162,7 @@ export function calcTimelineExtensionImpact(
   }
 
   const additional_cost = monthlyBurn * additionalMonths;
-  const remaining = calcRemainingBudget(project.total_budget, project.spent_to_date);
+  const _remaining = calcRemainingBudget(project.total_budget, project.spent_to_date);
   // Calculate total months remaining from now to new end
   const now = new Date();
   const remainingMonthsNew = (newEnd.getTime() - now.getTime()) / (30.44 * 24 * 60 * 60 * 1000);

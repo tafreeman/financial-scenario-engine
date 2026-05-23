@@ -121,7 +121,7 @@ export function executeScenario(operation: ScenarioOperation, preloadedPortfolio
     }
   }
 
-  const projectsInvolved = targetProject
+  const _projectsInvolved = targetProject
     ? [targetProject.name]
     : portfolio.projects.map(p => p.name);
 

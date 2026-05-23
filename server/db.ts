@@ -5,6 +5,31 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, "..", "data", "finimpact.db");
 
+type CountRow = { c: number };
+
+interface StaffingQueryRow {
+  id: number;
+  person_name: string | null;
+  hours_per_week: number;
+  is_active: number;
+  project_name: string;
+  project_id: number;
+  labor_category: string;
+  bill_rate: number;
+  cost_rate: number;
+  monthly_cost: number;
+  monthly_revenue: number;
+  margin: number;
+}
+
+interface LaborCategoryRow {
+  id: number;
+  name: string;
+  bill_rate: number;
+  cost_rate: number;
+  margin: number;
+}
+
 let db: Database.Database;
 
 export function getDb(): Database.Database {
@@ -70,7 +95,7 @@ function initSchema() {
   `);
 
   // Seed default config if empty
-  const configCount = d.prepare("SELECT COUNT(*) as c FROM config").get() as any;
+  const configCount = d.prepare("SELECT COUNT(*) as c FROM config").get() as CountRow;
   if (configCount.c === 0) {
     const insertConfig = d.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)");
     insertConfig.run("github_pat", "");
@@ -84,7 +109,7 @@ function initSchema() {
   }
 
   // Seed sample data if empty
-  const projCount = d.prepare("SELECT COUNT(*) as c FROM projects").get() as any;
+  const projCount = d.prepare("SELECT COUNT(*) as c FROM projects").get() as CountRow;
   if (projCount.c === 0) {
     seedSampleData(d);
   }
@@ -138,7 +163,7 @@ function seedSampleData(d: Database.Database) {
 
 export function getConfig(key: string): string {
   const d = getDb();
-  const row = d.prepare("SELECT value FROM config WHERE key = ?").get(key) as any;
+  const row = d.prepare("SELECT value FROM config WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value ?? "";
 }
 
@@ -149,7 +174,7 @@ export function setConfig(key: string, value: string) {
 
 export function getAllConfig(): Record<string, string> {
   const d = getDb();
-  const rows = d.prepare("SELECT key, value FROM config").all() as any[];
+  const rows = d.prepare("SELECT key, value FROM config").all() as { key: string; value: string }[];
   const result: Record<string, string> = {};
   for (const row of rows) {
     result[row.key] = row.value;
@@ -238,14 +263,14 @@ export function buildContextSnapshot(): string {
   }
 
   ctx += "\nCURRENT STAFFING:\n";
-  for (const s of staffing as any[]) {
+  for (const s of staffing as StaffingQueryRow[]) {
     ctx += `  ${s.project_name} | ${s.labor_category} | ${s.person_name || "TBD"} | `;
     ctx += `${s.hours_per_week}hrs/wk | Cost=$${Math.round(s.monthly_cost)}/mo | `;
     ctx += `Revenue=$${Math.round(s.monthly_revenue)}/mo | Margin=${(s.margin * 100).toFixed(1)}%\n`;
   }
 
   ctx += "\nRATE CARD:\n";
-  for (const c of categories as any[]) {
+  for (const c of categories as LaborCategoryRow[]) {
     ctx += `  ${c.name}: Bill=$${c.bill_rate}/hr, Cost=$${c.cost_rate}/hr, `;
     ctx += `Margin=${(c.margin * 100).toFixed(1)}%\n`;
   }
@@ -276,7 +301,7 @@ export function buildAnonymizedContextSnapshot(): string {
 
   ctx += "\nCURRENT STAFFING:\n";
   let staffIndex = 1;
-  for (const s of staffing as any[]) {
+  for (const s of staffing as StaffingQueryRow[]) {
     if (s.is_active !== 1) continue;
     ctx += `  ${s.project_name} | ${s.labor_category} | Staff-${staffIndex} | `;
     ctx += `${s.hours_per_week}hrs/wk | Cost=$${Math.round(s.monthly_cost)}/mo | `;
@@ -285,7 +310,7 @@ export function buildAnonymizedContextSnapshot(): string {
   }
 
   ctx += "\nRATE CARD:\n";
-  for (const c of categories as any[]) {
+  for (const c of categories as LaborCategoryRow[]) {
     ctx += `  ${c.name}: Bill=$${c.bill_rate}/hr, Cost=$${c.cost_rate}/hr, `;
     ctx += `Margin=${(c.margin * 100).toFixed(1)}%\n`;
   }
@@ -331,7 +356,7 @@ export function addProject(name: string, totalBudget: number, startDate: string,
 export function updateProject(id: number, fields: Partial<{ name: string; total_budget: number; spent_to_date: number; status: string }>) {
   const d = getDb();
   const sets: string[] = [];
-  const vals: any[] = [];
+  const vals: (string | number)[] = [];
   for (const [k, v] of Object.entries(fields)) {
     sets.push(`${k} = ?`);
     vals.push(v);
