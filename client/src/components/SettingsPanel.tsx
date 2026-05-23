@@ -59,8 +59,8 @@ export default function SettingsPanel() {
       } else if (result.content) {
         setTestResult({ ok: true, message: `Connected to ${result.model}` });
       }
-    } catch (e: any) {
-      setTestResult({ ok: false, message: e.message });
+    } catch (e: unknown) {
+      setTestResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
     } finally {
       setTesting(false);
     }

@@ -18,6 +18,8 @@ interface ChatMessage {
   tool_call_id?: string;
 }
 
+type ChatPayloadMessage = Pick<ChatMessage, "role" | "content" | "tool_calls" | "tool_call_id">;
+
 interface ChatChoice {
   message: ChatMessage;
   finish_reason: "stop" | "tool_calls" | string;
@@ -436,6 +438,15 @@ export interface AgenticResponse {
   error?: string;
 }
 
+function toChatPayloadMessages(messages: ChatMessage[]): ChatPayloadMessage[] {
+  return messages.map(({ role, content, tool_calls, tool_call_id }) => ({
+    role,
+    content,
+    ...(tool_calls ? { tool_calls } : {}),
+    ...(tool_call_id ? { tool_call_id } : {}),
+  }));
+}
+
 /** Process tool calls from an LLM response, execute them, and append results to messages */
 function processToolCalls(
   toolCalls: ToolCall[],
@@ -548,7 +559,12 @@ async function requestFinalSummary(
 ): Promise<AgenticResponse> {
   messages.push({ role: "user", content: "Please provide your final analysis based on the scenarios you've explored so far." });
   try {
-    const data = await chatRequest(endpoint, pat, { model, max_tokens: 2000, temperature: 0.2, messages: messages as unknown as Record<string, unknown>[] });
+    const data = await chatRequest(endpoint, pat, {
+      model,
+      max_tokens: 2000,
+      temperature: 0.2,
+      messages: toChatPayloadMessages(messages),
+    });
     totalTokens += data.usage?.total_tokens ?? 0;
     return {
       content: data.choices?.[0]?.message?.content ?? "(no final response)",

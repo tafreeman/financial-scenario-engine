@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { Send, Loader2, Sparkles, Clock, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { api, type AgenticResponse, type ScenarioResult } from "../api";
+import {
+  api,
+  type AgenticResponse,
+  type ScenarioHistoryEntry,
+  type ScenarioResult,
+} from "../api";
 import ScenarioCards from "./ScenarioCards";
 
 const QUICK_QUERIES = [
@@ -28,7 +33,7 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [agenticResponse, setAgenticResponse] = useState<AgenticResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<ScenarioHistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [expandedScenario, setExpandedScenario] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -62,8 +67,8 @@ export default function Chat() {
         setAgenticResponse(result);
       }
       if (!q) setQuery("");
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
       if (!q) setQuery("");
     } finally {
       setLoading(false);
@@ -211,7 +216,7 @@ export default function Chat() {
             {history.length === 0 ? (
               <div className="p-4 text-sm text-steel-500 text-center">No queries yet</div>
             ) : (
-              history.map((h: any) => (
+              history.map((h: ScenarioHistoryEntry) => (
                 <button
                   key={h.id}
                   onClick={() => setQuery(h.query)}

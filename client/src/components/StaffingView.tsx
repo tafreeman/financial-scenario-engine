@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Trash2, Filter, RefreshCw } from "lucide-react";
-import { api } from "../api";
+import {
+  api,
+  type LaborCategoryRate,
+  type ProjectSummaryRow,
+  type StaffingAssignment,
+} from "../api";
 import { fmt } from "../format";
 
 export default function StaffingView() {
-  const [staffing, setStaffing] = useState<any[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
-  const [rates, setRates] = useState<any[]>([]);
+  const [staffing, setStaffing] = useState<StaffingAssignment[]>([]);
+  const [projects, setProjects] = useState<ProjectSummaryRow[]>([]);
+  const [rates, setRates] = useState<LaborCategoryRate[]>([]);
   const [filterProject, setFilterProject] = useState<number | undefined>();
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -74,7 +79,7 @@ export default function StaffingView() {
               onChange={(e) => setFilterProject(e.target.value ? Number(e.target.value) : undefined)}
             >
               <option value="">All Projects</option>
-              {projects.map((p: any) => (
+              {projects.map((p: ProjectSummaryRow) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
@@ -123,7 +128,7 @@ export default function StaffingView() {
               onChange={(e) => setNewProjectId(Number(e.target.value))}
             >
               <option value={0}>Select Project</option>
-              {projects.map((p: any) => (
+              {projects.map((p: ProjectSummaryRow) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
@@ -133,7 +138,7 @@ export default function StaffingView() {
               onChange={(e) => setNewCategoryId(Number(e.target.value))}
             >
               <option value={0}>Select Role</option>
-              {rates.map((r: any) => (
+              {rates.map((r: LaborCategoryRate) => (
                 <option key={r.id} value={r.id}>{r.name} ({fmt(r.bill_rate)}/hr)</option>
               ))}
             </select>
@@ -180,7 +185,7 @@ export default function StaffingView() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-steel-100">
-                {active.map((s: any) => (
+                {active.map((s: StaffingAssignment) => (
                   <tr key={s.id} className="hover:bg-steel-50/50">
                     <td className="px-4 py-2.5 font-medium text-navy-800">{s.project_name}</td>
                     <td className="px-4 py-2.5">{s.labor_category}</td>
@@ -231,7 +236,7 @@ export default function StaffingView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-steel-100">
-              {rates.map((r: any) => (
+              {rates.map((r: LaborCategoryRate) => (
                 <tr key={r.id} className="hover:bg-steel-50/50">
                   <td className="px-4 py-2 font-medium text-navy-800">{r.name}</td>
                   <td className="px-4 py-2 text-right font-mono text-xs">{fmt(r.bill_rate)}/hr</td>

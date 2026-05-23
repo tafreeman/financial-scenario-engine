@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { DollarSign, TrendingDown, Users, Clock, AlertTriangle } from "lucide-react";
-import { api } from "../api";
+import { api, type DashboardResponse, type ProjectSummaryRow } from "../api";
 import { fmt } from "../format";
 
 export default function Dashboard() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-steel-100">
-              {projects.map((p: any) => {
+              {projects.map((p: ProjectSummaryRow) => {
                 const pctSpent = p.total_budget > 0 ? (p.spent_to_date / p.total_budget) * 100 : 0;
                 const isRisk = p.months_left < 3 && p.months_left > 0;
                 return (

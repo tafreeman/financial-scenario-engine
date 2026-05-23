@@ -1,55 +1,12 @@
+import type {
+  ScenarioResult as EngineScenarioResult,
+  V2Response as EngineV2Response,
+} from "../../server/engine/types.ts";
+
 const BASE = "/api";
 
-// Engine result types (mirrors server/engine/types.ts)
-export interface ScenarioImpact {
-  cost_delta_monthly: number;
-  cost_delta_annual: number;
-  revenue_delta_monthly: number;
-  revenue_delta_annual: number;
-  margin_delta_pct: number;
-  margin_delta_dollars_monthly: number;
-  burn_rate_delta: number;
-  burn_rate_delta_pct: number;
-  months_remaining_delta: number;
-  headcount_delta: number;
-  fte_delta: number;
-}
-
-export interface ScenarioResult {
-  operation: any;
-  timestamp: string;
-  project_name?: string;
-  projects_involved: string[];
-  current: {
-    labor: { monthly_cost: number; monthly_revenue: number; annual_cost: number; annual_revenue: number; blended_cost_rate: number; blended_bill_rate: number; fte_count: number; headcount: number };
-    margin: { margin_pct: number; margin_dollars_monthly: number; margin_dollars_annual: number; gross_margin_pct: number; contribution_margin: number; net_direct_labor_multiplier: number };
-    budget: { monthly_burn_rate: number; remaining_budget: number; months_remaining: number; budget_exhaustion_date: string; annual_run_rate: number };
-  };
-  projected?: {
-    labor: { monthly_cost: number; monthly_revenue: number; annual_cost: number; annual_revenue: number; blended_cost_rate: number; blended_bill_rate: number; fte_count: number; headcount: number };
-    margin: { margin_pct: number; margin_dollars_monthly: number; margin_dollars_annual: number; gross_margin_pct: number; contribution_margin: number; net_direct_labor_multiplier: number };
-    budget: { monthly_burn_rate: number; remaining_budget: number; months_remaining: number; budget_exhaustion_date: string; annual_run_rate: number };
-  };
-  impact?: ScenarioImpact;
-  evm?: any;
-  utilization?: any;
-  portfolio?: {
-    total_burn: number;
-    total_margin_pct: number;
-    total_margin_dollars: number;
-    project_summaries: { name: string; monthly_burn: number; margin_pct: number; months_remaining: number }[];
-  };
-  warnings: string[];
-  sub_results?: ScenarioResult[];
-}
-
-export interface V2Response {
-  engine: ScenarioResult;
-  narrative: string;
-  model: string;
-  tokensUsed?: number;
-  error?: string;
-}
+export type ScenarioResult = EngineScenarioResult;
+export type V2Response = EngineV2Response;
 
 export interface AgenticResponse {
   content: string;
@@ -57,6 +14,66 @@ export interface AgenticResponse {
   tokensUsed: number;
   scenarios_explored: ScenarioResult[];
   error?: string;
+}
+
+export interface DashboardSummary {
+  totalBudget: number;
+  totalSpent: number;
+  totalRemaining: number;
+  totalMonthlyBurn: number;
+  totalMonthlyRevenue: number;
+  blendedMargin: number;
+  headcount: number;
+  projectCount: number;
+}
+
+export interface ProjectSummaryRow {
+  id: number;
+  name: string;
+  total_budget: number;
+  spent_to_date: number;
+  remaining: number;
+  monthly_burn: number;
+  months_left: number;
+  start_date: string;
+  end_date: string;
+  status: string;
+}
+
+export interface DashboardResponse {
+  summary: DashboardSummary;
+  projects: ProjectSummaryRow[];
+}
+
+export interface StaffingAssignment {
+  id: number;
+  person_name: string | null;
+  hours_per_week: number;
+  is_active: number;
+  project_name: string;
+  project_id: number;
+  labor_category: string;
+  bill_rate: number;
+  cost_rate: number;
+  monthly_cost: number;
+  monthly_revenue: number;
+  margin: number;
+}
+
+export interface LaborCategoryRate {
+  id: number;
+  name: string;
+  bill_rate: number;
+  cost_rate: number;
+  margin: number;
+}
+
+export interface ScenarioHistoryEntry {
+  id: number;
+  query: string;
+  response: string;
+  model: string;
+  created_at: string;
 }
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -72,14 +89,14 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getDashboard: () => request<any>("/dashboard"),
-  getProjects: () => request<any[]>("/projects"),
+  getDashboard: () => request<DashboardResponse>("/dashboard"),
+  getProjects: () => request<ProjectSummaryRow[]>("/projects"),
   getStaffing: (projectId?: number) =>
-    request<any[]>(`/staffing${projectId ? `?project_id=${projectId}` : ""}`),
-  getRates: () => request<any[]>("/rates"),
+    request<StaffingAssignment[]>(`/staffing${projectId ? `?project_id=${projectId}` : ""}`),
+  getRates: () => request<LaborCategoryRate[]>("/rates"),
   getConfig: () => request<Record<string, string>>("/config"),
   getScenarios: (limit?: number) =>
-    request<any[]>(`/scenarios${limit ? `?limit=${limit}` : ""}`),
+    request<ScenarioHistoryEntry[]>(`/scenarios${limit ? `?limit=${limit}` : ""}`),
 
   runScenarioV2: (query: string, skipNarrative?: boolean) =>
     request<V2Response>("/scenario/v2", {

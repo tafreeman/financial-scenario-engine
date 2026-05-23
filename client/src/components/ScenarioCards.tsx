@@ -1,4 +1,4 @@
-import { DollarSign, TrendingDown, TrendingUp, Users, AlertTriangle } from "lucide-react";
+import { DollarSign, TrendingDown, TrendingUp, Users, AlertTriangle, type LucideIcon } from "lucide-react";
 import type { ScenarioResult } from "../api";
 import { fmt, fmtDelta, fmtPctDelta, deltaColor } from "../format";
 
@@ -154,7 +154,7 @@ export default function ScenarioCards({ result }: Props) {
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 function DeltaCard({ label, value, color, icon: Icon }: {
-  label: string; value: string; color: string; icon: any;
+  label: string; value: string; color: string; icon: LucideIcon;
 }) {
   return (
     <div className="card p-3">
