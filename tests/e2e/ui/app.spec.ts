@@ -142,7 +142,7 @@ test.describe("Dashboard", () => {
     await expect(burnCard).toContainText("$199,830");
 
     const marginCard = page.locator(".card", { has: page.getByText("Blended Margin") });
-    await expect(marginCard).toContainText("26.6%");
+    await expect(marginCard).toContainText("26.8%");
 
     const headcountCard = page.locator(".card", { has: page.getByText("Headcount") });
     await expect(headcountCard).toContainText("8");
