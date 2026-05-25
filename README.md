@@ -131,7 +131,7 @@ Full import mapping into SQLite is still a future phase.
 - Ollama mode keeps inference local to the machine
 - No telemetry, no analytics, and no external cloud dependency outside the selected LLM provider
 - Server binds to `localhost` only — not accessible from other machines
-- For federal environments: verify GitHub Models API data classification approval
+- For regulated environments: verify GitHub Models API data classification approval
 
 ## Tech Stack
 
