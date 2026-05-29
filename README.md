@@ -271,7 +271,7 @@ These control parsing, narrative output, and agentic scenario behavior.
 
 ### Connecting to Real Data
 Replace the seed data in `server/db.ts` → `seedSampleData()` with actual
-project/staffing data, or build an import pipeline from your GPS Pricing workbook.
+project/staffing data, or build an import pipeline from your pricing reference workbook.
 
 ---
 
