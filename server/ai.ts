@@ -5,13 +5,13 @@ import { scenarioOperationSchema } from "./engine/validation.js";
 
 // ─── OpenAI-compatible API response types ────────────────────────────────────
 
-interface ToolCall {
+export interface ToolCall {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
   tool_calls?: ToolCall[];
@@ -448,7 +448,7 @@ function toChatPayloadMessages(messages: ChatMessage[]): ChatPayloadMessage[] {
 }
 
 /** Process tool calls from an LLM response, execute them, and append results to messages */
-function processToolCalls(
+export function processToolCalls(
   toolCalls: ToolCall[],
   messages: ChatMessage[],
   scenariosExplored: ScenarioResult[]
@@ -456,8 +456,15 @@ function processToolCalls(
   for (const toolCall of toolCalls) {
     if (toolCall.function.name !== "run_scenario") continue;
     try {
-      const operation = JSON.parse(toolCall.function.arguments) as ScenarioOperation;
-      const result = executeScenario(operation);
+      // Validate LLM-supplied tool arguments at the boundary before any math runs —
+      // mirrors the V2 parse path (scenarioOperationSchema.safeParse) so unvalidated
+      // operations never reach executeScenario.
+      const validation = scenarioOperationSchema.safeParse(JSON.parse(toolCall.function.arguments));
+      if (!validation.success) {
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify({ error: `Invalid run_scenario arguments: ${validation.error.message}` }) });
+        continue;
+      }
+      const result = executeScenario(validation.data);
       scenariosExplored.push(result);
       messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result) });
     } catch (err: unknown) {

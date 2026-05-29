@@ -1,14 +1,13 @@
 # Financial Scenario Engine
 
-[![CI](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
-[![Tests](https://img.shields.io/github/actions/workflow/status/tafreeman/financial-scenario-engine/deploy-pages.yml?branch=main&label=tests)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
+[![CI / Deploy](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results. All project data lives in a local SQLite file; inference runs via GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
 
 > **Development note:** Built through interactive, AI-assisted development — design,
 > architecture, and code were authored and reviewed by the maintainer with AI tooling
-> used as a pair-programming aid. All commits are human-owned.
+> used as a pair-programming aid. Some commits carry AI co-author trailers reflecting that assistance.
 
 ## What It Does
 
