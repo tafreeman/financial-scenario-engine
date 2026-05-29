@@ -2,6 +2,7 @@
   "name": "financial-scenario-engine",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Deterministic financial scenario engine with optional LLM intent parsing — GitHub Models API or Ollama, local SQLite",
   "scripts": {
     "install:all": "npm install && cd client && npm install",

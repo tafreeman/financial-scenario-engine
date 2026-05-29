@@ -2,7 +2,7 @@
  * Validation script: runs engine calculations against the seed data
  * and prints results for manual verification with a calculator/spreadsheet.
  *
- * Run with: npx tsx server/engine/__tests__/validate-seed-data.ts
+ * Run with: npx tsx scripts/validate-seed-data.ts
  */
 
 import {
@@ -11,7 +11,7 @@ import {
   type StaffingRecord,
   type LaborCategory,
   type ProjectSnapshot,
-} from "../types.js";
+} from "../server/engine/types.js";
 import {
   monthlyCost,
   monthlyRevenue,
@@ -21,11 +21,11 @@ import {
   calcBlendedCostRate,
   calcBlendedBillRate,
   calcTotalFTE,
-} from "../labor.js";
-import { calcProjectMargin, calcPersonMarginPct } from "../margin.js";
-import { calcBudgetMetrics, calcRemainingBudget } from "../budget.js";
-import { calcEvm, calcPlannedValue, calcEarnedValue } from "../evm.js";
-import { calcUtilization } from "../utilization.js";
+} from "../server/engine/labor.js";
+import { calcProjectMargin, calcPersonMarginPct } from "../server/engine/margin.js";
+import { calcBudgetMetrics, calcRemainingBudget } from "../server/engine/budget.js";
+import { calcEvm, calcPlannedValue, calcEarnedValue } from "../server/engine/evm.js";
+import { calcUtilization } from "../server/engine/utilization.js";
 import {
   applySwap,
   applyAdd,
@@ -33,8 +33,8 @@ import {
   applyHoursChange,
   calcScenarioImpact,
   calcTimelineExtensionImpact,
-} from "../scenarios.js";
-import { calcPortfolioBurn, calcPortfolioMargin, calcProjectSummaries } from "../portfolio.js";
+} from "../server/engine/scenarios.js";
+import { calcPortfolioBurn, calcPortfolioMargin, calcProjectSummaries } from "../server/engine/portfolio.js";
 
 // ─── Seed Data (exact copy from db.ts seedSampleData) ───────────────────────
 

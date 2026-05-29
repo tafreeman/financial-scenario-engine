@@ -8,11 +8,11 @@ Accepted
 
 ## Context
 
-The fin-impact-tool stores staffing records in a SQLite database. Each row in the `staffing` table includes a `person_name` field containing real employee names (e.g., "J. Smith", "K. Chen", "M. Jones"). Project managers use these names to build and track resource assignments across projects.
+The fin-impact-tool stores staffing records in a SQLite database. Each row in the `staffing` table includes a `person_name` field containing sample employee names (e.g., "J. Smith", "K. Chen", "M. Jones"). Project managers use these names to build and track resource assignments across projects.
 
 The tool optionally delegates natural-language intent parsing to a cloud LLM — specifically, the GitHub Models API endpoint (`https://models.github.ai/inference/chat/completions`). To parse a request like "add a PM to Project Alpha at 20 hours a week," the LLM must receive enough context about current projects, staffing roles, and financial figures to resolve ambiguous references correctly. This means a context snapshot of the database must travel to the LLM provider's infrastructure before any operation executes.
 
-Cloud LLM providers routinely log inference requests for abuse detection, model improvement, and compliance auditing. In federal contracting environments, GDPR-adjacent regulatory contexts, and any setting where employee names are treated as protected personal data, transmitting `person_name` values to a third-party API without explicit consent or a data-processing agreement creates legal exposure and reputational risk. Even where no regulation mandates it, minimizing the PII footprint in external API calls is a sound practice.
+Cloud LLM providers routinely log inference requests for abuse detection, model improvement, and compliance auditing. In regulated environments, GDPR-adjacent regulatory contexts, and any setting where employee names are treated as protected personal data, transmitting `person_name` values to a third-party API without explicit consent or a data-processing agreement creates legal exposure and reputational risk. Even where no regulation mandates it, minimizing the PII footprint in external API calls is a sound practice.
 
 The tool's LLM integration touches two distinct points: intent parsing (inbound — user types a natural-language command) and optional narrative generation (outbound — the engine's computed result is turned into a human-readable summary). Both must be audited for PII exposure. The narrative path operates on pre-computed `ScenarioResult` structs that contain calculated metrics (margins, costs, headcount deltas) rather than raw database rows, so person names never appear there. The intent-parsing path, by contrast, requires database context and is the primary risk surface.
 
@@ -26,7 +26,7 @@ All context sent to external LLM providers is routed through a single function, 
 
 **What is NOT PII in this context:** Project names (`Project Alpha`, `Project Beta`) are operational identifiers, not personal data. Labor category names (`Senior Developer`, `Project Manager`) are role descriptors. Financial figures (bill rates, cost rates, monthly burn, budget) are project-level metrics. Transmitting these to the LLM is necessary for correct intent resolution and does not implicate personal data regulations.
 
-**The threat:** A cloud LLM provider's infrastructure logs inference requests. If person names appear in those requests, they leave the organization's control permanently. In federal, defense, or GDPR-regulated environments, this is a compliance violation. Even outside regulated environments, it is unnecessary data exposure.
+**The threat:** A cloud LLM provider's infrastructure logs inference requests. If person names appear in those requests, they leave the organization's control permanently. In regulated environments, this is a compliance violation. Even outside regulated environments, it is unnecessary data exposure.
 
 **In scope:** Any code path that constructs a prompt sent to a cloud API endpoint.
 
@@ -64,7 +64,7 @@ The constraint that tokens are not persistent across snapshots (re-indexed on ea
 - Person names never appear in cloud LLM provider logs under any normal code path.
 - The anonymization boundary is enforced at a single, auditable location (`server/db.ts`, `buildAnonymizedContextSnapshot()`).
 - Intent parsing continues to work correctly for all project-name-based commands.
-- The approach is compatible with GDPR data minimization principles and federal contractor PII-handling requirements.
+- The approach is compatible with GDPR data minimization principles and privacy-sensitive PII-handling requirements.
 - No client-side changes are required; the trust boundary is server-enforced.
 
 ### Negative / Tradeoffs
@@ -80,4 +80,4 @@ The constraint that tokens are not persistent across snapshots (re-indexed on ea
 
 ## Airgap Deployment Path
 
-When the `llm_provider` configuration key is set to `ollama`, all inference runs against a local Ollama instance via its OpenAI-compatible endpoint (`http://localhost:11434/v1/chat/completions` by default). In this mode, the anonymized context snapshot never leaves the machine — Ollama executes the model locally, and no data is transmitted to any external API. This is the recommended deployment path for environments that cannot permit any external data transmission, including air-gapped federal systems or organizations without a data-processing agreement with a cloud LLM provider. The anonymization layer still runs in Ollama mode (the same `buildAnonymizedContextSnapshot()` call is used regardless of provider), so switching between providers requires no code changes and leaves no PII gap during transition.
+When the `llm_provider` configuration key is set to `ollama`, all inference runs against a local Ollama instance via its OpenAI-compatible endpoint (`http://localhost:11434/v1/chat/completions` by default). In this mode, the anonymized context snapshot never leaves the machine — Ollama executes the model locally, and no data is transmitted to any external API. This is the recommended deployment path for environments that cannot permit any external data transmission, including air-gapped or restricted environments or organizations without a data-processing agreement with a cloud LLM provider. The anonymization layer still runs in Ollama mode (the same `buildAnonymizedContextSnapshot()` call is used regardless of provider), so switching between providers requires no code changes and leaves no PII gap during transition.

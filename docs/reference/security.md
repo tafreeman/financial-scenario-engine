@@ -43,7 +43,7 @@ When using Ollama, all inference happens on your local machine:
 ## Recommendations for Sensitive Environments
 
 1. **Use Ollama** for fully airgapped operation
-2. **Verify data classification** before using GitHub Models API in federal environments
+2. **Verify data classification** before using GitHub Models API in regulated environments
 3. **Back up** `data/finimpact.db` — it contains all project data
 4. **Do not expose** the server to external networks (it binds to localhost by default)
 

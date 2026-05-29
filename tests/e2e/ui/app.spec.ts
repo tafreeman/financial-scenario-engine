@@ -1,25 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// ============================================================================
-// FINANCIAL IMPACT ANALYZER — E2E TEST TRAINING GUIDE
-// ============================================================================
-//
-// HOW TO RUN THESE TESTS:
-//   npm run test:e2e              — runs all tests (API + UI)
-//   npx playwright test tests/e2e/ui/  — runs only UI tests
-//   npx playwright test --headed  — watch the browser as tests run
-//   npx playwright test --debug   — step through tests one action at a time
-//   npx playwright test -g "adds" — run only tests matching "adds"
-//
-// WHAT HAPPENS WHEN YOU RUN:
-//   1. Playwright builds the React frontend (npm run build)
-//   2. Starts the Express server on port 3100
-//   3. Waits for /api/health to return 200
-//   4. Opens a real Chromium browser (headless by default)
-//   5. Runs each test — navigating, clicking, typing, and asserting
-//   6. Shuts down the server when done
-//
-// SEEDED TEST DATA (created automatically by the server on first start):
+// Seeded test data (created automatically by the server on first start):
 //   Projects:
 //     - Project Alpha: $1,250,000 budget, $485,000 spent
 //     - Project Beta:  $2,100,000 budget, $1,340,000 spent
@@ -35,13 +16,6 @@ import { expect, test } from "@playwright/test";
 //     Mid-level Developer ($185/hr), Junior Developer ($135/hr),
 //     Business Analyst ($175/hr), QA Engineer ($165/hr),
 //     Project Manager ($225/hr), Scrum Master ($195/hr)
-//
-// ============================================================================
-
-
-// ── LESSON 1: APP SHELL & NAVIGATION ────────────────────────────────────────
-// These tests verify the app loads and you can switch between tabs.
-// Key concepts: page.goto(), getByRole(), getByText(), toBeVisible()
 
 test.describe("App shell and navigation", () => {
 
@@ -89,10 +63,6 @@ test.describe("App shell and navigation", () => {
   });
 });
 
-
-// ── LESSON 2: DASHBOARD ─────────────────────────────────────────────────────
-// These tests verify the dashboard loads financial data from the database.
-// Key concepts: getByRole("cell"), getByRole("columnheader")
 
 test.describe("Dashboard", () => {
 
@@ -215,11 +185,6 @@ test.describe("Dashboard", () => {
 });
 
 
-// ── LESSON 3: STAFFING VIEW ─────────────────────────────────────────────────
-// These tests cover the Staffing tab: viewing data, filtering, and CRUD.
-// Key concepts: test.beforeEach(), selectOption(), fill(), waitForResponse(),
-//               page.on("dialog"), locator scoping, .not.toBeVisible()
-
 test.describe("Staffing view", () => {
 
   // beforeEach runs before EVERY test in this describe block.
@@ -339,10 +304,6 @@ test.describe("Staffing view", () => {
 });
 
 
-// ── LESSON 4: SETTINGS PANEL ────────────────────────────────────────────────
-// These tests cover configuration: loading defaults, saving, persistence.
-// Key concepts: toHaveValue(), selectOption(), page reload, test cleanup
-
 test.describe("Settings panel", () => {
 
   test.beforeEach(async ({ page }) => {
@@ -389,12 +350,6 @@ test.describe("Settings panel", () => {
   });
 });
 
-
-// ── LESSON 5: AI ANALYST TAB ────────────────────────────────────────────────
-// This test checks the AI tab's UI elements are present.
-// The AI features require a GitHub PAT to actually call the LLM, so we only
-// verify the UI here. See ai-workflow.spec.ts for tests that MOCK the AI
-// responses so you can test the full flow without a PAT.
 
 test.describe("AI Analyst tab", () => {
 

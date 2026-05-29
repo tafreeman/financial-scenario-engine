@@ -76,7 +76,7 @@ Edit the prompt constants in `server/ai.ts`:
 
 ## Connecting Real Data
 
-Replace the seed data in `server/db.ts` → `seedSampleData()` with actual project/staffing data, or build an import pipeline from your GPS Pricing workbook.
+Replace the seed data in `server/db.ts` → `seedSampleData()` with actual project/staffing data, or build an import pipeline from your staffing/pricing workbook.
 
 ::: warning Seed Data & Tests
 Changing `seedSampleData()` may break E2E tests that have hardcoded assertions against sample values.
