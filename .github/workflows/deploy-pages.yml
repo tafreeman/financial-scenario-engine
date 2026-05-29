@@ -83,6 +83,11 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # Self-enable Pages via the API (token has pages: write) so the build
+          # does not depend on a manual repo setting. Prevents the "Get Pages
+          # site failed: Not Found" failure when Pages has not been turned on.
+          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

@@ -226,15 +226,21 @@ test.describe("Staffing view", () => {
   });
 
   test("filters staffing by project", async ({ page }) => {
+    // Register the response waiter BEFORE the action that triggers the request.
+    // Changing the filter fires GET /api/staffing; if we attached the waiter
+    // after selectOption(), a fast response (e.g. under CI load) could arrive
+    // before the listener exists, hanging until the 30s timeout. Setting it up
+    // first removes that race.
+    const staffingResponse = page.waitForResponse(
+      (r) => r.url().includes("/api/staffing") && r.status() === 200
+    );
+
     // Use the project filter dropdown.
     // .first() gets the first <select> with class "input-field" (the filter, not the add form).
     await page.locator("select.input-field").first().selectOption({ label: "Project Alpha" });
 
-    // waitForResponse waits until the browser receives a matching HTTP response.
-    // This ensures the filtered data has loaded before we check the table.
-    await page.waitForResponse(
-      (r) => r.url().includes("/api/staffing") && r.status() === 200
-    );
+    // Ensure the filtered data has loaded before we check the table.
+    await staffingResponse;
 
     // Alpha staff should still be visible
     await expect(page.getByRole("cell", { name: "J. Smith" })).toBeVisible();
@@ -265,14 +271,16 @@ test.describe("Staffing view", () => {
     // getByPlaceholder() finds <input placeholder="Person name">
     await page.getByPlaceholder("Person name").fill("E2E Test Person");
 
-    // Step 3: Submit the form
+    // Step 3: Submit the form (attach the response waiter before the click so a
+    // fast refresh response can't slip past the listener — same race as above).
     // { exact: true } prevents matching "Add Staffing" — only matches "Add"
+    const addResponse = page.waitForResponse(
+      (r) => r.url().includes("/api/staffing") && r.status() === 200
+    );
     await page.getByRole("button", { name: "Add", exact: true }).click();
 
     // Step 4: Wait for the table to refresh with new data
-    await page.waitForResponse(
-      (r) => r.url().includes("/api/staffing") && r.status() === 200
-    );
+    await addResponse;
 
     // Step 5: Verify the new person appears
     await expect(page.getByRole("cell", { name: "E2E Test Person" })).toBeVisible();
@@ -290,13 +298,15 @@ test.describe("Staffing view", () => {
     // dialog.accept() clicks "OK" on the confirm dialog.
     page.on("dialog", (dialog) => dialog.accept());
 
-    // Step 3: Click the trash icon (it has title="Remove")
+    // Step 3: Click the trash icon (it has title="Remove").
+    // Attach the response waiter before the click to avoid the same race.
+    const removeResponse = page.waitForResponse(
+      (r) => r.url().includes("/api/staffing") && r.status() === 200
+    );
     await row.getByTitle("Remove").click();
 
     // Step 4: Wait for table refresh
-    await page.waitForResponse(
-      (r) => r.url().includes("/api/staffing") && r.status() === 200
-    );
+    await removeResponse;
 
     // Step 5: Verify the person is gone
     await expect(page.getByRole("cell", { name: "E2E Test Person" })).not.toBeVisible();
