@@ -279,7 +279,7 @@ export default function SettingsPanel() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-emerald-500 mt-0.5">●</span>
-                Suitable for classified and sensitive environments — zero cloud dependency
+                Suitable for air-gapped and regulated environments — zero cloud dependency
               </li>
             </>
           ) : (

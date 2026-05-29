@@ -1,7 +1,7 @@
 # Financial Scenario Engine
 
 [![CI](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
-[![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/github/actions/workflow/status/tafreeman/financial-scenario-engine/deploy-pages.yml?branch=main&label=tests)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results. All project data lives in a local SQLite file; inference runs via GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
@@ -271,7 +271,7 @@ These control parsing, narrative output, and agentic scenario behavior.
 
 ### Connecting to Real Data
 Replace the seed data in `server/db.ts` → `seedSampleData()` with actual
-project/staffing data, or build an import pipeline from your GPS Pricing workbook.
+project/staffing data, or build an import pipeline from your staffing/pricing workbook.
 
 ---
 
