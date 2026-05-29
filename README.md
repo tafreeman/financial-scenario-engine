@@ -271,20 +271,14 @@ These control parsing, narrative output, and agentic scenario behavior.
 
 ### Connecting to Real Data
 Replace the seed data in `server/db.ts` → `seedSampleData()` with actual
-<<<<<<< HEAD
+
 project/staffing data, or build an import pipeline from your pricing reference workbook.
-=======
-project/staffing data, or build an import pipeline from your staffing/pricing workbook.
->>>>>>> c7f1f4f8e5b4f7942c3be74109a585b071944a5a
 
 ---
 
 ## GitHub Pages Site
 
 This repository includes a static **GitHub Pages** site built with the same React + Vite + Tailwind stack as the application UI.
-
-- **Why?** The repo uses Vite for the frontend, so Pages reuses the same toolchain instead of introducing an unrelated publishing stack.
-- **What's published?** A static product/documentation site — not the full analyzer runtime (which requires a local Express server and SQLite).
 
 ### Pages Commands
 
