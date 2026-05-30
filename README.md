@@ -118,10 +118,8 @@ Delete it to reset to sample data (auto-recreated on next startup).
 - 8 labor categories with bill/cost rates
 - 8 staffing assignments across projects
 
-### Importing from Excel
-POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2` for workbook preview.
-The current implementation returns sheet names plus up to the first 20 rows for up to 10 previewed sheets.
-Full import mapping into SQLite is still a future phase.
+### Excel workbook preview (read-only)
+POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2`. The endpoints return sheet names plus the first 20 rows for up to 10 sheets — purely a preview surface. **No data is written to the database.** Full workbook-to-SQLite mapping is on the [roadmap](#roadmap), not in the current release.
 
 ## Security
 
@@ -293,10 +291,16 @@ On pushes to `main`, GitHub Actions builds the static site and deploys the artif
 
 ---
 
+## Roadmap
+
+Forward-looking work that is **not** in the current release:
+
+- **Full Excel-to-SQLite import.** Today's `/api/import/excel*` endpoints only return a preview (sheet names + first 20 rows for up to 10 sheets) and do not persist any data. Mapping previewed sheets onto the projects / staffing / labor schemas — including conflict resolution and column-mapping UI — is planned but not yet implemented.
+
 ## Further Reading
 
 | Document | Description |
 |----------|-------------|
 | [`server/engine/README.md`](server/engine/README.md) | Calculation engine architecture, modules, and public API |
 | [`client/README.md`](client/README.md) | React frontend setup, components, and build |
-| [`server/import/excel/README.md`](server/import/excel/README.md) | Excel import module and response shapes |
+| [`server/import/excel/README.md`](server/import/excel/README.md) | Excel preview module — endpoint contracts and response shapes (preview only) |
