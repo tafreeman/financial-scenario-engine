@@ -104,11 +104,11 @@ export default function SiteApp() {
             <a href="#features" className="nav-link">Features</a>
             <a href="#workflow" className="nav-link">Workflow</a>
             <a href="#architecture" className="nav-link">Architecture</a>
-            <a href={PROFILE_URL} className="nav-link" aria-label="tafreeman profile">
+            <a href={PROFILE_URL} className="nav-link" aria-label="tafreeman profile" target="_blank" rel="noopener noreferrer">
               <Github size={15} />
               Profile
             </a>
-            <a href={REPOSITORY_URL} className="nav-btn">
+            <a href={REPOSITORY_URL} className="nav-btn" target="_blank" rel="noopener noreferrer">
               View Repository
               <ArrowRight size={14} />
             </a>
@@ -167,7 +167,7 @@ export default function SiteApp() {
               <span className="preview-badge">BETA</span>
             </div>
             <img
-              src="social-preview.png"
+              src={`${import.meta.env.BASE_URL}social-preview.png`}
               alt="Financial Scenario Engine — social preview"
               className="preview-image"
               loading="eager"

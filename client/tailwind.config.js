@@ -9,20 +9,20 @@ export default {
         steel: { 50: "#F0F4F8", 100: "#D9E2EC", 200: "#BCCCDC", 500: "#627D98" },
         // Ember / Console design-system surfaces
         ember: {
-          DEFAULT: "#d97757",
-          hover:   "#e48970",
-          press:   "#b8603f",
-          2:       "#e8a285",
+          DEFAULT: "var(--accent)",
+          hover:   "var(--accent-hover)",
+          press:   "var(--accent-press)",
+          2:       "var(--accent-2)",
         },
         console: {
-          bg:          "#08080c",
-          "bg-deep":   "#050507",
-          surface:     "#101018",
-          "surface-2": "#16161e",
-          border:      "#2c2c36",
-          "fg-1":      "#ececde",
-          "fg-2":      "#8a8a82",
-          "fg-3":      "#50504a",
+          bg:          "var(--bg)",
+          "bg-deep":   "var(--bg-deep)",
+          surface:     "var(--surface)",
+          "surface-2": "var(--surface-2)",
+          border:      "var(--border)",
+          "fg-1":      "var(--fg-1)",
+          "fg-2":      "var(--fg-2)",
+          "fg-3":      "var(--fg-3)",
         },
       },
       fontFamily: {
@@ -32,7 +32,7 @@ export default {
         mono: ['"JetBrains Mono"', "Consolas", "monospace"],
       },
       backgroundImage: {
-        "ember-gradient": "linear-gradient(135deg, #d97757 0%, #e8a285 100%)",
+        "ember-gradient": "var(--gradient-brand)",
       },
       borderWidth: {
         "3": "3px",
