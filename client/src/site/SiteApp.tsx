@@ -1,3 +1,11 @@
+/**
+ * SiteApp.tsx — GitHub Pages product site for Financial Scenario Engine
+ * Visual system: ember/console design tokens (see brand/tokens.css)
+ * Restyled to match the tafreeman portfolio design system.
+ * All content is real; no invented metrics or fabricated features.
+ */
+
+import "./brand/ember-site.css";
 import {
   ArrowRight,
   BarChart3,
@@ -8,321 +16,286 @@ import {
   Laptop,
   Lock,
   Rocket,
-  Sparkles,
   Workflow,
   Zap,
 } from "lucide-react";
 
 const REPOSITORY_URL = "https://github.com/tafreeman/financial-scenario-engine";
+const PROFILE_URL = "https://github.com/tafreeman";
 
 const featureCards = [
   {
-    title: "Scenario analysis that stays grounded in data",
-    body: "Model staffing swaps, burn-rate pressure, margin recovery, and extension options using a local SQLite-backed dataset.",
+    title: "Deterministic engine — no LLM in the math",
+    body: "All financial numbers (labor cost, burn, margin, EVM CPI/SPI/EAC, portfolio aggregation) come from the TypeScript engine. The LLM only parses natural-language intent and optionally narrates.",
     icon: BarChart3,
   },
   {
-    title: "AI guidance without losing operational control",
-    body: "Teams keep project data local while using GitHub Models for narrative reasoning and recommendation generation.",
+    title: "Dual AI provider — cloud or fully local",
+    body: "Choose GitHub Models (PAT-authenticated) or a local Ollama instance in Settings. PAT stored only in local SQLite, localhost-bound, no telemetry.",
     icon: Bot,
   },
   {
-    title: "Portable delivery for real project teams",
-    body: "The app runs locally with Express, React, and Vite, while GitHub Pages publishes a polished product and documentation site.",
-    icon: Laptop,
+    title: "Local-first by design",
+    body: "Project data lives in a portable local SQLite database. The Express + React + Vite app runs on localhost:3000. No data leaves the machine unless you configure a provider.",
+    icon: Lock,
   },
 ];
 
 const workflow = [
   {
     step: "01",
-    title: "Load seeded or imported portfolio data",
-    body: "Start from the included sample projects or Excel workbook previews to explore realistic financial scenarios.",
+    title: "Install and start",
+    body: "npm run setup && npm run install:all && npm run build && npm start — then open http://localhost:3000.",
   },
   {
     step: "02",
-    title: "Ask a finance or staffing question",
-    body: "Prompt the analyzer with a natural-language question about budget risk, labor mix, runway, or margin.",
+    title: "Choose a provider in Settings",
+    body: "Select GitHub Models (requires a PAT) or Ollama for fully-local inference. The engine works without a provider — AI narration is optional.",
   },
   {
     step: "03",
-    title: "Review the quantified tradeoffs",
-    body: "Compare burn-rate deltas, months-left impacts, and scenario assumptions before making staffing decisions.",
+    title: "Ask a staffing or finance question",
+    body: "Try: \"What if we replace the Senior Dev with two Mid-level Devs?\" — the engine recalculates burn, margin, and runway; the LLM narrates the tradeoffs.",
   },
 ];
 
 const pillars = [
   {
-    title: "Why Vite for publishing",
-    text: "The repository already uses React + Vite + Tailwind, so the GitHub Pages experience now uses the same frontend toolchain instead of introducing an unrelated static-site stack.",
+    title: "Vite for the Pages site",
+    text: "The repository already uses React + Vite + Tailwind, so the GitHub Pages experience uses the same frontend toolchain instead of introducing an unrelated static-site stack.",
     icon: Rocket,
   },
   {
-    title: "GitHub Pages-ready",
-    text: "A dedicated static build outputs a deployable artifact for GitHub Pages while leaving the local Express-backed application untouched.",
+    title: "GitHub Pages-ready artifact",
+    text: "A dedicated Vite config (vite.pages.config.ts) outputs a deployable artifact to client/dist-pages while leaving the local Express-backed application untouched.",
     icon: Globe,
   },
   {
-    title: "Privacy-aware by design",
-    text: "The live app keeps the database local and limits outbound AI traffic to the configured model endpoint, aligning the public site messaging with the product architecture.",
-    icon: Lock,
+    title: "98 Vitest unit tests + Playwright E2E",
+    text: "The deterministic engine is covered by 98 Vitest unit tests. Critical user flows are validated by Playwright E2E tests on every push to main.",
+    icon: Workflow,
   },
 ];
 
 const metrics = [
-  { label: "Core stack", value: "React 19 · Vite · Tailwind" },
-  { label: "Backend runtime", value: "Express + TypeScript" },
-  { label: "Local data layer", value: "SQLite" },
-  { label: "Delivery model", value: "Local app + GitHub Pages site" },
+  { label: "Primary language", value: "TypeScript 97.7%" },
+  { label: "Test suite", value: "98 Vitest unit + Playwright E2E" },
+  { label: "Data layer", value: "Local SQLite" },
+  { label: "Status", value: "BETA" },
 ];
 
 export default function SiteApp() {
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(30,64,175,0.28),transparent_32%),linear-gradient(180deg,#020617_0%,#0f172a_45%,#e2e8f0_45%,#f8fafc_100%)] text-slate-900">
-      <div className="mx-auto max-w-7xl px-6 pb-16 pt-6 sm:px-8 lg:px-10">
-        <header className="rounded-full border border-white/10 bg-slate-950/80 px-5 py-3 text-white shadow-2xl shadow-slate-950/30 backdrop-blur">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-400/30">
-                <Zap size={22} strokeWidth={2.25} />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-200">
-                  Financial Impact Analyzer
-                </p>
-                <h1 className="text-lg font-bold tracking-tight">GitHub Pages product site</h1>
-              </div>
+    <div className="site-shell">
+      {/* ── HEADER ────────────────────────────────────────────────────── */}
+      <header className="site-header">
+        <div className="site-header-inner">
+          <div className="site-brand">
+            <div className="brand-icon" aria-hidden="true">
+              <Zap size={20} strokeWidth={2.5} />
             </div>
-
-            <nav className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-              <a href="#features" className="transition hover:text-white">Features</a>
-              <a href="#workflow" className="transition hover:text-white">Workflow</a>
-              <a href="#architecture" className="transition hover:text-white">Architecture</a>
-              <a
-                href={REPOSITORY_URL}
-                className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 font-medium text-white transition hover:border-sky-300 hover:bg-white/5"
-              >
-                <Github size={16} />
-                Repository
-              </a>
-            </nav>
+            <div>
+              <p className="brand-eyebrow">tafreeman</p>
+              <span className="brand-name">financial-scenario-engine</span>
+            </div>
           </div>
-        </header>
 
-        <section className="grid gap-10 pb-20 pt-14 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
-          <div className="text-white">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-sky-300/20 bg-sky-400/10 px-4 py-2 text-sm font-medium text-sky-100">
-              <Sparkles size={16} />
-              Published with the existing Vite stack for GitHub Pages
-            </div>
-            <h2 className="max-w-3xl text-4xl font-black tracking-tight sm:text-5xl lg:text-6xl">
-              Modern project-finance storytelling for a local-first analyzer.
-            </h2>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-              This site gives the repository a polished public surface while the actual analyzer
-              continues to run locally with Express, SQLite, and GitHub Models-backed reasoning.
+          <nav className="site-nav" aria-label="Site navigation">
+            <a href="#features" className="nav-link">Features</a>
+            <a href="#workflow" className="nav-link">Workflow</a>
+            <a href="#architecture" className="nav-link">Architecture</a>
+            <a href={PROFILE_URL} className="nav-link" aria-label="tafreeman profile">
+              <Github size={15} />
+              Profile
+            </a>
+            <a href={REPOSITORY_URL} className="nav-btn">
+              View Repository
+              <ArrowRight size={14} />
+            </a>
+          </nav>
+        </div>
+      </header>
+
+      {/* ── HERO ──────────────────────────────────────────────────────── */}
+      <section className="hero-section">
+        <div className="hero-grid-bg" aria-hidden="true" />
+        <div className="hero-inner">
+          <div className="hero-content">
+            <p className="hero-eyebrow">
+              <span className="eyebrow-dot" aria-hidden="true" />
+              BETA &nbsp;·&nbsp; Local-first &nbsp;·&nbsp; TypeScript
             </p>
 
-            <div className="mt-8 flex flex-wrap gap-4">
-              <a
-                href="#architecture"
-                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 shadow-xl shadow-slate-900/20 transition hover:-translate-y-0.5"
-              >
+            <h1 className="hero-title">
+              Project finance,{" "}
+              <span className="hero-accent">deterministically</span>{" "}
+              modelled.
+            </h1>
+
+            <p className="hero-body">
+              A local-first simulator where a deterministic TypeScript engine produces all
+              financial numbers — labor cost, burn rate, margin, EVM CPI/SPI/EAC, and portfolio
+              aggregation. The LLM only parses intent and narrates. Your project data stays in
+              a local SQLite database.
+            </p>
+
+            <div className="hero-ctas">
+              <a href="#architecture" className="cta-primary">
                 Explore the architecture
                 <ArrowRight size={16} />
               </a>
-              <a
-                href={`${REPOSITORY_URL}#readme`}
-                className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/5"
-              >
+              <a href={`${REPOSITORY_URL}#readme`} className="cta-secondary">
                 Read the README
               </a>
             </div>
 
-            <dl className="mt-10 grid gap-4 sm:grid-cols-2">
-              {metrics.map((metric) => (
-                <div key={metric.label} className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
-                  <dt className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-                    {metric.label}
-                  </dt>
-                  <dd className="mt-2 text-lg font-semibold text-white">{metric.value}</dd>
+            <dl className="hero-metrics">
+              {metrics.map((m) => (
+                <div key={m.label} className="hero-metric">
+                  <dt className="metric-label">{m.label}</dt>
+                  <dd className="metric-value">{m.value}</dd>
                 </div>
               ))}
             </dl>
           </div>
 
-          <div className="relative">
-            <div className="absolute inset-0 -z-10 rounded-[2rem] bg-emerald-400/15 blur-3xl" />
-            <div className="overflow-hidden rounded-[2rem] border border-slate-200/60 bg-white shadow-2xl shadow-slate-950/20">
-              <div className="border-b border-slate-200 bg-slate-950 px-6 py-4 text-white">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Preview</p>
-                    <h3 className="mt-1 text-xl font-semibold">Financial operating picture</h3>
-                  </div>
-                  <div className="rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-semibold text-emerald-300">
-                    Live-style snapshot
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-6 p-6">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <PreviewMetric title="Total budget" value="$4.03M" delta="+3 seeded programs" />
-                  <PreviewMetric title="Monthly burn" value="$199.8K" delta="Across active staffing" />
-                  <PreviewMetric title="Blended margin" value="26.6%" delta="Tracked by labor mix" />
-                  <PreviewMetric title="Scenarios" value="Multi-path" delta="Prompt-driven analysis" />
-                </div>
-
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                        Example question
-                      </p>
-                      <p className="mt-2 text-base font-semibold text-slate-900">
-                        What staffing changes extend Project Alpha by 3 months while protecting margin?
-                      </p>
-                    </div>
-                    <Workflow size={28} className="text-sky-600" />
-                  </div>
-                  <div className="mt-4 rounded-2xl bg-white p-4 shadow-sm">
-                    <p className="text-sm leading-7 text-slate-600">
-                      The analyzer compares staffing swaps, recalculates burn, and returns scenario
-                      narratives with assumptions, risks, and recommended actions.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <Pill badge="Local first" text="SQLite-backed data" />
-                  <Pill badge="AI-assisted" text="GitHub Models-ready" />
-                  <Pill badge="Publishable" text="GitHub Pages workflow" />
-                </div>
-              </div>
+          {/* Social preview card */}
+          <div className="hero-preview" aria-hidden="true">
+            <div className="preview-signal-stripe" />
+            <div className="preview-header">
+              <span className="preview-eyebrow">financial-scenario-engine</span>
+              <span className="preview-badge">BETA</span>
+            </div>
+            <img
+              src="social-preview.png"
+              alt="Financial Scenario Engine — social preview"
+              className="preview-image"
+              loading="eager"
+            />
+            <div className="preview-footer">
+              <span className="preview-lang">
+                <span className="lang-dot ts" />
+                TypeScript 97.7%
+              </span>
+              <span className="preview-status">
+                <span className="status-dot" />
+                localhost:3000
+              </span>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section id="features" className="grid gap-6 pb-20 md:grid-cols-3">
-          {featureCards.map((card) => {
-            const Icon = card.icon;
-            return (
-              <article
-                key={card.title}
-                className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/60"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
-                  <Icon size={24} />
-                </div>
-                <h3 className="mt-6 text-xl font-bold tracking-tight text-slate-950">{card.title}</h3>
-                <p className="mt-3 text-base leading-7 text-slate-600">{card.body}</p>
-              </article>
-            );
-          })}
-        </section>
-
-        <section
-          id="workflow"
-          className="rounded-[2rem] bg-slate-950 px-8 py-10 text-white shadow-2xl shadow-slate-950/20"
-        >
-          <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-200">Workflow</p>
-            <h3 className="mt-3 text-3xl font-bold tracking-tight">
-              Move from raw staffing data to decision-ready financial guidance.
-            </h3>
-            <p className="mt-4 text-base leading-7 text-slate-300">
-              The live product flow stays operationally focused, while the public site translates the
-              same story into a cleaner, review-friendly experience for GitHub visitors.
-            </p>
+      {/* ── FEATURE CARDS ─────────────────────────────────────────────── */}
+      <section id="features" className="section-features">
+        <div className="section-inner">
+          <p className="section-eyebrow">Core capabilities</p>
+          <h2 className="section-title">Engine-first architecture</h2>
+          <div className="feature-grid">
+            {featureCards.map((card) => {
+              const Icon = card.icon;
+              return (
+                <article key={card.title} className="feature-card">
+                  <div className="feature-icon">
+                    <Icon size={22} strokeWidth={1.75} />
+                  </div>
+                  <h3 className="feature-title">{card.title}</h3>
+                  <p className="feature-body">{card.body}</p>
+                </article>
+              );
+            })}
           </div>
+        </div>
+      </section>
 
-          <div className="mt-10 grid gap-5 lg:grid-cols-3">
+      {/* ── WORKFLOW ──────────────────────────────────────────────────── */}
+      <section id="workflow" className="section-workflow">
+        <div className="section-inner">
+          <p className="section-eyebrow">Quick start</p>
+          <h2 className="section-title">From install to first scenario</h2>
+          <p className="section-subtitle">
+            Three steps from a fresh clone to quantified staffing tradeoffs.
+          </p>
+
+          <div className="workflow-grid">
             {workflow.map((item) => (
-              <div key={item.step} className="rounded-[1.75rem] border border-white/10 bg-white/5 p-6">
-                <p className="text-sm font-semibold text-emerald-300">{item.step}</p>
-                <h4 className="mt-3 text-xl font-semibold">{item.title}</h4>
-                <p className="mt-3 text-sm leading-7 text-slate-300">{item.body}</p>
+              <div key={item.step} className="workflow-card">
+                <span className="workflow-step">{item.step}</span>
+                <h3 className="workflow-title">{item.title}</h3>
+                <p className="workflow-body">{item.body}</p>
               </div>
             ))}
           </div>
-        </section>
 
-        <section id="architecture" className="grid gap-6 pb-20 pt-20 lg:grid-cols-[0.95fr_1.05fr]">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/60">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-700">Architecture</p>
-            <h3 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">
-              One repository, two delivery surfaces.
-            </h3>
-            <p className="mt-4 text-base leading-7 text-slate-600">
-              The application still ships as a local-first operational tool. GitHub Pages now handles
-              the outward-facing product story, release-ready overview, and contributor-friendly
-              navigation.
-            </p>
-
-            <div className="mt-8 space-y-4">
-              <ArchitectureRow icon={Globe} title="GitHub Pages site" body="Static Vite build for overview, architecture, onboarding, and repository presentation." />
-              <ArchitectureRow icon={Laptop} title="Local web app" body="React + Vite UI served by the Express runtime when the analyzer is launched locally." />
-              <ArchitectureRow icon={Database} title="SQLite data layer" body="Project, staffing, rates, and config remain in the portable local database." />
-              <ArchitectureRow icon={Bot} title="AI narrative engine" body="Scenario prompts use live financial context to generate structured recommendations." />
+          <div className="install-block">
+            <p className="install-label">Install &amp; run</p>
+            <div className="terminal-lines">
+              <p className="term"><span className="term-prompt">$</span> npm run setup &amp;&amp; npm run install:all &amp;&amp; npm run build &amp;&amp; npm start</p>
+              <p className="term dim"><span className="term-prompt">#</span> dev: npm run install:all &amp;&amp; npm run dev</p>
+              <p className="term"><span className="term-prompt">$</span> open http://localhost:3000</p>
             </div>
           </div>
+        </div>
+      </section>
 
-          <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-8 shadow-lg shadow-slate-200/60">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Publishing notes</p>
-            <div className="mt-6 grid gap-4">
+      {/* ── ARCHITECTURE ──────────────────────────────────────────────── */}
+      <section id="architecture" className="section-architecture">
+        <div className="section-inner">
+          <p className="section-eyebrow">Architecture</p>
+          <h2 className="section-title">One repository, two delivery surfaces.</h2>
+          <p className="section-subtitle">
+            The local Express app is the operational tool. GitHub Pages publishes the product story.
+          </p>
+
+          <div className="arch-grid">
+            <div className="arch-rows">
+              <ArchRow icon={Laptop} title="Local web app" body="React + Vite UI served by the Express runtime on localhost:3000. Start with npm start." />
+              <ArchRow icon={Database} title="SQLite data layer" body="Projects, staffing, rates, and config stay in a portable local database. No remote storage." />
+              <ArchRow icon={Bot} title="AI narrative layer" body="GitHub Models (PAT) or local Ollama. The engine runs identically without any provider configured." />
+              <ArchRow icon={Globe} title="GitHub Pages site" body="Static Vite build (vite.pages.config.ts) → client/dist-pages. Deployed by CI on push to main." />
+            </div>
+
+            <div className="pillars-panel">
+              <p className="pillars-label">Publishing notes</p>
               {pillars.map((pillar) => {
                 const Icon = pillar.icon;
                 return (
-                  <div key={pillar.title} className="rounded-[1.5rem] bg-white p-6 shadow-sm">
-                    <div className="flex items-start gap-4">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
-                        <Icon size={22} />
-                      </div>
-                      <div>
-                        <h4 className="text-lg font-semibold text-slate-950">{pillar.title}</h4>
-                        <p className="mt-2 text-sm leading-7 text-slate-600">{pillar.text}</p>
-                      </div>
+                  <div key={pillar.title} className="pillar-card">
+                    <div className="pillar-icon">
+                      <Icon size={18} strokeWidth={1.75} />
+                    </div>
+                    <div>
+                      <h4 className="pillar-title">{pillar.title}</h4>
+                      <p className="pillar-body">{pillar.text}</p>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
+
+      {/* ── FOOTER ────────────────────────────────────────────────────── */}
+      <footer className="site-footer">
+        <div className="footer-inner">
+          <div className="footer-left">
+            <span className="footer-brand">financial-scenario-engine</span>
+            <span className="footer-sep">·</span>
+            <a href={PROFILE_URL} className="footer-link">tafreeman</a>
+            <span className="footer-sep">·</span>
+            <a href={REPOSITORY_URL} className="footer-link">GitHub</a>
+          </div>
+          <div className="footer-right">
+            <a href={PROFILE_URL} className="footer-link">← Back to profile</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
 
-function PreviewMetric({
-  title,
-  value,
-  delta,
-}: {
-  title: string;
-  value: string;
-  delta: string;
-}) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{title}</p>
-      <p className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{value}</p>
-      <p className="mt-2 text-sm text-slate-500">{delta}</p>
-    </div>
-  );
-}
-
-function Pill({ badge, text }: { badge: string; text: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">{badge}</p>
-      <p className="mt-1 text-sm font-medium text-slate-700">{text}</p>
-    </div>
-  );
-}
-
-function ArchitectureRow({
+function ArchRow({
   icon: Icon,
   title,
   body,
@@ -332,13 +305,13 @@ function ArchitectureRow({
   body: string;
 }) {
   return (
-    <div className="flex gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
-      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white">
-        <Icon size={20} />
+    <div className="arch-row">
+      <div className="arch-icon">
+        <Icon size={18} strokeWidth={1.75} />
       </div>
       <div>
-        <h4 className="text-base font-semibold text-slate-950">{title}</h4>
-        <p className="mt-2 text-sm leading-7 text-slate-600">{body}</p>
+        <h4 className="arch-title">{title}</h4>
+        <p className="arch-body">{body}</p>
       </div>
     </div>
   );
