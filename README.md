@@ -3,6 +3,8 @@
 [![CI / Deploy](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+**▶ Live demo:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/)
+
 A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results. All project data lives in a local SQLite file; inference runs via GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
 
 > **Development note:** Built through interactive, AI-assisted development — design,
@@ -156,7 +158,7 @@ npx vitest run          # run once
 npx vitest              # watch mode
 ```
 
-98 tests across 7 files: `labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative`.
+Every engine module has a dedicated unit-test file -- `labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative` -- exercising the full calculation surface (EVM metrics, what-if scenarios, goal-seeking) with no network or API key. A separate AI-layer integration test covers the intent-to-tool-arg boundary.
 
 ### E2E Tests (Playwright)
 
@@ -197,7 +199,7 @@ financial-scenario-engine/
 │   │   ├── narrative.ts        # Template-based markdown narrative renderer
 │   │   ├── executor.ts         # Scenario orchestration (load → calc → impact)
 │   │   ├── index.ts            # Barrel export
-│   │   └── __tests__/          # Vitest unit tests (98 tests, 7 files)
+│   │   └── __tests__/          # Vitest engine unit tests (one file per module)
 │   └── import/
 │       └── excel/              # Excel workbook import module
 │           ├── v1/             # V1 handler

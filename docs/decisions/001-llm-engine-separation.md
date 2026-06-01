@@ -48,14 +48,14 @@ The V1 failure was the decisive factor. It demonstrated concretely that LLM arit
 
 Determinism is a first-class requirement. The current architecture guarantees that `executeScenario(operation)` returns identical output for identical input regardless of whether the LLM provider is GitHub Models (currently `openai/gpt-4.1`) or Ollama running locally. Switching providers, updating model versions, or changing LLM temperature settings cannot affect financial results. This makes the tool defensible in a PM context: if a manager asks "why does the margin come out to 32.5%?", the answer is a reproducible chain of arithmetic in `server/engine/margin.ts`, not a stochastic model whose behavior may have changed since the analysis was run.
 
-Testability was the third factor. The engine in `server/engine/` has no dependency on `server/ai.ts`, no external I/O, and no API credentials. As of this writing it is covered by 98 unit tests spanning `budget.test.ts`, `evm.test.ts`, `goal-seeking.test.ts`, `labor.test.ts`, `margin.test.ts`, `narrative.test.ts`, and `scenarios.test.ts`. Every calculation path — including EVM metrics like CPI, SPI, EAC, and TCPI, and composite what-if scenarios — can be verified in CI without a network connection or API key. This test suite would be impossible to write if the LLM were doing the arithmetic, because the LLM's output cannot be reliably predicted or asserted.
+Testability was the third factor. The engine in `server/engine/` has no dependency on `server/ai.ts`, no external I/O, and no API credentials. As of this writing it is covered by a dedicated unit-test file per module -- `budget.test.ts`, `evm.test.ts`, `goal-seeking.test.ts`, `labor.test.ts`, `margin.test.ts`, `narrative.test.ts`, and `scenarios.test.ts`. Every calculation path — including EVM metrics like CPI, SPI, EAC, and TCPI, and composite what-if scenarios — can be verified in CI without a network connection or API key. This test suite would be impossible to write if the LLM were doing the arithmetic, because the LLM's output cannot be reliably predicted or asserted.
 
 ## Consequences
 
 ### Positive
 
 - Financial results are deterministic: identical query inputs always produce identical outputs regardless of LLM provider, model version, or temperature.
-- The engine is independently testable: 98 unit tests exercise the full calculation surface without requiring LLM credentials or network access.
+- The engine is independently testable: its unit tests exercise the full calculation surface without requiring LLM credentials or network access.
 - Provider independence is architectural, not incidental: swapping from GitHub Models to Ollama changes the quality of intent parsing but cannot change the financial numbers produced.
 - The agentic V3 loop (`agenticScenario()`) inherits the same guarantee: the LLM chooses which `executeScenario()` calls to make, but all numbers in the response originate from the engine.
 - Audit trails are tractable: a `ScenarioResult` contains the `ScenarioOperation` that produced it and all intermediate metrics, so any output can be reconstructed by re-running the engine against the same database state.
@@ -74,4 +74,4 @@ Testability was the third factor. The engine in `server/engine/` has no dependen
 - The LLM must never be asked to compute, estimate, or validate financial figures. This applies to system prompts, narration prompts, and agentic tool descriptions. The `NARRATE_PROMPT` and `AGENTIC_SYSTEM_PROMPT` in `server/ai.ts` must continue to explicitly prohibit self-computation.
 - New operation types must be added to both the `action` union in `server/engine/types.ts` and the corresponding handler in `server/engine/executor.ts` before being exposed in the `PARSE_INTENT_PROMPT`. Do not add an action to the prompt without an engine implementation — the fallback will silently return a burn rate check rather than the intended analysis.
 - Engine functions must remain pure where possible: no I/O, no randomness, no side effects. Database access is permitted only at the `executor.ts` boundary (`loadPortfolioSnapshot()`), not inside the calculation modules (`labor.ts`, `margin.ts`, `budget.ts`, `evm.ts`, etc.).
-- Test coverage for new engine operations is required before merge. The 98-test baseline is not a ceiling; it is a floor that must grow with the engine surface.
+- Test coverage for new engine operations is required before merge. The engine test suite is not a ceiling; it is a floor that must grow with the engine surface.
