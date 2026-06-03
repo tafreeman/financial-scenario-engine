@@ -20,6 +20,12 @@ PMs can ask natural-language questions and get structured financial analysis bac
 - **Pre/post bid comparison** — "Compare original bid against current actuals"
 - **Margin analysis** — "Which labor categories are dragging margin down?"
 
+### AI Analyst Tab
+
+![AI Analyst tab — natural-language scenario query interface](docs/assets/ai-analyst-tab.png)
+
+> **Note:** Screenshot placeholder — capture from the running app (`npm run dev` → open `http://localhost:5173` → AI Analyst tab) and save to `docs/assets/ai-analyst-tab.png`.
+
 The app uses the local SQLite database for project, staffing, rate-card, and history data.
 The LLM helps parse intent and optionally narrate results, but the calculation engine produces the financial numbers.
 
@@ -248,8 +254,8 @@ financial-scenario-engine/
 | GET | `/api/scenarios` | Query history |
 | GET | `/api/config` | Get config (PAT masked) |
 | PUT | `/api/config` | Update config |
-| POST | `/api/import/excel` | Upload Excel workbook for sheet preview (v1) |
-| POST | `/api/import/excel/v2` | Upload Excel workbook for sheet preview (v2) |
+| POST | `/api/import/excel` | Upload Excel workbook — sheet preview only, no data written (v1) |
+| POST | `/api/import/excel/v2` | Upload Excel workbook — sheet preview only, no data written (v2) |
 
 ## Customization
 
@@ -303,6 +309,7 @@ Forward-looking work that is **not** in the current release:
 
 | Document | Description |
 |----------|-------------|
+| [`CONTRIBUTORS.md`](CONTRIBUTORS.md) | Authorship, AI tooling acknowledgement, and how to contribute |
 | [`server/engine/README.md`](server/engine/README.md) | Calculation engine architecture, modules, and public API |
 | [`client/README.md`](client/README.md) | React frontend setup, components, and build |
 | [`server/import/excel/README.md`](server/import/excel/README.md) | Excel preview module — endpoint contracts and response shapes (preview only) |
