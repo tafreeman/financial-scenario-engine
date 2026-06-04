@@ -24,8 +24,6 @@ PMs can ask natural-language questions and get structured financial analysis bac
 
 ![AI Analyst tab — natural-language scenario query interface](docs/assets/ai-analyst-tab.png)
 
-> **Note:** Screenshot placeholder — capture from the running app (`npm run dev` → open `http://localhost:5173` → AI Analyst tab) and save to `docs/assets/ai-analyst-tab.png`.
-
 The app uses the local SQLite database for project, staffing, rate-card, and history data.
 The LLM helps parse intent and optionally narrate results, but the calculation engine produces the financial numbers.
 
