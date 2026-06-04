@@ -199,7 +199,7 @@ import { calcProjectLabor, calcBudgetMetrics, executeScenario } from "./engine/i
 ```bash
 # From repo root
 npm install
-npx vitest run        # run all 98 engine tests once
+npx vitest run        # run all 101 engine tests once
 npx vitest            # watch mode
 ```
 
