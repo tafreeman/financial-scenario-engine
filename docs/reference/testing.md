@@ -1,6 +1,6 @@
 # Testing
 
-The Financial Impact Analyzer has two testing layers: unit tests (Vitest) for the calculation engine and end-to-end tests (Playwright) for the full application.
+The Financial Scenario Engine has two testing layers: unit tests (Vitest) for the calculation engine and end-to-end tests (Playwright) for the full application.
 
 ## Unit Tests (Vitest)
 

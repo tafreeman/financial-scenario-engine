@@ -12,7 +12,7 @@
 
 1. Double-click `start.bat`
 2. First run installs dependencies and builds (~2 min)
-3. Browser opens to `http://localhost:3000`
+3. Browser opens to `http://127.0.0.1:3000`
 4. Go to **Settings → choose GitHub Models or Ollama**
 5. If using GitHub Models, paste your PAT and save
 
@@ -29,8 +29,8 @@ npm start
 ```bash
 npm run install:all
 npm run dev
-# Server: http://localhost:3000
-# Client dev: http://localhost:5173 (proxies /api to :3000)
+# Server: http://127.0.0.1:3000
+# Client dev: http://localhost:5173 (proxies /api to 127.0.0.1:3000)
 ```
 
 ## Sample Data

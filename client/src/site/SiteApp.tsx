@@ -36,7 +36,7 @@ const featureCards = [
   },
   {
     title: "Local-first by design",
-    body: "Project data lives in a portable local SQLite database. The Express + React + Vite app runs on localhost:3000. No data leaves the machine unless you configure a provider.",
+    body: "Project data lives in a portable local SQLite database. The Express + React + Vite app runs on 127.0.0.1:3000 by default. No data leaves the machine unless you configure a provider.",
     icon: Lock,
   },
 ];
@@ -45,7 +45,7 @@ const workflow = [
   {
     step: "01",
     title: "Install and start",
-    body: "npm run setup && npm run install:all && npm run build && npm start — then open http://localhost:3000.",
+    body: "npm run setup && npm run install:all && npm run build && npm start — then open http://127.0.0.1:3000.",
   },
   {
     step: "02",
@@ -179,7 +179,7 @@ export default function SiteApp() {
               </span>
               <span className="preview-status">
                 <span className="status-dot" />
-                localhost:3000
+                127.0.0.1:3000
               </span>
             </div>
           </div>
@@ -232,7 +232,7 @@ export default function SiteApp() {
             <div className="terminal-lines">
               <p className="term"><span className="term-prompt">$</span> npm run setup &amp;&amp; npm run install:all &amp;&amp; npm run build &amp;&amp; npm start</p>
               <p className="term dim"><span className="term-prompt">#</span> dev: npm run install:all &amp;&amp; npm run dev</p>
-              <p className="term"><span className="term-prompt">$</span> open http://localhost:3000</p>
+              <p className="term"><span className="term-prompt">$</span> open http://127.0.0.1:3000</p>
             </div>
           </div>
         </div>
@@ -249,7 +249,7 @@ export default function SiteApp() {
 
           <div className="arch-grid">
             <div className="arch-rows">
-              <ArchRow icon={Laptop} title="Local web app" body="React + Vite UI served by the Express runtime on localhost:3000. Start with npm start." />
+              <ArchRow icon={Laptop} title="Local web app" body="React + Vite UI served by the Express runtime on 127.0.0.1:3000 by default. Start with npm start." />
               <ArchRow icon={Database} title="SQLite data layer" body="Projects, staffing, rates, and config stay in a portable local database. No remote storage." />
               <ArchRow icon={Bot} title="AI narrative layer" body="GitHub Models (PAT) or local Ollama. The engine runs identically without any provider configured." />
               <ArchRow icon={Globe} title="GitHub Pages site" body="Static Vite build (vite.pages.config.ts) → client/dist-pages. Deployed by CI on push to main." />

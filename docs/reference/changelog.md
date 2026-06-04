@@ -2,7 +2,7 @@
 
 ## v1.0.0
 
-Initial release of the Financial Impact Analyzer.
+Initial release of the Financial Scenario Engine.
 
 ### Features
 

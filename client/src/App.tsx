@@ -27,7 +27,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-base font-bold tracking-tight leading-none">
-              Financial Impact Analyzer
+              Financial Scenario Engine
             </h1>
             <p className="text-[10px] text-steel-200 tracking-widest uppercase mt-0.5">
               Local + Cloud AI · Portable Edition

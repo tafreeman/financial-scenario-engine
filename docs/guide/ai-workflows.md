@@ -61,7 +61,7 @@ For debugging or UX preview, you can parse intent without computing:
 ::: code-group
 
 ```bash [cURL]
-curl -X POST http://localhost:3000/api/scenario/v2/parse-only \
+curl -X POST http://127.0.0.1:3000/api/scenario/v2/parse-only \
   -H "Content-Type: application/json" \
   -d '{"query": "What if we add 2 QA Engineers to Alpha?"}'
 ```

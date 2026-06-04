@@ -1,10 +1,10 @@
 @echo off
-title Financial Impact Analyzer
+title Financial Scenario Engine
 color 0A
 
 echo.
 echo  ╔══════════════════════════════════════════════╗
-echo  ║  Financial Impact Analyzer                   ║
+echo  ║  Financial Scenario Engine                   ║
 echo  ║  Portable AI-Powered Scenario Analysis       ║
 echo  ╚══════════════════════════════════════════════╝
 echo.
@@ -66,7 +66,7 @@ if not exist "client\dist" (
 
 :: Start server
 echo.
-echo  [START] Launching server on http://localhost:3000
+echo  [START] Launching server on http://127.0.0.1:3000
 echo  Press Ctrl+C to stop
 echo.
 

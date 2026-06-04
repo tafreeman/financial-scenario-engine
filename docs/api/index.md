@@ -1,13 +1,13 @@
 # API Reference
 
-The Financial Impact Analyzer exposes a REST API from the Express server. All endpoints return JSON.
+The Financial Scenario Engine exposes a REST API from the Express server. All endpoints return JSON.
 
 ## Base URL
 
 ::: code-group
 
 ```bash [Production]
-http://localhost:3000/api
+http://127.0.0.1:3000/api
 ```
 
 ```bash [Development]

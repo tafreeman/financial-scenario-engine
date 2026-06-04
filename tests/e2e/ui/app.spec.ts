@@ -27,7 +27,7 @@ test.describe("App shell and navigation", () => {
     // STEP 2: Verify the header is present
     // page.locator("header") finds the <header> HTML element
     // .toContainText() checks that it includes this text anywhere inside
-    await expect(page.locator("header")).toContainText("Financial Impact Analyzer");
+    await expect(page.locator("header")).toContainText("Financial Scenario Engine");
 
     // STEP 3: Verify Dashboard tab exists
     // getByRole("button") finds elements with button role

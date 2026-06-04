@@ -13,7 +13,7 @@
     "build:pages": "cd client && npm run build:pages",
     "start": "tsx server/index.ts",
     "setup": "npm run install:all && npm run build",
-    "lint": "npx eslint server --ext .ts",
+    "lint": "npx eslint .",
     "typecheck": "npm run typecheck:server && npm run typecheck:client",
     "typecheck:server": "npx tsc --noEmit -p tsconfig.json",
     "typecheck:client": "cd client && npx tsc --noEmit",

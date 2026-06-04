@@ -60,7 +60,7 @@ The LLM helps parse intent and optionally narrate results, but the calculation e
 ### Option A: Double-click (easiest)
 1. Double-click `start.bat`
 2. First run installs dependencies and builds (~2 min)
-3. Browser opens to `http://localhost:3000`
+3. Browser opens to `http://127.0.0.1:3000`
 4. Go to Settings → choose GitHub Models or Ollama
 5. If using GitHub Models, paste your PAT and save
 
@@ -76,8 +76,8 @@ npm start
 ```bash
 npm run install:all
 npm run dev
-# Server: http://localhost:3000
-# Client dev: http://localhost:5173 (proxies /api to :3000)
+# Server: http://127.0.0.1:3000
+# Client dev: http://localhost:5173 (proxies /api to 127.0.0.1:3000)
 ```
 
 ## AI Workflows
@@ -133,7 +133,7 @@ POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2`. The endpoi
 - PAT transmitted exclusively to `models.github.ai` over HTTPS with TLS when the GitHub provider is selected
 - Ollama mode keeps inference local to the machine
 - No telemetry, no analytics, and no external cloud dependency outside the selected LLM provider
-- Server binds to `localhost` only — not accessible from other machines
+- Server binds to `127.0.0.1` by default — not accessible from other machines
 - For regulated environments: verify GitHub Models API data classification approval
 
 ## Tech Stack

@@ -1,6 +1,6 @@
 # Frontend — React Client
 
-React 19 + Vite + Tailwind CSS single-page application. Served as static files from the Express server in production; runs on `http://localhost:5173` in development (proxied to the API server at `:3000`).
+React 19 + Vite + Tailwind CSS single-page application. Served as static files from the Express server in production; runs on `http://localhost:5173` in development (proxied to the API server at `127.0.0.1:3000`).
 
 ## Quick Start
 
@@ -10,8 +10,8 @@ npm run install:all
 
 # Development (hot reload)
 npm run dev
-# → API server: http://localhost:3000
-# → Client dev: http://localhost:5173  (proxies /api → :3000)
+# → API server: http://127.0.0.1:3000
+# → Client dev: http://localhost:5173  (proxies /api → 127.0.0.1:3000)
 
 # Production build (output goes to client/dist/, served by Express)
 npm run build
@@ -161,7 +161,7 @@ Shared formatting utilities used by Dashboard and ScenarioCards:
 
 ```typescript
 proxy: {
-  "/api": "http://localhost:3000"
+  "/api": "http://127.0.0.1:3000"
 }
 ```
 

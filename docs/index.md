@@ -2,12 +2,12 @@
 layout: home
 
 hero:
-  name: Financial Impact Analyzer
+  name: Financial Scenario Engine
   text: Deterministic Engine · Optional AI
   tagline: A portable, browser-based project financial analysis tool with a deterministic TypeScript calculation engine and an optional LLM layer for natural-language scenario queries.
   image:
     src: /logo.svg
-    alt: Financial Impact Analyzer
+    alt: Financial Scenario Engine
   actions:
     - theme: brand
       text: Get Started

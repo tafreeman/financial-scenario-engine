@@ -1,7 +1,7 @@
 import { defineConfig } from "vitepress";
 
 export default defineConfig({
-  title: "Financial Impact Analyzer",
+  title: "Financial Scenario Engine",
   description:
     "Portable, browser-based project financial analysis tool with a deterministic TypeScript engine and an optional LLM layer.",
   base: "/financial-scenario-engine/",
@@ -22,7 +22,7 @@ export default defineConfig({
   },
   themeConfig: {
     logo: "/logo.svg",
-    siteTitle: "Fin Impact Tool",
+    siteTitle: "Scenario Engine",
     nav: [
       { text: "Guide", link: "/guide/getting-started" },
       { text: "API", link: "/api/" },
@@ -126,7 +126,7 @@ export default defineConfig({
     },
     footer: {
       message: "Data stored locally in SQLite · No telemetry · No analytics",
-      copyright: "Financial Impact Analyzer — Portable Edition",
+      copyright: "Financial Scenario Engine — Portable Edition",
     },
     outline: {
       level: [2, 3],

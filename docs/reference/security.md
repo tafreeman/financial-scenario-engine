@@ -38,14 +38,14 @@ When using Ollama, all inference happens on your local machine:
 |-------------|------|---------|
 | `models.github.ai` | GitHub provider selected | LLM inference |
 | `localhost:11434` | Ollama provider selected | Local LLM inference |
-| None | App itself | Server binds to localhost only |
+| None | App itself | Server binds to `127.0.0.1` by default |
 
 ## Recommendations for Sensitive Environments
 
 1. **Use Ollama** for fully airgapped operation
 2. **Verify data classification** before using GitHub Models API in regulated environments
 3. **Back up** `data/finimpact.db` — it contains all project data
-4. **Do not expose** the server to external networks (it binds to localhost by default)
+4. **Do not expose** the server to external networks (it binds to `127.0.0.1` by default)
 
 ::: danger Do Not Modify
 `buildAnonymizedContextSnapshot()` in `server/db.ts` is **privacy-critical**. Do not modify it in a way that could leak real person names to external APIs.

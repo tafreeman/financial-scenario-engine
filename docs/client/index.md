@@ -69,7 +69,7 @@ All HTTP calls go through `api.ts`. Each function maps to one API endpoint and r
 
 ```typescript
 proxy: {
-  "/api": "http://localhost:3000"
+  "/api": "http://127.0.0.1:3000"
 }
 ```
 

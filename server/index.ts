@@ -8,6 +8,7 @@ import { getDb } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3000", 10);
+const HOST = process.env.HOST || "127.0.0.1";
 const IS_DEV = process.env.NODE_ENV !== "production";
 
 const app = express();
@@ -38,11 +39,11 @@ if (!fs.existsSync(dataDir)) {
 // Initialize DB on startup
 getDb();
 
-app.listen(PORT, () => {
-  const url = `http://localhost:${PORT}`;
+app.listen(PORT, HOST, () => {
+  const url = `http://${HOST}:${PORT}`;
   console.log(`
 ┌──────────────────────────────────────────────┐
-│  Financial Impact Analyzer                   │
+│  Financial Scenario Engine                   │
 │  ${url.padEnd(42)}│
 │  API:  ${(url + "/api/health").padEnd(38)}│
 │  Press Ctrl+C to stop                        │
