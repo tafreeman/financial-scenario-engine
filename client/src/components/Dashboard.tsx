@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { DollarSign, TrendingDown, Users, Clock, AlertTriangle } from "lucide-react";
+import { DollarSign, TrendingDown, Users, AlertTriangle } from "lucide-react";
 import { api, type DashboardResponse, type ProjectSummaryRow } from "../api";
 import { fmt } from "../format";
 

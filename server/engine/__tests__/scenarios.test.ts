@@ -6,11 +6,13 @@ import {
   applyRateChange,
   applyHoursChange,
   calcScenarioImpact,
+  calcTimelineExtensionImpact,
+  calcUnexpectedCostImpact,
 } from "../scenarios.js";
 import { calcProjectLabor, monthlyCost, monthlyRevenue } from "../labor.js";
 import { calcProjectMargin } from "../margin.js";
 import { calcBudgetMetrics } from "../budget.js";
-import type { StaffingRecord, LaborCategory, Project } from "../types.js";
+import type { StaffingRecord, LaborCategory, Project, ProjectSnapshot } from "../types.js";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -180,5 +182,106 @@ describe("calcScenarioImpact", () => {
     const afterLabor = calcProjectLabor(afterStaffing);
 
     expect(afterLabor.monthly_cost).toBe(beforeLabor.monthly_cost);
+  });
+});
+
+// ─── Timeline & Cost Impact ──────────────────────────────────────────────────
+
+const alphaSnapshot: ProjectSnapshot = {
+  ...alphaProject,
+  staffing: alphaStaffing,
+};
+
+describe("calcTimelineExtensionImpact", () => {
+  const monthlyBurn = 100000;
+
+  it("uses extensionMonths when provided", () => {
+    const result = calcTimelineExtensionImpact(alphaSnapshot, monthlyBurn, 3);
+    expect(result.additional_months).toBe(3);
+    // additional_cost is burn applied across the requested months
+    expect(result.additional_cost).toBe(monthlyBurn * 3);
+    // The new end date advances past the original end_date
+    expect(result.new_end_date > alphaProject.end_date).toBe(true);
+  });
+
+  it("derives additional months from an explicit newEndDate", () => {
+    // ~6 months after the original Sep 30 2026 end date
+    const result = calcTimelineExtensionImpact(
+      alphaSnapshot,
+      monthlyBurn,
+      undefined,
+      "2027-03-31"
+    );
+    // 6 months ± rounding from the 30.44-day month approximation
+    expect(result.additional_months).toBeGreaterThan(5.5);
+    expect(result.additional_months).toBeLessThan(6.5);
+    expect(result.new_end_date).toBe("2027-03-31");
+  });
+
+  it("returns a no-op result when neither extension nor end date is given", () => {
+    const result = calcTimelineExtensionImpact(alphaSnapshot, monthlyBurn);
+    expect(result.additional_months).toBe(0);
+    expect(result.additional_cost).toBe(0);
+    expect(result.new_end_date).toBe(alphaProject.end_date);
+    expect(result.new_total_projected).toBe(alphaProject.spent_to_date);
+    expect(result.budget_gap).toBe(0);
+  });
+
+  it("reports a positive budget gap when projected spend exceeds budget", () => {
+    // A very high burn over a long extension should overrun the $1.25M budget
+    const result = calcTimelineExtensionImpact(alphaSnapshot, 500000, 24);
+    expect(result.budget_gap).toBeGreaterThan(0);
+    expect(result.new_total_projected).toBeGreaterThan(alphaProject.total_budget);
+  });
+});
+
+describe("calcUnexpectedCostImpact", () => {
+  const monthlyBurn = 50000;
+
+  it("returns baseline runway when there are no additional costs", () => {
+    const result = calcUnexpectedCostImpact(alphaSnapshot, monthlyBurn, []);
+    expect(result.total_one_time).toBe(0);
+    expect(result.total_recurring_monthly).toBe(0);
+    expect(result.impact_on_remaining).toBe(0);
+    // remaining budget / burn = positive runway
+    expect(result.new_months_remaining).toBeGreaterThan(0);
+  });
+
+  it("treats undefined costs the same as an empty list", () => {
+    const result = calcUnexpectedCostImpact(alphaSnapshot, monthlyBurn, undefined);
+    expect(result.total_one_time).toBe(0);
+    expect(result.total_recurring_monthly).toBe(0);
+  });
+
+  it("sums one-time costs", () => {
+    const result = calcUnexpectedCostImpact(alphaSnapshot, monthlyBurn, [
+      { description: "License", amount: 20000, is_recurring: false },
+    ]);
+    expect(result.total_one_time).toBe(20000);
+    expect(result.total_recurring_monthly).toBe(0);
+  });
+
+  it("normalizes recurring costs by frequency to a monthly amount", () => {
+    // Quarterly cost of 30000 -> 10000/month
+    const result = calcUnexpectedCostImpact(alphaSnapshot, monthlyBurn, [
+      { description: "Quarterly fee", amount: 30000, is_recurring: true, frequency_months: 3 },
+    ]);
+    expect(result.total_recurring_monthly).toBe(10000);
+    expect(result.total_one_time).toBe(0);
+  });
+
+  it("defaults recurring frequency to monthly when not specified", () => {
+    const result = calcUnexpectedCostImpact(alphaSnapshot, monthlyBurn, [
+      { description: "Monthly tool", amount: 5000, is_recurring: true },
+    ]);
+    expect(result.total_recurring_monthly).toBe(5000);
+  });
+
+  it("shortens runway when recurring costs raise the burn rate", () => {
+    const baseline = calcUnexpectedCostImpact(alphaSnapshot, monthlyBurn, []);
+    const withRecurring = calcUnexpectedCostImpact(alphaSnapshot, monthlyBurn, [
+      { description: "New SaaS", amount: 25000, is_recurring: true, frequency_months: 1 },
+    ]);
+    expect(withRecurring.new_months_remaining).toBeLessThan(baseline.new_months_remaining);
   });
 });

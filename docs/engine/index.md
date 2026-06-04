@@ -57,7 +57,7 @@ graph TD
 
 ## Tests
 
-98 unit tests across 7 test files covering all modules:
+101 unit tests across 7 test files covering all modules:
 
 ```bash
 # Run all engine tests

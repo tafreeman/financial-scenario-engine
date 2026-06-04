@@ -3,6 +3,8 @@
 [![CI / Deploy](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+**▶ Live demo:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/)
+
 A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results. All project data lives in a local SQLite file; inference runs via GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
 
 > **Development note:** Built through interactive, AI-assisted development — design,
@@ -17,6 +19,10 @@ PMs can ask natural-language questions and get structured financial analysis bac
 - **Burn rate monitoring** — "Flag projects that will exhaust budget within 3 months"
 - **Pre/post bid comparison** — "Compare original bid against current actuals"
 - **Margin analysis** — "Which labor categories are dragging margin down?"
+
+### AI Analyst Tab
+
+![AI Analyst tab — natural-language scenario query interface](docs/assets/ai-analyst-tab.png)
 
 The app uses the local SQLite database for project, staffing, rate-card, and history data.
 The LLM helps parse intent and optionally narrate results, but the calculation engine produces the financial numbers.
@@ -156,7 +162,7 @@ npx vitest run          # run once
 npx vitest              # watch mode
 ```
 
-98 tests across 7 files: `labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative`.
+Every engine module has a dedicated unit-test file -- `labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative` -- exercising the full calculation surface (EVM metrics, what-if scenarios, goal-seeking) with no network or API key. A separate AI-layer integration test covers the intent-to-tool-arg boundary.
 
 ### E2E Tests (Playwright)
 
@@ -197,7 +203,7 @@ financial-scenario-engine/
 │   │   ├── narrative.ts        # Template-based markdown narrative renderer
 │   │   ├── executor.ts         # Scenario orchestration (load → calc → impact)
 │   │   ├── index.ts            # Barrel export
-│   │   └── __tests__/          # Vitest unit tests (98 tests, 7 files)
+│   │   └── __tests__/          # Vitest engine unit tests (one file per module)
 │   └── import/
 │       └── excel/              # Excel workbook import module
 │           ├── v1/             # V1 handler
@@ -246,8 +252,8 @@ financial-scenario-engine/
 | GET | `/api/scenarios` | Query history |
 | GET | `/api/config` | Get config (PAT masked) |
 | PUT | `/api/config` | Update config |
-| POST | `/api/import/excel` | Upload Excel workbook for sheet preview (v1) |
-| POST | `/api/import/excel/v2` | Upload Excel workbook for sheet preview (v2) |
+| POST | `/api/import/excel` | Upload Excel workbook — sheet preview only, no data written (v1) |
+| POST | `/api/import/excel/v2` | Upload Excel workbook — sheet preview only, no data written (v2) |
 
 ## Customization
 
@@ -301,6 +307,7 @@ Forward-looking work that is **not** in the current release:
 
 | Document | Description |
 |----------|-------------|
+| [`CONTRIBUTORS.md`](CONTRIBUTORS.md) | Authorship, AI tooling acknowledgement, and how to contribute |
 | [`server/engine/README.md`](server/engine/README.md) | Calculation engine architecture, modules, and public API |
 | [`client/README.md`](client/README.md) | React frontend setup, components, and build |
 | [`server/import/excel/README.md`](server/import/excel/README.md) | Excel preview module — endpoint contracts and response shapes (preview only) |

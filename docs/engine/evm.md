@@ -26,6 +26,16 @@
 | `calcPlannedValue(project)` | PV from start/end dates and BAC |
 | `calcEarnedValue(project)` | EV = BAC × (spent / budget) |
 
+### Percent-Complete Proxy
+
+`calcEarnedValue` uses **spend ratio as a proxy for physical percent complete**:
+
+```
+EV = BAC × (spent_to_date / budget)
+```
+
+This treats the fraction of budget consumed as if it equals the fraction of work completed — a simplifying assumption valid for cost-type contracts where spending tracks progress closely. For fixed-price or milestone-based projects, physical percent complete may diverge from spend ratio. In those cases, override `spent_to_date` in the project record to reflect the actual earned-value figure rather than raw spend.
+
 ### Complete EVM
 
 ### `calcEvm(project)`
