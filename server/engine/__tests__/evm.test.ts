@@ -12,7 +12,9 @@ import {
   calcTCPI,
   calcEarnedValue,
   calcEvm,
+  calcPlannedValue,
 } from "../evm.js";
+import type { Project } from "../types.js";
 
 describe("calcCPI", () => {
   it("returns EV / AC", () => {
@@ -107,6 +109,57 @@ describe("calcEarnedValue", () => {
     expect(calcEarnedValue(50, 1000)).toBe(500);
     expect(calcEarnedValue(0, 1000)).toBe(0);
     expect(calcEarnedValue(100, 1000)).toBe(1000);
+  });
+});
+
+describe("calcPlannedValue", () => {
+  const project: Project = {
+    id: 1,
+    name: "Linear Project",
+    total_budget: 1000,
+    spent_to_date: 0,
+    start_date: "2025-01-01",
+    end_date: "2025-12-31",
+    status: "active",
+  };
+
+  it("returns half the budget at the schedule midpoint", () => {
+    // ~halfway through the Jan 1 -> Dec 31 window.
+    const midpoint = new Date("2025-07-02");
+    const pv = calcPlannedValue(project, midpoint);
+    // Should be close to 50% of the budget; allow a small slack for the
+    // exact day count (a few days off midpoint).
+    expect(pv).toBeGreaterThan(project.total_budget * 0.45);
+    expect(pv).toBeLessThan(project.total_budget * 0.55);
+  });
+
+  it("clamps to 0 before the project start (fraction floored at 0)", () => {
+    const beforeStart = new Date("2024-06-01");
+    expect(calcPlannedValue(project, beforeStart)).toBe(0);
+  });
+
+  it("clamps to full budget after the project end (fraction capped at 1)", () => {
+    const afterEnd = new Date("2026-06-01");
+    expect(calcPlannedValue(project, afterEnd)).toBe(project.total_budget);
+  });
+
+  it("returns the full budget when duration is non-positive (end <= start)", () => {
+    const zeroDuration: Project = {
+      ...project,
+      start_date: "2025-06-01",
+      end_date: "2025-06-01",
+    };
+    expect(calcPlannedValue(zeroDuration, new Date("2025-06-15"))).toBe(
+      zeroDuration.total_budget
+    );
+  });
+
+  it("defaults asOfDate to now when omitted", () => {
+    // With no asOfDate, the function uses new Date(); the result must stay
+    // within the valid [0, budget] envelope regardless of the current date.
+    const pv = calcPlannedValue(project);
+    expect(pv).toBeGreaterThanOrEqual(0);
+    expect(pv).toBeLessThanOrEqual(project.total_budget);
   });
 });
 
