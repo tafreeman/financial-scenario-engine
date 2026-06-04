@@ -4,7 +4,16 @@ import js from "@eslint/js";
 
 export default [
   {
-    ignores: ["client/**", "dist/**", "node_modules/**", "**/*.js", "eslint.config.js", "server/engine/__tests__/**"],
+    ignores: [
+      "client/dist/**",
+      "client/dist-pages/**",
+      "client/node_modules/**",
+      "dist/**",
+      "node_modules/**",
+      "**/*.js",
+      "eslint.config.js",
+      "server/engine/__tests__/**",
+    ],
   },
   {
     files: ["server/**/*.ts"],
@@ -31,6 +40,41 @@ export default [
     rules: {
       ...js.configs.recommended.rules,
       ...tsPlugin.configs.recommended.rules,
+      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
+    },
+  },
+  {
+    files: ["client/**/*.{ts,tsx}"],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        fetch: "readonly",
+        console: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        URL: "readonly",
+        localStorage: "readonly",
+        navigator: "readonly",
+      },
+    },
+    plugins: {
+      "@typescript-eslint": tsPlugin,
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      ...tsPlugin.configs.recommended.rules,
+      // TypeScript's own checker handles undefined identifiers (types like
+      // RequestInit/HTMLTextAreaElement and JSX's React are resolved by tsc),
+      // so the core no-undef rule produces false positives here.
+      "no-undef": "off",
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
     },
