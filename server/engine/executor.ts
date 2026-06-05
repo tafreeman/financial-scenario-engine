@@ -250,8 +250,27 @@ function handleEvmAnalysis(
   const ac = targetProject.spent_to_date;
   const pv = calcPlannedValue(targetProject);
 
-  // Estimate percent complete from spend ratio as proxy
-  const percentComplete = bac > 0 ? (ac / bac) * 100 : 0;
+  // Percent-complete source: prefer an explicit value from the project record;
+  // fall back to the spend-ratio proxy (AC / BAC) when none is provided.
+  //
+  // DISCLOSURE — spend-ratio proxy limitation:
+  // When percent_complete is absent, this engine estimates physical progress as
+  // (AC / BAC) × 100 — i.e. it treats the fraction of budget consumed as a
+  // stand-in for the fraction of work completed. This makes EV a direct
+  // function of AC, which has two analytical consequences readers should be
+  // aware of:
+  //   • CPI (EV / AC) is mathematically pulled toward 1.0 regardless of true
+  //     cost efficiency, because EV ≈ AC when the proxy is used.
+  //   • SPI (EV / PV) reflects spend pace relative to the schedule baseline,
+  //     not independent physical progress. If a project is overspending ahead
+  //     of schedule, SPI can read > 1 even when deliverables are behind.
+  // CPI and SPI are therefore not independent signals under this proxy. They
+  // should be interpreted as spend-pace indicators, not true performance
+  // indices, unless an explicit percent_complete is supplied.
+  const rawPct = targetProject.percent_complete;
+  const percentComplete = rawPct !== undefined
+    ? Math.max(0, Math.min(100, rawPct))   // clamp caller-supplied value to [0, 100]
+    : bac > 0 ? (ac / bac) * 100 : 0;     // spend-ratio proxy fallback (see disclosure above)
   const ev = calcEarnedValue(percentComplete, bac);
 
   const evm = calcEvm(bac, ac, pv, ev);

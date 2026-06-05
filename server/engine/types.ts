@@ -55,6 +55,14 @@ export interface Project {
   start_date: string;
   end_date: string;
   status: string;
+  /**
+   * Explicit physical percent complete (0–100), when available from the
+   * project record (e.g. set by a PM or milestone system). When present,
+   * this is used directly to compute Earned Value instead of the spend-ratio
+   * proxy. If absent, the engine falls back to `(spent_to_date / total_budget)
+   * × 100` — see the disclosure comment in executor.ts → handleEvmAnalysis.
+   */
+  percent_complete?: number;
 }
 
 export interface ProjectSnapshot extends Project {
