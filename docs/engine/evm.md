@@ -26,15 +26,44 @@
 | `calcPlannedValue(project)` | PV from start/end dates and BAC |
 | `calcEarnedValue(project)` | EV = BAC × (spent / budget) |
 
-### Percent-Complete Proxy
+### Percent-Complete and Earned Value
 
-`calcEarnedValue` uses **spend ratio as a proxy for physical percent complete**:
+When computing EVM for a project, the engine first checks for an explicit `percent_complete` value on the project record. If one is present it is clamped to [0, 100] and used directly:
 
 ```
-EV = BAC × (spent_to_date / budget)
+EV = BAC × (percent_complete / 100)
 ```
 
-This treats the fraction of budget consumed as if it equals the fraction of work completed — a simplifying assumption valid for cost-type contracts where spending tracks progress closely. For fixed-price or milestone-based projects, physical percent complete may diverge from spend ratio. In those cases, override `spent_to_date` in the project record to reflect the actual earned-value figure rather than raw spend.
+#### Spend-ratio proxy (fallback)
+
+When no explicit `percent_complete` is available, the engine falls back to the **spend ratio** as a proxy for physical progress:
+
+```
+EV = BAC × (spent_to_date / total_budget)
+```
+
+> **Disclosure — CPI/SPI limitations under the spend-ratio proxy**
+>
+> Deriving percent-complete from `AC / BAC` makes Earned Value a mathematical
+> function of Actual Cost. This has two consequences that analysts must keep in
+> mind:
+>
+> - **CPI (EV / AC) trends toward 1.0.** Because EV ≈ AC under this proxy,
+>   Cost Performance Index loses sensitivity as a cost-efficiency signal — it
+>   will appear near 1.0 even when the project is genuinely over- or
+>   under-performing relative to planned cost.
+> - **SPI (EV / PV) reflects spend pace, not physical progress.** Schedule
+>   Performance Index measures how quickly budget is being consumed relative
+>   to the time-phased plan, rather than how much deliverable work has actually
+>   been completed.
+>
+> CPI and SPI are **not independent signals** under the proxy. They should be
+> read as spend-pace indicators only. To obtain true performance indices,
+> supply an explicit `percent_complete` value derived from physical progress
+> (e.g. milestone gates, percent-complete reported by the PM, or a
+> milestone-weighted earned-value method).
+
+This treats the fraction of budget consumed as if it equals the fraction of work completed — a simplifying assumption that holds reasonably for cost-type contracts where spending closely tracks deliverable progress, but can diverge significantly for fixed-price or milestone-based contracts.
 
 ### Complete EVM
 
