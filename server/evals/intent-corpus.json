@@ -63,13 +63,13 @@
   },
   {
     "id": "remove-002",
-    "query": "Take K. Chen off Project Alpha",
+    "query": "Take the Business Analyst L. Park off Project Alpha",
     "expected": {
       "action": "remove",
       "project": "Project Alpha",
-      "remove": [{ "role": "Mid-level Developer", "count": 1, "person_name": "K. Chen" }]
+      "remove": [{ "role": "Business Analyst", "count": 1, "person_name": "L. Park" }]
     },
-    "notes": "Person-name removal; role should be inferred from context or set to the matching category"
+    "notes": "Person-name removal — the role is stated in the query because the anonymized context (Staff-N) cannot resolve names to roles"
   },
   {
     "id": "remove-003",
@@ -83,13 +83,13 @@
   },
   {
     "id": "rate_change-001",
-    "query": "Increase the Senior Developer bill rate to $275 per hour on Project Alpha",
+    "query": "We renegotiated the Lead Architect contract on Project Beta — billing goes up to $310 an hour",
     "expected": {
       "action": "rate_change",
-      "project": "Project Alpha",
-      "rate_changes": [{ "role": "Senior Developer", "new_bill_rate": 275 }]
+      "project": "Project Beta",
+      "rate_changes": [{ "role": "Lead Architect", "new_bill_rate": 310 }]
     },
-    "notes": "Bill-rate-only change with numeric extraction"
+    "notes": "Bill-rate-only change in conversational phrasing — deliberately distinct from the in-prompt rate_change example"
   },
   {
     "id": "rate_change-002",
@@ -113,13 +113,13 @@
   },
   {
     "id": "hours_change-001",
-    "query": "Cut K. Chen to 20 hours per week on Project Alpha",
+    "query": "Scale M. Rodriguez back to 24 hours a week on Project Beta",
     "expected": {
       "action": "hours_change",
-      "project": "Project Alpha",
-      "hours_changes": [{ "person_name": "K. Chen", "new_hours_per_week": 20 }]
+      "project": "Project Beta",
+      "hours_changes": [{ "person_name": "M. Rodriguez", "new_hours_per_week": 24 }]
     },
-    "notes": "Named person hours reduction"
+    "notes": "Named-person hours reduction — novel name/hours/project so it cannot be answered by copying the in-prompt hours_change example"
   },
   {
     "id": "hours_change-002",
@@ -152,13 +152,13 @@
   },
   {
     "id": "unexpected_cost-001",
-    "query": "Add a $50,000 one-time licensing fee to Project Gamma",
+    "query": "Project Beta just got hit with a one-off $18,500 security audit invoice",
     "expected": {
       "action": "unexpected_cost",
-      "project": "Project Gamma",
-      "additional_costs": [{ "description": "Licensing fee", "amount": 50000, "is_recurring": false }]
+      "project": "Project Beta",
+      "additional_costs": [{ "description": "Security audit invoice", "amount": 18500, "is_recurring": false }]
     },
-    "notes": "One-time unexpected cost; is_recurring must be false"
+    "notes": "One-time unexpected cost, conversational phrasing; description text is model-phrased so the field-level match on additional_costs may be partial"
   },
   {
     "id": "unexpected_cost-002",
@@ -172,22 +172,22 @@
   },
   {
     "id": "reallocation-001",
-    "query": "Move the QA Engineer from Project Beta to Project Gamma",
+    "query": "Shift the Business Analyst currently on Project Alpha over to Project Gamma",
     "expected": {
       "action": "reallocation",
-      "projects": ["Project Beta", "Project Gamma"],
-      "remove": [{ "role": "QA Engineer", "count": 1 }],
-      "add": [{ "role": "QA Engineer", "count": 1, "hours_per_week": 40 }]
+      "projects": ["Project Alpha", "Project Gamma"],
+      "remove": [{ "role": "Business Analyst", "count": 1 }],
+      "add": [{ "role": "Business Analyst", "count": 1, "hours_per_week": 40 }]
     },
-    "notes": "Canonical reallocation — source first, destination second in projects[]"
+    "notes": "Reallocation with different role/projects and verb than the in-prompt example — source first, destination second in projects[]"
   },
   {
     "id": "burn_rate_check-001",
-    "query": "What's the burn rate across all projects?",
+    "query": "At the current pace of spending, how long until each project's budget is gone?",
     "expected": {
       "action": "burn_rate_check"
     },
-    "notes": "Portfolio-wide burn rate — no project field needed"
+    "notes": "Portfolio-wide runway question phrased without the words 'burn rate' — no project field needed"
   },
   {
     "id": "burn_rate_check-002",
@@ -200,12 +200,12 @@
   },
   {
     "id": "margin_analysis-001",
-    "query": "Analyze margins on Project Alpha",
+    "query": "What's the margin looking like on Project Alpha?",
     "expected": {
       "action": "margin_analysis",
       "project": "Project Alpha"
     },
-    "notes": "Project-scoped margin analysis"
+    "notes": "Project-scoped margin analysis — rephrased so it is not a verbatim copy of the in-prompt margin_analysis example"
   },
   {
     "id": "margin_analysis-002",
@@ -235,23 +235,23 @@
   },
   {
     "id": "composite-001",
-    "query": "What if we add a Project Manager to Project Alpha AND remove the Junior Developer from Project Gamma?",
+    "query": "Suppose we put a Scrum Master on Project Gamma and also push Project Beta out by two months — what does that do to the numbers?",
     "expected": {
       "action": "what_if_composite",
       "sub_operations": [
         {
           "action": "add",
-          "project": "Project Alpha",
-          "add": [{ "role": "Project Manager", "count": 1, "hours_per_week": 40 }]
+          "project": "Project Gamma",
+          "add": [{ "role": "Scrum Master", "count": 1, "hours_per_week": 40 }]
         },
         {
-          "action": "remove",
-          "project": "Project Gamma",
-          "remove": [{ "role": "Junior Developer", "count": 1 }]
+          "action": "timeline_extension",
+          "project": "Project Beta",
+          "extension_months": 2
         }
       ]
     },
-    "notes": "Two-operation composite; order should follow user query"
+    "notes": "Two-operation composite mixing staffing and timeline — different operations/projects than the in-prompt composite example; order should follow user query"
   },
   {
     "id": "ambiguous-001",
@@ -268,7 +268,13 @@
       "action": "burn_rate_check",
       "project": "Project Alpha"
     },
-    "notes": "Open-ended project query — burn_rate_check is appropriate fallback"
+    "expectedAlternatives": [
+      {
+        "action": "margin_analysis",
+        "project": "Project Alpha"
+      }
+    ],
+    "notes": "Open-ended current-state query — the prompt rules allow burn_rate_check OR margin_analysis, so both are accepted"
   },
   {
     "id": "ambiguous-003",

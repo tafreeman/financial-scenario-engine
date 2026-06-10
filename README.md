@@ -183,7 +183,7 @@ Tests live in `tests/e2e/ui/` (UI workflows) and `tests/e2e/excel/` (import endp
 
 The LLM boundary — user natural-language query → `ScenarioOperation` JSON — is covered by a separate eval corpus rather than the CI unit tests, because it requires a live model call.
 
-**Corpus:** `server/evals/intent-corpus.json` — 30 labeled cases spanning all 12 operation types (`swap`, `add`, `remove`, `rate_change`, `hours_change`, `timeline_extension`, `unexpected_cost`, `reallocation`, `burn_rate_check`, `margin_analysis`, `evm_analysis`, `what_if_composite`), plus ambiguous and out-of-scope queries with their expected fallback handling.
+**Corpus:** `server/evals/intent-corpus.json` — 30 labeled cases spanning all 12 operation types (`swap`, `add`, `remove`, `rate_change`, `hours_change`, `timeline_extension`, `unexpected_cost`, `reallocation`, `burn_rate_check`, `margin_analysis`, `evm_analysis`, `what_if_composite`), plus ambiguous and out-of-scope queries with their expected fallback handling. Where the prompt rules genuinely allow more than one valid interpretation, an entry may carry an `expectedAlternatives` array — the scorer accepts the best match among the primary expected value and its alternatives.
 
 **Runner:**
 
@@ -191,7 +191,12 @@ The LLM boundary — user natural-language query → `ScenarioOperation` JSON �
 GITHUB_TOKEN=<pat-with-models:read> npm run eval:intent
 ```
 
-The runner sends each query through the same `PARSE_INTENT_PROMPT` and model call that production uses, scores exact action-type match and field-level match against the labeled expected values, and prints a per-case result table plus an aggregate accuracy summary. If `GITHUB_TOKEN` is absent the runner exits cleanly without failing CI.
+The runner sends each query through the same `PARSE_INTENT_PROMPT` (imported directly from `server/ai.ts`, so prompt edits flow into the eval automatically) and the same parse/fallback path that production uses — including the burn_rate_check fallback on unparseable model output. It scores exact action-type match and field-level match against the labeled expected values, and prints a per-case result table plus an aggregate accuracy summary. Both aggregate metrics (action accuracy and mean field score) use the full corpus size as denominator; transport errors score 0.
+
+Notes on the runner's environment:
+- It requires `GITHUB_TOKEN` even if your deployment is configured for Ollama — the eval always calls the GitHub Models API.
+- It always uses the default model (`openai/gpt-4.1`) and GitHub Models endpoint; it does **not** read the app's SQLite config table, so a custom model/provider configured in Settings is not reflected in eval results.
+- If `GITHUB_TOKEN` is absent the runner exits cleanly without failing CI.
 
 **Results artifact:** `server/evals/results/latest.json` — written on each run, excluded from git. Accuracy is reported by the runner output and the results artifact; it is not hard-coded in this README.
 

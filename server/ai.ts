@@ -82,7 +82,12 @@ export interface AiResponse {
 
 // ─── V2: Structured Intent Parsing ───────────────────────────────────────────
 
-const PARSE_INTENT_PROMPT = `You are a financial scenario parser. Your job is to convert natural language into a structured JSON operation that the financial engine can execute. You do NOT compute anything — you only extract the user's intent.
+/**
+ * System prompt for the V2 intent-parsing step. Exported so the intent eval
+ * runner (server/evals/run-intent-eval.ts) exercises the exact production
+ * prompt — edits here automatically flow into the eval.
+ */
+export const PARSE_INTENT_PROMPT = `You are a financial scenario parser. Your job is to convert natural language into a structured JSON operation that the financial engine can execute. You do NOT compute anything — you only extract the user's intent.
 
 ## AVAILABLE ENGINE OPERATIONS
 

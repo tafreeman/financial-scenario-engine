@@ -16,8 +16,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  *
  * What is checked per corpus entry:
  *   1. Required top-level fields are present (id, query, expected).
- *   2. The `expected` operation validates against the same Zod schema that
- *      production uses at the parse/boundary step — i.e. every expected
+ *   2. The `expected` operation (and every entry in the optional
+ *      `expectedAlternatives` array) validates against the same Zod schema
+ *      that production uses at the parse/boundary step — i.e. every labeled
  *      value is a legal ScenarioOperation.
  *   3. `query` is a non-empty string.
  *   4. `id` is a non-empty string.
@@ -27,6 +28,7 @@ interface RawCorpusEntry {
   id: unknown;
   query: unknown;
   expected: unknown;
+  expectedAlternatives?: unknown;
   notes?: unknown;
 }
 
@@ -66,6 +68,25 @@ describe("intent-corpus — structural integrity", () => {
           result.success ? "" : result.error.message
         }`
       ).toBe(true);
+    }
+  });
+
+  it("every expectedAlternatives entry is a valid ScenarioOperation", () => {
+    for (const entry of entries) {
+      if (entry.expectedAlternatives === undefined) continue;
+      expect(
+        Array.isArray(entry.expectedAlternatives),
+        `Corpus entry "${String(entry.id)}": expectedAlternatives must be an array`
+      ).toBe(true);
+      for (const alternative of entry.expectedAlternatives as unknown[]) {
+        const result = scenarioOperationSchema.safeParse(alternative);
+        expect(
+          result.success,
+          `Corpus entry "${String(entry.id)}" has invalid expectedAlternatives entry: ${
+            result.success ? "" : result.error.message
+          }`
+        ).toBe(true);
+      }
     }
   });
 
