@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "eval:intent": "tsx server/evals/run-intent-eval.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

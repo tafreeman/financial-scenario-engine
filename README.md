@@ -179,6 +179,24 @@ npx playwright install --with-deps chromium
 
 Tests live in `tests/e2e/ui/` (UI workflows) and `tests/e2e/excel/` (import endpoint).
 
+### Intent-parsing evals
+
+The LLM boundary — user natural-language query → `ScenarioOperation` JSON — is covered by a separate eval corpus rather than the CI unit tests, because it requires a live model call.
+
+**Corpus:** `server/evals/intent-corpus.json` — 30 labeled cases spanning all 12 operation types (`swap`, `add`, `remove`, `rate_change`, `hours_change`, `timeline_extension`, `unexpected_cost`, `reallocation`, `burn_rate_check`, `margin_analysis`, `evm_analysis`, `what_if_composite`), plus ambiguous and out-of-scope queries with their expected fallback handling.
+
+**Runner:**
+
+```bash
+GITHUB_TOKEN=<pat-with-models:read> npm run eval:intent
+```
+
+The runner sends each query through the same `PARSE_INTENT_PROMPT` and model call that production uses, scores exact action-type match and field-level match against the labeled expected values, and prints a per-case result table plus an aggregate accuracy summary. If `GITHUB_TOKEN` is absent the runner exits cleanly without failing CI.
+
+**Results artifact:** `server/evals/results/latest.json` — written on each run, excluded from git. Accuracy is reported by the runner output and the results artifact; it is not hard-coded in this README.
+
+**Corpus integrity (CI):** `server/__tests__/intent-corpus.test.ts` runs in the normal `npm test` suite — no network needed. It validates that every corpus entry is a structurally valid `ScenarioOperation`, all 12 action types are covered, ids are unique, and the corpus has at least 25 entries.
+
 ---
 
 ## Project Structure
