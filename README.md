@@ -162,7 +162,7 @@ npx vitest run          # run once
 npx vitest              # watch mode
 ```
 
-Every engine module has a dedicated unit-test file -- `labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative` -- exercising the full calculation surface (EVM metrics, what-if scenarios, goal-seeking) with no network or API key. A separate AI-layer integration test covers the intent-to-tool-arg boundary.
+The seven core calculation modules (`labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative`) each have a dedicated unit-test file exercising the full calculation surface (EVM metrics, what-if scenarios, goal-seeking) with no network or API key. A separate AI-layer integration test covers the intent-to-tool-arg boundary.
 
 ### E2E Tests (Playwright)
 
