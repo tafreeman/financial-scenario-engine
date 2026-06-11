@@ -104,8 +104,19 @@ function computeState(staffing: StaffingRecord[], project: ProjectSnapshot) {
 // ─── Main Executor ───────────────────────────────────────────────────────────
 
 /** Execute a scenario operation against current database state.
- *  Accepts an optional pre-loaded portfolio to avoid redundant DB queries (e.g. in composite operations). */
-export function executeScenario(operation: ScenarioOperation, preloadedPortfolio?: PortfolioSnapshot): ScenarioResult {
+ *
+ *  @param operation - The structured scenario operation to execute.
+ *  @param preloadedPortfolio - Optional pre-loaded portfolio to avoid redundant DB queries
+ *    (e.g. in composite operations).
+ *  @param asOfDate - Reference date for time-dependent calculations (timeline extension,
+ *    EVM planned value).  Defaults to the current wall-clock time when omitted.
+ *    Pass an explicit date in tests and batch runs to make outputs deterministic.
+ */
+export function executeScenario(
+  operation: ScenarioOperation,
+  preloadedPortfolio?: PortfolioSnapshot,
+  asOfDate?: Date
+): ScenarioResult {
   const portfolio = preloadedPortfolio ?? loadPortfolioSnapshot();
   const warnings: string[] = [];
   const timestamp = new Date().toISOString();
@@ -132,7 +143,7 @@ export function executeScenario(operation: ScenarioOperation, preloadedPortfolio
       return handleAnalysis(operation, portfolio, targetProject, warnings, timestamp);
 
     case "evm_analysis":
-      return handleEvmAnalysis(operation, portfolio, targetProject, warnings, timestamp);
+      return handleEvmAnalysis(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "swap":
     case "add":
@@ -142,7 +153,7 @@ export function executeScenario(operation: ScenarioOperation, preloadedPortfolio
       return handleStaffingChange(operation, portfolio, targetProject, warnings, timestamp);
 
     case "timeline_extension":
-      return handleTimelineExtension(operation, portfolio, targetProject, warnings, timestamp);
+      return handleTimelineExtension(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "unexpected_cost":
       return handleUnexpectedCost(operation, portfolio, targetProject, warnings, timestamp);
@@ -151,7 +162,7 @@ export function executeScenario(operation: ScenarioOperation, preloadedPortfolio
       return handleReallocation(operation, portfolio, warnings, timestamp);
 
     case "what_if_composite":
-      return handleComposite(operation, portfolio, targetProject, warnings, timestamp);
+      return handleComposite(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     default:
       warnings.push(`Unknown action: ${operation.action}. Defaulting to burn rate check.`);
@@ -236,7 +247,8 @@ function handleEvmAnalysis(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOfDate?: Date
 ): ScenarioResult {
   if (!targetProject) {
     warnings.push("EVM analysis requires a specific project. Using first project.");
@@ -248,7 +260,7 @@ function handleEvmAnalysis(
   // EVM estimation
   const bac = targetProject.total_budget;
   const ac = targetProject.spent_to_date;
-  const pv = calcPlannedValue(targetProject);
+  const pv = calcPlannedValue(targetProject, asOfDate);
 
   // Percent-complete source: prefer an explicit value from the project record;
   // fall back to the spend-ratio proxy (AC / BAC) when none is provided.
@@ -364,7 +376,8 @@ function handleTimelineExtension(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOfDate?: Date
 ): ScenarioResult {
   if (!targetProject) {
     warnings.push("Timeline extension requires a specific project. Using first project.");
@@ -376,7 +389,8 @@ function handleTimelineExtension(
     targetProject,
     current.labor.monthly_cost,
     operation.extension_months,
-    operation.new_end_date
+    operation.new_end_date,
+    asOfDate
   );
 
   if (extensionResult.budget_gap > 0) {
@@ -560,7 +574,8 @@ function handleComposite(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOfDate?: Date
 ): ScenarioResult {
   if (!operation.sub_operations || operation.sub_operations.length === 0) {
     warnings.push("Composite operation has no sub-operations.");
@@ -570,7 +585,7 @@ function handleComposite(
     );
   }
 
-  const subResults = operation.sub_operations.map(subOp => executeScenario(subOp, portfolio));
+  const subResults = operation.sub_operations.map(subOp => executeScenario(subOp, portfolio, asOfDate));
 
   // Aggregate: use first sub-result's current as the "before" baseline
   const firstResult = subResults[0];

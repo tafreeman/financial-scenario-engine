@@ -127,12 +127,18 @@ export function applyHoursChange(
 
 // ─── Timeline & Cost Impact ──────────────────────────────────────────────────
 
-/** Calculate impact of extending a project timeline */
+/** Calculate impact of extending a project timeline.
+ *
+ *  @param asOfDate - The reference date for "now" when computing remaining months.
+ *  Defaults to the current wall-clock time when omitted.  Pass an explicit date
+ *  in tests and deterministic contexts to make outputs independent of wall-clock time.
+ */
 export function calcTimelineExtensionImpact(
   project: ProjectSnapshot,
   monthlyBurn: number,
   extensionMonths?: number,
-  newEndDate?: string
+  newEndDate?: string,
+  asOfDate?: Date
 ): {
   new_end_date: string;
   additional_months: number;
@@ -163,8 +169,8 @@ export function calcTimelineExtensionImpact(
 
   const additional_cost = monthlyBurn * additionalMonths;
   const _remaining = calcRemainingBudget(project.total_budget, project.spent_to_date);
-  // Calculate total months remaining from now to new end
-  const now = new Date();
+  // Calculate total months remaining from asOfDate to new end
+  const now = asOfDate ?? new Date();
   const remainingMonthsNew = (newEnd.getTime() - now.getTime()) / (30.44 * 24 * 60 * 60 * 1000);
   const new_total_projected = project.spent_to_date + monthlyBurn * Math.max(0, remainingMonthsNew);
   const budget_gap = new_total_projected - project.total_budget;
