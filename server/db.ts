@@ -216,9 +216,14 @@ export function getProjectsWithBurn(): ProjectRow[] {
   `).all() as ProjectRow[];
 }
 
-export function getStaffingByProject(projectId?: number) {
+export function getStaffingByProject(projectId?: number, activeOnly = false) {
   const d = getDb();
-  let sql = `
+  const conditions: string[] = [];
+  if (projectId) conditions.push("s.project_id = ?");
+  if (activeOnly) conditions.push("s.is_active = 1");
+
+  const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
+  const sql = `
     SELECT s.id, s.person_name, s.hours_per_week, s.is_active,
            p.name as project_name, p.id as project_id,
            lc.name as labor_category, lc.bill_rate, lc.cost_rate,
@@ -228,13 +233,10 @@ export function getStaffingByProject(projectId?: number) {
     FROM staffing s
     JOIN projects p ON p.id = s.project_id
     JOIN labor_categories lc ON lc.id = s.labor_category_id
+    ${whereClause}
+    ORDER BY p.name, lc.bill_rate DESC
   `;
-  if (projectId) {
-    sql += ` WHERE s.project_id = ?`;
-    sql += ` ORDER BY p.name, lc.bill_rate DESC`;
-    return d.prepare(sql).all(projectId);
-  }
-  sql += ` ORDER BY p.name, lc.bill_rate DESC`;
+  if (projectId) return d.prepare(sql).all(projectId);
   return d.prepare(sql).all();
 }
 

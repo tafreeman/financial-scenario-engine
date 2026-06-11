@@ -106,7 +106,9 @@ apiRouter.get("/health", (_req, res) => {
 // ---- Dashboard summary ----
 apiRouter.get("/dashboard", (_req, res) => {
   const projects = getProjectsWithBurn();
-  const staffing = getStaffingByProject() as StaffingRow[];
+  // activeOnly=true: soft-deleted staff (is_active=0) must not count toward
+  // dashboard revenue/cost/margin totals (matches the engine's loadPortfolioSnapshot filter).
+  const staffing = getStaffingByProject(undefined, true) as StaffingRow[];
 
   const totalBudget = projects.reduce((s, p) => s + p.total_budget, 0);
   const totalSpent = projects.reduce((s, p) => s + p.spent_to_date, 0);
