@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
+import { z } from "zod";
 import {
   getProjectsWithBurn,
   getStaffingByProject,
@@ -45,6 +46,16 @@ function sendIntentParseFailure(res: Response, failure: IntentParseFailure) {
     ...(failure.details ? { details: failure.details } : {}),
   });
 }
+
+// ─── Request body schemas ─────────────────────────────────────────────────────
+
+/** Only the four mutable project columns are accepted; all other keys are rejected. */
+const patchProjectSchema = z.object({
+  name: z.string().min(1).optional(),
+  total_budget: z.number().nonnegative().optional(),
+  spent_to_date: z.number().nonnegative().optional(),
+  status: z.string().min(1).optional(),
+}).strict();
 
 // ---- Health ----
 apiRouter.get("/health", (_req, res) => {
@@ -96,7 +107,12 @@ apiRouter.post("/projects", (req: Request, res: Response) => {
 });
 
 apiRouter.patch("/projects/:id", (req: Request, res: Response) => {
-  updateProject(Number(req.params.id), req.body);
+  const parsed = patchProjectSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid fields", details: parsed.error.errors });
+    return;
+  }
+  updateProject(Number(req.params.id), parsed.data);
   res.json({ ok: true });
 });
 

@@ -353,14 +353,19 @@ export function addProject(name: string, totalBudget: number, startDate: string,
   ).run(name, totalBudget, startDate, endDate);
 }
 
+/** Column names accepted by updateProject. Any key not in this set is silently ignored. */
+const PROJECT_UPDATE_ALLOWED = new Set(["name", "total_budget", "spent_to_date", "status"]);
+
 export function updateProject(id: number, fields: Partial<{ name: string; total_budget: number; spent_to_date: number; status: string }>) {
   const d = getDb();
   const sets: string[] = [];
   const vals: (string | number)[] = [];
   for (const [k, v] of Object.entries(fields)) {
+    if (!PROJECT_UPDATE_ALLOWED.has(k)) continue; // reject unlisted columns
     sets.push(`${k} = ?`);
-    vals.push(v);
+    vals.push(v as string | number);
   }
+  if (sets.length === 0) return; // nothing to update
   sets.push("updated_at = datetime('now')");
   vals.push(id);
   d.prepare(`UPDATE projects SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
