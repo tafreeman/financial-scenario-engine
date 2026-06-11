@@ -14,7 +14,7 @@ import {
   buildAnonymizedContextSnapshot,
   saveScenario,
 } from "./db.js";
-import { parseIntent, narrateResult, agenticScenario } from "./ai.js";
+import { parseIntent, narrateResult, agenticScenario, type IntentParseFailure } from "./ai.js";
 import { executeScenario } from "./engine/executor.js";
 import { generateNarrative } from "./engine/narrative.js";
 import { handleExcelImportV1, handleExcelImportV2 } from "./import/excel/index.js";
@@ -36,6 +36,15 @@ interface StaffingRow {
 
 export const apiRouter = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
+function sendIntentParseFailure(res: Response, failure: IntentParseFailure) {
+  res.status(422).json({
+    error: failure.message,
+    code: failure.code,
+    clarification: failure.clarification,
+    ...(failure.details ? { details: failure.details } : {}),
+  });
+}
 
 // ---- Health ----
 apiRouter.get("/health", (_req, res) => {
@@ -133,15 +142,15 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
   try {
     // Step 1: LLM parses intent into structured operation (anonymized context sent to LLM)
     const context = buildAnonymizedContextSnapshot();
-    const operation = await parseIntent(query, context);
+    const parseResult = await parseIntent(query, context);
+    if (!parseResult.ok) {
+      sendIntentParseFailure(res, parseResult);
+      return;
+    }
+    const operation = parseResult.operation;
 
     // Step 2: Deterministic engine computes results
     const engineResult = executeScenario(operation);
-
-    // Surface fallback warning if parseIntent could not understand the query
-    if (operation._fallback && operation._fallback_reason) {
-      engineResult.warnings.unshift(operation._fallback_reason);
-    }
 
     // Step 3: Generate narrative (template-based by default, LLM if explicitly requested)
     let narrative = "";
@@ -179,8 +188,12 @@ apiRouter.post("/scenario/v2/parse-only", async (req: Request, res: Response) =>
 
   try {
     const context = buildAnonymizedContextSnapshot();
-    const operation = await parseIntent(query, context);
-    res.json(operation);
+    const parseResult = await parseIntent(query, context);
+    if (!parseResult.ok) {
+      sendIntentParseFailure(res, parseResult);
+      return;
+    }
+    res.json(parseResult.operation);
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

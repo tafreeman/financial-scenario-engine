@@ -1,7 +1,56 @@
-import { describe, it, expect } from "vitest";
-import { processToolCalls } from "../ai.js";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { parseIntent, processToolCalls } from "../ai.js";
 import type { ToolCall, ChatMessage } from "../ai.js";
 import type { ScenarioResult } from "../engine/types.js";
+import { getConfig, setConfig } from "../db.js";
+
+const configKeys = [
+  "llm_provider",
+  "ollama_endpoint",
+  "ollama_model",
+] as const;
+
+let originalConfig: Record<(typeof configKeys)[number], string>;
+
+beforeEach(() => {
+  originalConfig = Object.fromEntries(
+    configKeys.map((key) => [key, getConfig(key)])
+  ) as Record<(typeof configKeys)[number], string>;
+
+  setConfig("llm_provider", "ollama");
+  setConfig("ollama_endpoint", "http://localhost:11434/v1/chat/completions");
+  setConfig("ollama_model", "llama3.2");
+});
+
+afterEach(() => {
+  for (const key of configKeys) {
+    setConfig(key, originalConfig[key]);
+  }
+  vi.unstubAllGlobals();
+});
+
+describe("parseIntent - explicit parse failure contract", () => {
+  it("does not masquerade malformed LLM output as a burn rate operation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { role: "assistant", content: "this is not json" },
+          },
+        ],
+      }),
+    }));
+
+    const result = await parseIntent("Replace the architect on Project Alpha", "anonymized context");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected parse failure");
+    expect(result.code).toBe("invalid_json");
+    expect(JSON.stringify(result)).not.toContain("burn_rate_check");
+  });
+});
 
 /**
  * The agentic (V3) path executes LLM-supplied tool arguments. These tests pin

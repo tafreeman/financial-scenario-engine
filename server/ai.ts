@@ -80,6 +80,39 @@ export interface AiResponse {
   error?: string;
 }
 
+export type IntentParseFailureCode =
+  | "provider_unconfigured"
+  | "invalid_json"
+  | "invalid_operation"
+  | "provider_error";
+
+export interface IntentParseSuccess {
+  ok: true;
+  operation: ScenarioOperation;
+}
+
+export interface IntentParseFailure {
+  ok: false;
+  code: IntentParseFailureCode;
+  message: string;
+  clarification: string;
+  details?: string;
+}
+
+export type IntentParseResult = IntentParseSuccess | IntentParseFailure;
+
+const PARSE_CLARIFICATION =
+  "Please rephrase the scenario using a supported operation such as adding, removing, swapping, changing rates or hours, extending timelines, adding unexpected costs, reallocating staff, checking burn rate, analyzing margins, or running EVM.";
+
+function intentParseFailure(
+  code: IntentParseFailureCode,
+  message: string,
+  details?: string,
+  clarification = PARSE_CLARIFICATION
+): IntentParseFailure {
+  return { ok: false, code, message, clarification, ...(details ? { details } : {}) };
+}
+
 // ─── V2: Structured Intent Parsing ───────────────────────────────────────────
 
 /**
@@ -180,12 +213,17 @@ Only include fields relevant to the matched operation. Omit unused fields entire
 export async function parseIntent(
   userQuery: string,
   contextSnapshot: string
-): Promise<ScenarioOperation> {
+): Promise<IntentParseResult> {
   const config = getAiConfig();
   const providerCheck = isProviderConfigured();
 
   if (!providerCheck.ok) {
-    return { action: "burn_rate_check", _fallback: true, _fallback_reason: providerCheck.error };
+    return intentParseFailure(
+      "provider_unconfigured",
+      "Intent parsing is not configured.",
+      providerCheck.error,
+      providerCheck.error ?? "Configure an LLM provider before running AI scenarios."
+    );
   }
 
   const payload = {
@@ -204,23 +242,39 @@ export async function parseIntent(
 
     // Strip markdown fences if the model wraps its response
     const cleaned = content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
-    const parsed = JSON.parse(cleaned);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (err: unknown) {
+      return intentParseFailure(
+        "invalid_json",
+        "The model did not return valid scenario JSON.",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
 
     // Validate against schema — catches malformed LLM output at the boundary
     const validation = scenarioOperationSchema.safeParse(parsed);
     if (!validation.success) {
-      return {
-        action: "burn_rate_check",
-        _fallback: true,
-        _fallback_reason: `Could not parse your query into a valid operation. Showing burn rate analysis instead.`,
-      };
+      return intentParseFailure(
+        "invalid_operation",
+        "The model returned JSON, but it was not a supported scenario operation.",
+        validation.error.message
+      );
     }
-    return validation.data;
+    return { ok: true, operation: validation.data };
   } catch (err: unknown) {
     const hint = config.provider === "ollama"
       ? " Is Ollama running? Try: ollama serve"
       : "";
-    return { action: "burn_rate_check", _fallback: true, _fallback_reason: `Could not parse your query (${err instanceof Error ? err.message : String(err)}).${hint} Showing burn rate analysis instead.` };
+    return intentParseFailure(
+      "provider_error",
+      "The model request failed before a scenario operation could be parsed.",
+      `${err instanceof Error ? err.message : String(err)}${hint}`,
+      config.provider === "ollama"
+        ? "Check that Ollama is running, then try the scenario again."
+        : PARSE_CLARIFICATION
+    );
   }
 }
 
