@@ -13,7 +13,10 @@ const IS_DEV = process.env.NODE_ENV !== "production";
 
 const app = express();
 
-app.use(cors());
+// CORS — restrict to an explicit origin in production.
+// Set CORS_ORIGIN in the environment for any origin other than the default local dev server.
+// Example: CORS_ORIGIN=https://your-app.example.com
+app.use(cors({ origin: process.env.CORS_ORIGIN || "http://127.0.0.1:3000" }));
 app.use(express.json({ limit: "10mb" }));
 
 // API routes

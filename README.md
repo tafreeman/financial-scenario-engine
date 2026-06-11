@@ -136,6 +136,16 @@ POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2`. The endpoi
 - Server binds to `127.0.0.1` by default — not accessible from other machines
 - For regulated environments: verify GitHub Models API data classification approval
 
+### CORS configuration
+
+The server defaults to allowing requests only from `http://127.0.0.1:3000` (the local dev origin). When deploying behind a reverse proxy or to a hosted environment, set the `CORS_ORIGIN` environment variable to your application's actual origin:
+
+```bash
+CORS_ORIGIN=https://your-app.example.com npm start
+```
+
+Leaving `CORS_ORIGIN` unset in production will cause cross-origin requests from the production domain to be rejected by browsers. The explicit origin requirement prevents arbitrary pages in a user's browser from reading API data (including `/api/config`).
+
 ## Tech Stack
 
 | Layer | Technology | Why |
