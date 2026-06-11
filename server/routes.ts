@@ -36,7 +36,48 @@ interface StaffingRow {
 }
 
 export const apiRouter = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+
+/** Accepted MIME types for Excel uploads. */
+const XLSX_MIME_TYPES = new Set([
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+  "application/vnd.ms-excel",                                           // .xls (legacy)
+]);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB — prevents OOM from arbitrarily large uploads
+  fileFilter(_req, file, cb) {
+    if (XLSX_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      // Reject with an Error so multer surfaces it through the standard error path.
+      // We do NOT use MulterError here because MulterError codes are all size/field
+      // limits — MIME rejection is a caller error (400), not a limit exceeded error.
+      cb(new Error(`Unsupported file type: ${file.mimetype}. Only XLSX/XLS files are accepted.`));
+    }
+  },
+});
+
+/**
+ * Wrap a multer single-file upload middleware so that multer errors are
+ * translated to the correct HTTP status codes instead of propagating as 500s:
+ *   - LIMIT_FILE_SIZE  → 413 Payload Too Large
+ *   - MIME-type error  → 400 Bad Request
+ */
+function uploadSingle(fieldName: string): (req: Request, res: Response, next: () => void) => void {
+  const middleware = upload.single(fieldName);
+  return (req: Request, res: Response, next: () => void) => {
+    middleware(req, res, (err: unknown) => {
+      if (!err) { next(); return; }
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        res.status(413).json({ error: "File too large. Maximum size is 10 MB." });
+        return;
+      }
+      // MIME-type errors and anything else from fileFilter → 400
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    });
+  };
+}
 
 function sendIntentParseFailure(res: Response, failure: IntentParseFailure) {
   res.status(422).json({
@@ -109,7 +150,7 @@ apiRouter.post("/projects", (req: Request, res: Response) => {
 apiRouter.patch("/projects/:id", (req: Request, res: Response) => {
   const parsed = patchProjectSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Invalid fields", details: parsed.error.errors });
+    res.status(400).json({ error: "Invalid fields", details: parsed.error.issues });
     return;
   }
   updateProject(Number(req.params.id), parsed.data);
@@ -255,5 +296,5 @@ apiRouter.put("/config", (req: Request, res: Response) => {
 });
 
 // ---- Excel Import ----
-apiRouter.post("/import/excel", upload.single("file"), handleExcelImportV1);
-apiRouter.post("/import/excel/v2", upload.single("file"), handleExcelImportV2);
+apiRouter.post("/import/excel", uploadSingle("file"), handleExcelImportV1);
+apiRouter.post("/import/excel/v2", uploadSingle("file"), handleExcelImportV2);
