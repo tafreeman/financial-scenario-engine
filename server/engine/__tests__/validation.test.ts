@@ -203,7 +203,11 @@ describe("scenarioOperationSchema — extension_months", () => {
     expect(scenarioOperationSchema.safeParse(timelineExtension(-3)).success).toBe(false);
   });
 
-  it("accepts positive extension_months", () => {
+  it("rejects fractional extension_months (.int() guard)", () => {
+    expect(scenarioOperationSchema.safeParse(timelineExtension(1.5)).success).toBe(false);
+  });
+
+  it("accepts positive integer extension_months", () => {
     expect(scenarioOperationSchema.safeParse(timelineExtension(6)).success).toBe(true);
   });
 });
