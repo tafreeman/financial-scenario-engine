@@ -150,13 +150,33 @@ apiRouter.post("/projects", (req: Request, res: Response) => {
 });
 
 apiRouter.patch("/projects/:id", (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid project id" });
+    return;
+  }
+
   const parsed = patchProjectSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid fields", details: parsed.error.issues });
     return;
   }
-  updateProject(Number(req.params.id), parsed.data);
-  res.json({ ok: true });
+
+  const result = updateProject(id, parsed.data);
+
+  // No fields were provided (empty body) — valid no-op.
+  if (result.changes === 0 && Object.keys(parsed.data).length === 0) {
+    res.json({ ok: true, updated: 0 });
+    return;
+  }
+
+  // Fields were provided but 0 rows changed — the project does not exist.
+  if (result.changes === 0) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+
+  res.json({ ok: true, updated: result.changes });
 });
 
 // ---- Staffing ----
@@ -175,7 +195,12 @@ apiRouter.post("/staffing", (req: Request, res: Response) => {
 });
 
 apiRouter.delete("/staffing/:id", (req: Request, res: Response) => {
-  removeStaffing(Number(req.params.id));
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid staffing id" });
+    return;
+  }
+  removeStaffing(id);
   res.json({ ok: true });
 });
 

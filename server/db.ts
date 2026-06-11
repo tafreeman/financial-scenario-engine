@@ -358,7 +358,17 @@ export function addProject(name: string, totalBudget: number, startDate: string,
 /** Column names accepted by updateProject. Any key not in this set is silently ignored. */
 const PROJECT_UPDATE_ALLOWED = new Set(["name", "total_budget", "spent_to_date", "status"]);
 
-export function updateProject(id: number, fields: Partial<{ name: string; total_budget: number; spent_to_date: number; status: string }>) {
+/**
+ * Update mutable fields on a project row.
+ *
+ * Returns the SQLite RunResult so callers can inspect `changes`:
+ *   - changes === 0 when the id does not exist in the table.
+ *   - changes === 0 also when `fields` contains no allowed keys (no-op).
+ */
+export function updateProject(
+  id: number,
+  fields: Partial<{ name: string; total_budget: number; spent_to_date: number; status: string }>
+): Database.RunResult {
   const d = getDb();
   const sets: string[] = [];
   const vals: (string | number)[] = [];
@@ -367,8 +377,12 @@ export function updateProject(id: number, fields: Partial<{ name: string; total_
     sets.push(`${k} = ?`);
     vals.push(v as string | number);
   }
-  if (sets.length === 0) return; // nothing to update
+  if (sets.length === 0) {
+    // No allowed fields to update — return a synthetic no-op result so the
+    // caller can still read `.changes` without hitting the database.
+    return { changes: 0, lastInsertRowid: 0 };
+  }
   sets.push("updated_at = datetime('now')");
   vals.push(id);
-  d.prepare(`UPDATE projects SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+  return d.prepare(`UPDATE projects SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
 }

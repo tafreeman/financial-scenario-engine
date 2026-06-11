@@ -61,7 +61,7 @@ export const scenarioOperationSchema: z.ZodType<ScenarioOperation> = z.object({
   rate_changes: z.array(rateChangeSchema).optional(),
   hours_changes: z.array(hoursChangeSchema).optional(),
   new_end_date: z.string().optional(),
-  extension_months: z.number().positive().optional(),
+  extension_months: z.number().int().positive().optional(),
   additional_costs: z.array(additionalCostSchema).optional(),
   sub_operations: z.array(z.lazy(() => scenarioOperationSchema)).optional(),
   _fallback: z.boolean().optional(),
