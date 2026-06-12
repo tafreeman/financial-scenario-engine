@@ -216,9 +216,14 @@ export function getProjectsWithBurn(): ProjectRow[] {
   `).all() as ProjectRow[];
 }
 
-export function getStaffingByProject(projectId?: number) {
+export function getStaffingByProject(projectId?: number, activeOnly = false) {
   const d = getDb();
-  let sql = `
+  const conditions: string[] = [];
+  if (projectId) conditions.push("s.project_id = ?");
+  if (activeOnly) conditions.push("s.is_active = 1");
+
+  const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
+  const sql = `
     SELECT s.id, s.person_name, s.hours_per_week, s.is_active,
            p.name as project_name, p.id as project_id,
            lc.name as labor_category, lc.bill_rate, lc.cost_rate,
@@ -228,13 +233,10 @@ export function getStaffingByProject(projectId?: number) {
     FROM staffing s
     JOIN projects p ON p.id = s.project_id
     JOIN labor_categories lc ON lc.id = s.labor_category_id
+    ${whereClause}
+    ORDER BY p.name, lc.bill_rate DESC
   `;
-  if (projectId) {
-    sql += ` WHERE s.project_id = ?`;
-    sql += ` ORDER BY p.name, lc.bill_rate DESC`;
-    return d.prepare(sql).all(projectId);
-  }
-  sql += ` ORDER BY p.name, lc.bill_rate DESC`;
+  if (projectId) return d.prepare(sql).all(projectId);
   return d.prepare(sql).all();
 }
 
@@ -353,15 +355,34 @@ export function addProject(name: string, totalBudget: number, startDate: string,
   ).run(name, totalBudget, startDate, endDate);
 }
 
-export function updateProject(id: number, fields: Partial<{ name: string; total_budget: number; spent_to_date: number; status: string }>) {
+/** Column names accepted by updateProject. Any key not in this set is silently ignored. */
+const PROJECT_UPDATE_ALLOWED = new Set(["name", "total_budget", "spent_to_date", "status"]);
+
+/**
+ * Update mutable fields on a project row.
+ *
+ * Returns the SQLite RunResult so callers can inspect `changes`:
+ *   - changes === 0 when the id does not exist in the table.
+ *   - changes === 0 also when `fields` contains no allowed keys (no-op).
+ */
+export function updateProject(
+  id: number,
+  fields: Partial<{ name: string; total_budget: number; spent_to_date: number; status: string }>
+): Database.RunResult {
   const d = getDb();
   const sets: string[] = [];
   const vals: (string | number)[] = [];
   for (const [k, v] of Object.entries(fields)) {
+    if (!PROJECT_UPDATE_ALLOWED.has(k)) continue; // reject unlisted columns
     sets.push(`${k} = ?`);
-    vals.push(v);
+    vals.push(v as string | number);
+  }
+  if (sets.length === 0) {
+    // No allowed fields to update — return a synthetic no-op result so the
+    // caller can still read `.changes` without hitting the database.
+    return { changes: 0, lastInsertRowid: 0 };
   }
   sets.push("updated_at = datetime('now')");
   vals.push(id);
-  d.prepare(`UPDATE projects SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+  return d.prepare(`UPDATE projects SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
 }

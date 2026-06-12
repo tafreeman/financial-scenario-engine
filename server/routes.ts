@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
+import { z } from "zod";
 import {
   getProjectsWithBurn,
   getStaffingByProject,
@@ -35,7 +36,48 @@ interface StaffingRow {
 }
 
 export const apiRouter = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+
+/** Accepted MIME types for Excel uploads. */
+const XLSX_MIME_TYPES = new Set([
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+  "application/vnd.ms-excel",                                           // .xls (legacy)
+]);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB — prevents OOM from arbitrarily large uploads
+  fileFilter(_req, file, cb) {
+    if (XLSX_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      // Reject with an Error so multer surfaces it through the standard error path.
+      // We do NOT use MulterError here because MulterError codes are all size/field
+      // limits — MIME rejection is a caller error (400), not a limit exceeded error.
+      cb(new Error(`Unsupported file type: ${file.mimetype}. Only XLSX/XLS files are accepted.`));
+    }
+  },
+});
+
+/**
+ * Wrap a multer single-file upload middleware so that multer errors are
+ * translated to the correct HTTP status codes instead of propagating as 500s:
+ *   - LIMIT_FILE_SIZE  → 413 Payload Too Large
+ *   - MIME-type error  → 400 Bad Request
+ */
+function uploadSingle(fieldName: string): (req: Request, res: Response, next: () => void) => void {
+  const middleware = upload.single(fieldName);
+  return (req: Request, res: Response, next: () => void) => {
+    middleware(req, res, (err: unknown) => {
+      if (!err) { next(); return; }
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        res.status(413).json({ error: "File too large. Maximum size is 10 MB." });
+        return;
+      }
+      // MIME-type errors and anything else from fileFilter → 400
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    });
+  };
+}
 
 function sendIntentParseFailure(res: Response, failure: IntentParseFailure) {
   res.status(422).json({
@@ -46,6 +88,16 @@ function sendIntentParseFailure(res: Response, failure: IntentParseFailure) {
   });
 }
 
+// ─── Request body schemas ─────────────────────────────────────────────────────
+
+/** Only the four mutable project columns are accepted; all other keys are rejected. */
+const patchProjectSchema = z.object({
+  name: z.string().min(1).optional(),
+  total_budget: z.number().nonnegative().optional(),
+  spent_to_date: z.number().nonnegative().optional(),
+  status: z.string().min(1).optional(),
+}).strict();
+
 // ---- Health ----
 apiRouter.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -54,7 +106,9 @@ apiRouter.get("/health", (_req, res) => {
 // ---- Dashboard summary ----
 apiRouter.get("/dashboard", (_req, res) => {
   const projects = getProjectsWithBurn();
-  const staffing = getStaffingByProject() as StaffingRow[];
+  // activeOnly=true: soft-deleted staff (is_active=0) must not count toward
+  // dashboard revenue/cost/margin totals (matches the engine's loadPortfolioSnapshot filter).
+  const staffing = getStaffingByProject(undefined, true) as StaffingRow[];
 
   const totalBudget = projects.reduce((s, p) => s + p.total_budget, 0);
   const totalSpent = projects.reduce((s, p) => s + p.spent_to_date, 0);
@@ -96,8 +150,33 @@ apiRouter.post("/projects", (req: Request, res: Response) => {
 });
 
 apiRouter.patch("/projects/:id", (req: Request, res: Response) => {
-  updateProject(Number(req.params.id), req.body);
-  res.json({ ok: true });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid project id" });
+    return;
+  }
+
+  const parsed = patchProjectSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid fields", details: parsed.error.issues });
+    return;
+  }
+
+  const result = updateProject(id, parsed.data);
+
+  // No fields were provided (empty body) — valid no-op.
+  if (result.changes === 0 && Object.keys(parsed.data).length === 0) {
+    res.json({ ok: true, updated: 0 });
+    return;
+  }
+
+  // Fields were provided but 0 rows changed — the project does not exist.
+  if (result.changes === 0) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+
+  res.json({ ok: true, updated: result.changes });
 });
 
 // ---- Staffing ----
@@ -116,7 +195,12 @@ apiRouter.post("/staffing", (req: Request, res: Response) => {
 });
 
 apiRouter.delete("/staffing/:id", (req: Request, res: Response) => {
-  removeStaffing(Number(req.params.id));
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid staffing id" });
+    return;
+  }
+  removeStaffing(id);
   res.json({ ok: true });
 });
 
@@ -239,5 +323,5 @@ apiRouter.put("/config", (req: Request, res: Response) => {
 });
 
 // ---- Excel Import ----
-apiRouter.post("/import/excel", upload.single("file"), handleExcelImportV1);
-apiRouter.post("/import/excel/v2", upload.single("file"), handleExcelImportV2);
+apiRouter.post("/import/excel", uploadSingle("file"), handleExcelImportV1);
+apiRouter.post("/import/excel/v2", uploadSingle("file"), handleExcelImportV2);

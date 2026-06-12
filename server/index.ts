@@ -13,7 +13,24 @@ const IS_DEV = process.env.NODE_ENV !== "production";
 
 const app = express();
 
-app.use(cors());
+// CORS — restrict to an explicit origin in production.
+// Set CORS_ORIGIN in the environment for any origin other than the default local dev server.
+// Example: CORS_ORIGIN=https://your-app.example.com
+//
+// Guard: wildcard CORS is a critical misconfiguration — refuse to start.
+if (process.env.CORS_ORIGIN === "*") {
+  console.error(
+    "FATAL: CORS_ORIGIN='*' is not permitted. " +
+    "Set CORS_ORIGIN to an explicit origin (e.g. https://your-app.example.com)."
+  );
+  process.exit(1);
+}
+
+// Default covers both Vite dev server hostnames (localhost and 127.0.0.1 on port 5173).
+const corsOrigin: string | string[] = process.env.CORS_ORIGIN
+  ?? ["http://localhost:5173", "http://127.0.0.1:5173"];
+
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: "10mb" }));
 
 // API routes
