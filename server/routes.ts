@@ -17,6 +17,7 @@ import {
 } from "./db.js";
 import { parseIntent, narrateResult, agenticScenario, type IntentParseFailure } from "./ai.js";
 import { executeScenario } from "./engine/executor.js";
+import { loadPortfolioSnapshot } from "./loaders.js";
 import { generateNarrative } from "./engine/narrative.js";
 import { handleExcelImportV1, handleExcelImportV2 } from "./import/excel/index.js";
 
@@ -234,7 +235,7 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
     const operation = parseResult.operation;
 
     // Step 2: Deterministic engine computes results
-    const engineResult = executeScenario(operation);
+    const engineResult = executeScenario(operation, loadPortfolioSnapshot());
 
     // Step 3: Generate narrative (template-based by default, LLM if explicitly requested)
     let narrative = "";

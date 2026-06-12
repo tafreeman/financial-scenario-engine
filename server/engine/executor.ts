@@ -6,11 +6,6 @@ import {
   type LaborCategory,
   type StaffingRecord,
 } from "./types.js";
-import {
-  getProjectsWithBurn,
-  getStaffingByProject,
-  getLaborCategories,
-} from "../db.js";
 import { calcProjectLabor } from "./labor.js";
 import { calcProjectMarginFromLabor } from "./margin.js";
 import { fuzzyMatchWithConfidence, ROLE_ABBREVIATIONS } from "./matching.js";
@@ -28,40 +23,6 @@ import {
   calcUnexpectedCostImpact,
 } from "./scenarios.js";
 import { calcPortfolioMetrics } from "./portfolio.js";
-
-// ─── Portfolio Loading ───────────────────────────────────────────────────────
-
-/** Load complete portfolio state from database */
-export function loadPortfolioSnapshot(): PortfolioSnapshot {
-  const projectRows = getProjectsWithBurn();
-  const allStaffing = getStaffingByProject() as StaffingRecord[];
-  const categories = getLaborCategories() as LaborCategory[];
-
-  // Group staffing by project_id in O(S) instead of O(P*S) filtering
-  const staffingByProject = new Map<number, StaffingRecord[]>();
-  for (const s of allStaffing) {
-    if (s.is_active !== 1) continue;
-    let list = staffingByProject.get(s.project_id);
-    if (!list) {
-      list = [];
-      staffingByProject.set(s.project_id, list);
-    }
-    list.push(s);
-  }
-
-  const projects: ProjectSnapshot[] = projectRows.map(p => ({
-    id: p.id,
-    name: p.name,
-    total_budget: p.total_budget,
-    spent_to_date: p.spent_to_date,
-    start_date: p.start_date,
-    end_date: p.end_date,
-    status: p.status,
-    staffing: staffingByProject.get(p.id) ?? [],
-  }));
-
-  return { projects, labor_categories: categories };
-}
 
 // ─── Name Resolution ─────────────────────────────────────────────────────────
 
@@ -103,21 +64,24 @@ function computeState(staffing: StaffingRecord[], project: ProjectSnapshot, asOf
 
 // ─── Main Executor ───────────────────────────────────────────────────────────
 
-/** Execute a scenario operation against current database state.
+/** Execute a scenario operation against a portfolio snapshot.
  *
  *  @param operation - The structured scenario operation to execute.
- *  @param preloadedPortfolio - Optional pre-loaded portfolio to avoid redundant DB queries
- *    (e.g. in composite operations).
- *  @param asOfDate - Reference date for time-dependent calculations (timeline extension,
- *    EVM planned value).  Defaults to the current wall-clock time when omitted.
- *    Pass an explicit date in tests and batch runs to make outputs deterministic.
+ *  @param portfolio - Pre-loaded portfolio snapshot (required).  Callers are
+ *    responsible for loading the portfolio via `loadPortfolioSnapshot()` from
+ *    `server/loaders.ts` before calling this function.  Keeping DB I/O out of
+ *    the engine makes the calculation functions pure and fully testable without
+ *    filesystem access.
+ *  @param asOfDate - Reference date for time-dependent calculations (timeline
+ *    extension, EVM planned value, budget exhaustion date).  Defaults to the
+ *    current wall-clock time when omitted.  Pass an explicit date in tests and
+ *    batch runs to make outputs deterministic.
  */
 export function executeScenario(
   operation: ScenarioOperation,
-  preloadedPortfolio?: PortfolioSnapshot,
+  portfolio: PortfolioSnapshot,
   asOfDate?: Date
 ): ScenarioResult {
-  const portfolio = preloadedPortfolio ?? loadPortfolioSnapshot();
   const warnings: string[] = [];
   const timestamp = (asOfDate ?? new Date()).toISOString();
 

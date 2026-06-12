@@ -1,6 +1,7 @@
 import { getConfig, buildAnonymizedContextSnapshot } from "./db.js";
 import type { ScenarioOperation, ScenarioResult } from "./engine/types.js";
 import { executeScenario } from "./engine/executor.js";
+import { loadPortfolioSnapshot } from "./loaders.js";
 import { scenarioOperationSchema } from "./engine/validation.js";
 
 // ─── OpenAI-compatible API response types ────────────────────────────────────
@@ -523,7 +524,7 @@ export function processToolCalls(
         messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify({ error: `Invalid run_scenario arguments: ${validation.error.message}` }) });
         continue;
       }
-      const result = executeScenario(validation.data);
+      const result = executeScenario(validation.data, loadPortfolioSnapshot());
       scenariosExplored.push(result);
       messages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result) });
     } catch (err: unknown) {
