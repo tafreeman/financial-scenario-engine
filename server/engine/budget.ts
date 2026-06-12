@@ -62,8 +62,14 @@ export function calcBurnRateDeltaPct(beforeBurn: number, afterBurn: number): num
 
 // ─── Full Budget Metrics ─────────────────────────────────────────────────────
 
-/** Assemble complete budget metrics from project data + current burn rate */
-export function calcBudgetMetrics(project: Project, monthlyBurn: number): BudgetMetrics {
+/**
+ * Assemble complete budget metrics from project data + current burn rate.
+ *
+ * @param asOf - Reference date for computing the exhaustion date.  Defaults to
+ *   the current wall-clock time when omitted.  Pass an explicit date in tests
+ *   and batch runs to make `budget_exhaustion_date` deterministic.
+ */
+export function calcBudgetMetrics(project: Project, monthlyBurn: number, asOf?: Date): BudgetMetrics {
   const remaining = calcRemainingBudget(project.total_budget, project.spent_to_date);
   const monthsLeft = calcMonthsRemaining(remaining, monthlyBurn);
 
@@ -71,7 +77,7 @@ export function calcBudgetMetrics(project: Project, monthlyBurn: number): Budget
     monthly_burn_rate: monthlyBurn,
     remaining_budget: remaining,
     months_remaining: monthsLeft,
-    budget_exhaustion_date: calcExhaustionDate(monthsLeft),
+    budget_exhaustion_date: calcExhaustionDate(monthsLeft, asOf),
     annual_run_rate: calcAnnualRunRate(monthlyBurn),
   };
 }

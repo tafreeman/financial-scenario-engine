@@ -94,10 +94,10 @@ export function resolveRole(
 
 // ─── Metric Computation Helpers ──────────────────────────────────────────────
 
-function computeState(staffing: StaffingRecord[], project: ProjectSnapshot) {
+function computeState(staffing: StaffingRecord[], project: ProjectSnapshot, asOf?: Date) {
   const labor = calcProjectLabor(staffing);
   const margin = calcProjectMarginFromLabor(labor);
-  const budget = calcBudgetMetrics(project, labor.monthly_cost);
+  const budget = calcBudgetMetrics(project, labor.monthly_cost, asOf);
   return { labor, margin, budget };
 }
 
@@ -119,7 +119,7 @@ export function executeScenario(
 ): ScenarioResult {
   const portfolio = preloadedPortfolio ?? loadPortfolioSnapshot();
   const warnings: string[] = [];
-  const timestamp = new Date().toISOString();
+  const timestamp = (asOfDate ?? new Date()).toISOString();
 
   // Determine target project(s)
   const projectName = operation.project;
@@ -140,7 +140,7 @@ export function executeScenario(
   switch (operation.action) {
     case "burn_rate_check":
     case "margin_analysis":
-      return handleAnalysis(operation, portfolio, targetProject, warnings, timestamp);
+      return handleAnalysis(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "evm_analysis":
       return handleEvmAnalysis(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
@@ -150,16 +150,16 @@ export function executeScenario(
     case "remove":
     case "rate_change":
     case "hours_change":
-      return handleStaffingChange(operation, portfolio, targetProject, warnings, timestamp);
+      return handleStaffingChange(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "timeline_extension":
       return handleTimelineExtension(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "unexpected_cost":
-      return handleUnexpectedCost(operation, portfolio, targetProject, warnings, timestamp);
+      return handleUnexpectedCost(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "reallocation":
-      return handleReallocation(operation, portfolio, warnings, timestamp);
+      return handleReallocation(operation, portfolio, warnings, timestamp, asOfDate);
 
     case "what_if_composite":
       return handleComposite(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
@@ -180,10 +180,11 @@ function handleAnalysis(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOf?: Date
 ): ScenarioResult {
   if (targetProject) {
-    const current = computeState(targetProject.staffing, targetProject);
+    const current = computeState(targetProject.staffing, targetProject, asOf);
     if (current.labor.headcount === 0) {
       warnings.push(`${targetProject.name} has no active staffing.`);
     }
@@ -306,7 +307,8 @@ function handleStaffingChange(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOf?: Date
 ): ScenarioResult {
   if (!targetProject) {
     warnings.push("Staffing changes require a specific project. Using first project.");
@@ -314,7 +316,7 @@ function handleStaffingChange(
   }
 
   const beforeStaffing = targetProject.staffing;
-  const before = computeState(beforeStaffing, targetProject);
+  const before = computeState(beforeStaffing, targetProject, asOf);
 
   // Apply the mutation
   let afterStaffing: StaffingRecord[];
@@ -345,7 +347,7 @@ function handleStaffingChange(
       afterStaffing = beforeStaffing;
   }
 
-  const after = computeState(afterStaffing, targetProject);
+  const after = computeState(afterStaffing, targetProject, asOf);
   const impact = calcScenarioImpact(before, after);
 
   // Generate warnings
@@ -384,7 +386,7 @@ function handleTimelineExtension(
     targetProject = portfolio.projects[0];
   }
 
-  const current = computeState(targetProject.staffing, targetProject);
+  const current = computeState(targetProject.staffing, targetProject, asOfDate);
   const extensionResult = calcTimelineExtensionImpact(
     targetProject,
     current.labor.monthly_cost,
@@ -400,7 +402,8 @@ function handleTimelineExtension(
   // Projected budget after extension
   const projectedBudget = calcBudgetMetrics(
     { ...targetProject, end_date: extensionResult.new_end_date },
-    current.labor.monthly_cost
+    current.labor.monthly_cost,
+    asOfDate
   );
 
   return {
@@ -436,14 +439,15 @@ function handleUnexpectedCost(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOf?: Date
 ): ScenarioResult {
   if (!targetProject) {
     warnings.push("Unexpected cost requires a specific project. Using first project.");
     targetProject = portfolio.projects[0];
   }
 
-  const current = computeState(targetProject.staffing, targetProject);
+  const current = computeState(targetProject.staffing, targetProject, asOf);
   const costResult = calcUnexpectedCostImpact(
     targetProject,
     current.labor.monthly_cost,
@@ -460,7 +464,8 @@ function handleUnexpectedCost(
       ...targetProject,
       spent_to_date: targetProject.spent_to_date + costResult.total_one_time,
     },
-    newBurn
+    newBurn,
+    asOf
   );
 
   return {
@@ -501,14 +506,15 @@ function handleReallocation(
   operation: ScenarioOperation,
   portfolio: PortfolioSnapshot,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOf?: Date
 ): ScenarioResult {
   const projectNames = operation.projects ?? [];
   if (projectNames.length < 2) {
     warnings.push("Reallocation requires at least 2 projects.");
     return handleAnalysis(
       { ...operation, action: "burn_rate_check" },
-      portfolio, null, warnings, timestamp
+      portfolio, null, warnings, timestamp, asOf
     );
   }
 
@@ -519,13 +525,13 @@ function handleReallocation(
     warnings.push("Could not resolve one or both projects for reallocation.");
     return handleAnalysis(
       { ...operation, action: "burn_rate_check" },
-      portfolio, null, warnings, timestamp
+      portfolio, null, warnings, timestamp, asOf
     );
   }
 
   // Apply remove from source, add to destination
-  const fromBefore = computeState(fromProject.staffing, fromProject);
-  const toBefore = computeState(toProject.staffing, toProject);
+  const fromBefore = computeState(fromProject.staffing, fromProject, asOf);
+  const toBefore = computeState(toProject.staffing, toProject, asOf);
 
   const fromAfterStaffing = applyRemove(fromProject.staffing, operation.remove);
   const toAfterStaffing = applyAdd(
@@ -533,8 +539,8 @@ function handleReallocation(
     operation.add, toProject.id, toProject.name
   );
 
-  const fromAfter = computeState(fromAfterStaffing, fromProject);
-  const toAfter = computeState(toAfterStaffing, toProject);
+  const fromAfter = computeState(fromAfterStaffing, fromProject, asOf);
+  const toAfter = computeState(toAfterStaffing, toProject, asOf);
 
   return {
     operation,
