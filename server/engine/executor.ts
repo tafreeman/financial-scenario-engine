@@ -616,8 +616,8 @@ function handleComposite(
   for (const subOp of operation.sub_operations) {
     const result = executeScenario(subOp, accPortfolio, asOfDate);
     subResults.push(result);
-    // Rebuild portfolio by merging the projected staffing for the affected project
-    accPortfolio = mergeProjectedState(accPortfolio, result);
+    // Rebuild portfolio by replaying the sub-op's mutations onto the accumulated snapshot
+    accPortfolio = mergeProjectedState(accPortfolio, subOp);
   }
 
   // #12: Aggregate impact — sum all non-null impact deltas rather than returning
@@ -655,67 +655,91 @@ function handleComposite(
 // ─── Composite helpers ────────────────────────────────────────────────────────
 
 /**
- * After a sub-operation in a composite, rebuild the portfolio by updating the
- * affected project's staffing to reflect the projected state.  This ensures the
- * next sub-operation sees the accumulated mutations rather than the original
- * snapshot — fixing the "same-project sub-ops see un-mutated state" bug (#20).
+ * After a sub-operation in a composite, rebuild the portfolio by re-applying
+ * the staffing mutation to the affected project.  This ensures the next
+ * sub-operation sees the accumulated mutations rather than the original snapshot
+ * — fixing the "same-project sub-ops see un-mutated state" bug (#20).
+ *
+ * Since ScenarioResult doesn't carry the raw afterStaffing array, we re-derive
+ * the updated staffing by replaying the same apply* functions used in the handler.
  */
 function mergeProjectedState(
   portfolio: PortfolioSnapshot,
-  result: ScenarioResult
+  subOp: ScenarioOperation
 ): PortfolioSnapshot {
-  if (!result.projected) return portfolio; // analysis-only sub-op, nothing to merge
-
-  // Determine which project(s) were mutated
-  const affectedNames = new Set(result.projects_involved);
-  if (affectedNames.size === 0) return portfolio;
-
-  // For reallocation sub-results we have two sub_results with staffing changes;
-  // handle by recursively merging those if present.
-  if (result.sub_results && result.sub_results.length > 0) {
-    let merged = portfolio;
-    for (const sub of result.sub_results) {
-      merged = mergeProjectedState(merged, sub);
+  switch (subOp.action) {
+    case "swap":
+    case "add":
+    case "remove":
+    case "rate_change":
+    case "hours_change": {
+      const projectName = subOp.project;
+      if (!projectName || projectName.toLowerCase() === "all") return portfolio;
+      const projects = portfolio.projects.map(p => {
+        if (p.name.toLowerCase() !== projectName.toLowerCase()) return p;
+        let updated: StaffingRecord[];
+        switch (subOp.action) {
+          case "swap":
+            updated = applySwap(p.staffing, portfolio.labor_categories, subOp.remove, subOp.add, p.id, p.name);
+            break;
+          case "add":
+            updated = applyAdd(p.staffing, portfolio.labor_categories, subOp.add, p.id, p.name);
+            break;
+          case "remove":
+            updated = applyRemove(p.staffing, subOp.remove);
+            break;
+          case "rate_change":
+            updated = applyRateChange(p.staffing, subOp.rate_changes);
+            break;
+          case "hours_change":
+            updated = applyHoursChange(p.staffing, subOp.hours_changes);
+            break;
+          default:
+            updated = p.staffing;
+        }
+        return { ...p, staffing: updated };
+      });
+      return { ...portfolio, projects };
     }
-    return merged;
+    case "unexpected_cost": {
+      // Patch spent_to_date for one-time costs so subsequent sub-ops see correct budget
+      const projectName = subOp.project;
+      if (!projectName || projectName.toLowerCase() === "all") return portfolio;
+      const additionalOneTime = (subOp.additional_costs ?? [])
+        .filter(c => !c.is_recurring)
+        .reduce((s, c) => s + c.amount, 0);
+      if (additionalOneTime === 0) return portfolio;
+      const projects = portfolio.projects.map(p =>
+        p.name.toLowerCase() !== projectName.toLowerCase()
+          ? p
+          : { ...p, spent_to_date: p.spent_to_date + additionalOneTime }
+      );
+      return { ...portfolio, projects };
+    }
+    case "reallocation": {
+      // Replay remove from source, add to destination
+      const projectNames = subOp.projects ?? [];
+      const fromName = projectNames[0];
+      const toName = projectNames[1];
+      if (!fromName || !toName) return portfolio;
+      const projects = portfolio.projects.map(p => {
+        if (p.name.toLowerCase() === fromName.toLowerCase()) {
+          return { ...p, staffing: applyRemove(p.staffing, subOp.remove) };
+        }
+        if (p.name.toLowerCase() === toName.toLowerCase()) {
+          return { ...p, staffing: applyAdd(p.staffing, portfolio.labor_categories, subOp.add, p.id, p.name) };
+        }
+        return p;
+      });
+      return { ...portfolio, projects };
+    }
+    default:
+      // Analysis-only or composite — no staffing state change to propagate
+      return portfolio;
   }
-
-  // Single-project mutation: splice updated staffing back into the snapshot.
-  // We derive staffing from the projected labor headcount using the original
-  // staffing array modified by the scenario — but the engine doesn't return a
-  // staffing array in ScenarioResult, so we fall back to a conservative approach:
-  // we look for the project by name and reconstruct it based on the projected
-  // budget/labor metrics (which are used by subsequent sub-ops' computeState).
-  const projectName = result.project_name;
-  if (!projectName) return portfolio;
-
-  const projects = portfolio.projects.map(p => {
-    if (p.name !== projectName) return p;
-    // Patch spent_to_date if the sub-op changed it (unexpected_cost path)
-    // All other project fields stay the same; only staffing mutations matter
-    // for labor metrics. Since we don't have access to the raw afterStaffing
-    // array here, we preserve the project fields and mark via a sentinel that
-    // the next sub-op's computeState will pick up the right metrics.
-    // The scenario impact has already been calculated; accPortfolio here is
-    // used for the NEXT sub-op's before-state resolution only.
-    return p;
-  });
-
-  return { ...portfolio, projects };
 }
 
-/**
- * True accumulated state merge: re-apply staffing from sub_results.
- * For composite scenarios where sub-ops touch the same project, we need
- * to actually thread the after-staffing into the portfolio.  Since ScenarioResult
- * doesn't carry the raw staffing array, we use a side-channel through handleComposite's
- * sub-operation loop structure to pass a tagged portfolio.
- *
- * NOTE: The full accumulated-state implementation for same-project composites is
- * achieved by executeScenario's result returning correct deltas per sub-op.
- * The mergeProjectedState function above handles the portfolio rebuild; this
- * sumImpacts function handles correct aggregation of those deltas (#12).
- */
+/** Sum all non-null impact deltas across sub-results to form the composite aggregate (#12). */
 function sumImpacts(subResults: ScenarioResult[]): ScenarioImpact {
   const impacts = subResults
     .map(r => r.impact)
