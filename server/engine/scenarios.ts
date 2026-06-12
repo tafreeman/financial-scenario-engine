@@ -27,7 +27,8 @@ export function applyRemove(
   for (const spec of remove) {
     let remaining = spec.count;
     for (let i = result.length - 1; i >= 0 && remaining > 0; i--) {
-      const s = result[i];
+      const s: StaffingRecord | undefined = result[i];
+      if (!s) continue;
       const roleMatch = s.labor_category.toLowerCase().includes(spec.role.toLowerCase());
       const nameMatch = !spec.person_name ||
         (s.person_name ?? "").toLowerCase().includes(spec.person_name.toLowerCase());
@@ -177,7 +178,7 @@ export function calcTimelineExtensionImpact(
   const budget_gap = new_total_projected - project.total_budget;
 
   return {
-    new_end_date: newEnd.toISOString().split("T")[0],
+    new_end_date: newEnd.toISOString().split("T")[0] ?? newEnd.toISOString().slice(0, 10),
     additional_months: additionalMonths,
     additional_cost,
     new_total_projected,

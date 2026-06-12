@@ -74,8 +74,8 @@ describe("processToolCalls — boundary validation of LLM tool arguments", () =>
 
     expect(scenariosExplored).toHaveLength(0);
     expect(messages).toHaveLength(1);
-    expect(messages[0].role).toBe("tool");
-    expect(String(messages[0].content)).toContain("Invalid run_scenario arguments");
+    expect(messages[0]?.role).toBe("tool");
+    expect(String(messages[0]?.content)).toContain("Invalid run_scenario arguments");
   });
 
   it("rejects malformed JSON args without running scenario math", () => {
@@ -89,7 +89,7 @@ describe("processToolCalls — boundary validation of LLM tool arguments", () =>
 
     expect(scenariosExplored).toHaveLength(0);
     expect(messages).toHaveLength(1);
-    expect(messages[0].role).toBe("tool");
+    expect(messages[0]?.role).toBe("tool");
   });
 
   it("ignores tool calls that are not run_scenario", () => {

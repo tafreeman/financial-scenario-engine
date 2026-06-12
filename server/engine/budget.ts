@@ -28,7 +28,7 @@ export function calcExhaustionDate(monthsRemaining: number, fromDate?: Date): st
   const exhaustion = new Date(base);
   exhaustion.setMonth(exhaustion.getMonth() + wholeMonths);
   exhaustion.setDate(exhaustion.getDate() + Math.round(fractionalDays));
-  return exhaustion.toISOString().split("T")[0];
+  return exhaustion.toISOString().split("T")[0] ?? exhaustion.toISOString().slice(0, 10);
 }
 
 // ─── Variance ────────────────────────────────────────────────────────────────

@@ -256,6 +256,13 @@ export interface ScenarioResult {
   // Warnings and flags
   warnings: string[];
 
+  /**
+   * Set when the operation cannot be executed (e.g. unresolvable project name).
+   * When present, financial fields carry zero values and must not be displayed.
+   * The API surfaces this as a 422 response.
+   */
+  error?: string;
+
   // Sub-results for composite operations
   sub_results?: ScenarioResult[];
 }
