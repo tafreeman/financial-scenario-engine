@@ -127,7 +127,7 @@ for (const c of categories) {
   );
 }
 
-// ─── 2. Per-Person Monthly Costs (verify formula: rate × hours × 4.33) ──────
+// ─── 2. Per-Person Monthly Costs (verify formula: rate × hours × 52/12) ──────
 console.log("\n\n📊 PER-PERSON MONTHLY CALCULATIONS");
 console.log("Formula: rate × hours_per_week × " + WEEKS_PER_MONTH);
 hr();
@@ -227,7 +227,7 @@ hr();
   console.log(`  Revenue delta:        ${fmt(impact.revenue_delta_monthly)}/mo`);
   console.log(`  Margin before:        ${beforeMargin.margin_pct.toFixed(1)}%`);
   console.log(`  Margin after:         ${afterMargin.margin_pct.toFixed(1)}%`);
-  console.log(`  Margin delta:         ${impact.margin_delta_pct.toFixed(1)} ppts`);
+  console.log(`  Margin delta:         ${(impact.margin_delta_pct ?? 0).toFixed(1)} ppts`);
   console.log(`  Headcount delta:      ${impact.headcount_delta > 0 ? "+" : ""}${impact.headcount_delta}`);
   console.log(`  Months left before:   ${beforeBudget.months_remaining.toFixed(1)}`);
   console.log(`  Months left after:    ${afterBudget.months_remaining.toFixed(1)}`);
@@ -259,7 +259,7 @@ hr();
   console.log(`  Revenue delta:           ${fmt(impact.revenue_delta_monthly)}/mo`);
   console.log(`  Margin before:           ${beforeMargin.margin_pct.toFixed(1)}%`);
   console.log(`  Margin after:            ${afterMargin.margin_pct.toFixed(1)}%`);
-  console.log(`  Margin delta:            ${impact.margin_delta_pct.toFixed(1)} ppts`);
+  console.log(`  Margin delta:            ${(impact.margin_delta_pct ?? 0).toFixed(1)} ppts`);
   console.log(`  Headcount delta:         ${impact.headcount_delta}`);
   console.log(`  Months left before:      ${beforeBudget.months_remaining.toFixed(1)}`);
   console.log(`  Months left after:       ${afterBudget.months_remaining.toFixed(1)}`);
@@ -291,7 +291,7 @@ hr();
   console.log(`  Revenue delta:         ${fmt(impact.revenue_delta_monthly)}/mo`);
   console.log(`  Margin before:         ${beforeMargin.margin_pct.toFixed(1)}%`);
   console.log(`  Margin after:          ${afterMargin.margin_pct.toFixed(1)}%`);
-  console.log(`  Margin delta:          ${impact.margin_delta_pct.toFixed(1)} ppts`);
+  console.log(`  Margin delta:          ${(impact.margin_delta_pct ?? 0).toFixed(1)} ppts`);
   console.log(`  FTE delta:             +${impact.fte_delta.toFixed(1)}`);
   console.log(`  Months left before:    ${beforeBudget.months_remaining.toFixed(1)}`);
   console.log(`  Months left after:     ${afterBudget.months_remaining.toFixed(1)}`);

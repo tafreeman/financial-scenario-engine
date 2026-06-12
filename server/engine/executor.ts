@@ -119,9 +119,26 @@ export function executeScenario(
   const projectName = operation.project;
   let targetProject: ProjectSnapshot | null = null;
 
+  // Actions that require a specific named project — NOT portfolio-level actions.
+  // burn_rate_check and margin_analysis legitimately fall back to portfolio-wide
+  // analysis when no project (or "all") is specified.
+  const requiresNamedProject =
+    operation.action !== "burn_rate_check" &&
+    operation.action !== "margin_analysis" &&
+    operation.action !== "reallocation" &&
+    operation.action !== "what_if_composite";
+
   if (projectName && projectName.toLowerCase() !== "all") {
     targetProject = resolveProject(projectName, portfolio, warnings);
     if (!targetProject) {
+      if (requiresNamedProject) {
+        // The caller named a specific project that does not exist in the portfolio.
+        // Return a clean error instead of silently operating on portfolio.projects[0].
+        return errorResult(
+          operation, timestamp,
+          `Unknown project "${projectName}". No matching project found in the portfolio.`
+        );
+      }
       warnings.push(`Could not resolve project "${projectName}". Showing portfolio-level analysis.`);
     }
   }
@@ -533,8 +550,10 @@ function handleReallocation(
     );
   }
 
-  const fromName = projectNames[0] as string;
-  const toName = projectNames[1] as string;
+  const [fromName, toName] = projectNames;
+  if (!fromName || !toName) {
+    return errorResult(operation, timestamp, "Reallocation requires exactly two resolvable project names.");
+  }
   const fromProject = resolveProject(fromName, portfolio, warnings);
   const toProject = resolveProject(toName, portfolio, warnings);
 
@@ -623,7 +642,7 @@ function handleComposite(
   // #12: Aggregate impact — sum all non-null impact deltas rather than returning
   // the last sub-result's impact, which gives wrong results for multi-project composites.
   const multiProject = [...new Set(subResults.flatMap(r => r.projects_involved))].length > 1;
-  const aggregateImpact = sumImpacts(subResults);
+  const aggregateImpact = sumImpacts(subResults, multiProject);
   const allWarnings = [...warnings, ...subResults.flatMap(r => r.warnings)];
 
   // For multi-project composites current/projected are not meaningful aggregates;
@@ -739,8 +758,24 @@ function mergeProjectedState(
   }
 }
 
-/** Sum all non-null impact deltas across sub-results to form the composite aggregate (#12). */
-function sumImpacts(subResults: ScenarioResult[]): ScenarioImpact {
+/**
+ * Sum all non-null impact deltas across sub-results to form the composite
+ * aggregate (#12).
+ *
+ * @param multiProject - When true the composite spans more than one project.
+ *   In that case, margin_delta_pct and burn_rate_delta_pct are intentionally
+ *   omitted from the aggregate: percentage-point deltas from *different*
+ *   projects are not additive — summing them yields a dimensionless-meaningless
+ *   number.  Dollar/headcount/fte deltas ARE additive across projects and are
+ *   always summed.
+ *
+ *   months_remaining_delta is also omitted for multi-project composites: each
+ *   project has its own remaining budget, so the sum of per-project month
+ *   changes is not a coherent portfolio-level figure.
+ *
+ *   For single-project composites all fields are summed normally (valid).
+ */
+function sumImpacts(subResults: ScenarioResult[], multiProject: boolean): ScenarioImpact {
   const impacts = subResults
     .map(r => r.impact)
     .filter((i): i is ScenarioImpact => i != null);
@@ -750,11 +785,14 @@ function sumImpacts(subResults: ScenarioResult[]): ScenarioImpact {
     cost_delta_annual: impacts.reduce((s, i) => s + i.cost_delta_annual, 0),
     revenue_delta_monthly: impacts.reduce((s, i) => s + i.revenue_delta_monthly, 0),
     revenue_delta_annual: impacts.reduce((s, i) => s + i.revenue_delta_annual, 0),
-    margin_delta_pct: impacts.reduce((s, i) => s + i.margin_delta_pct, 0),
+    // Percentage-point deltas are not additive across projects; omit for multi-project.
+    margin_delta_pct: multiProject ? undefined : impacts.reduce((s, i) => s + (i.margin_delta_pct ?? 0), 0),
     margin_delta_dollars_monthly: impacts.reduce((s, i) => s + i.margin_delta_dollars_monthly, 0),
     burn_rate_delta: impacts.reduce((s, i) => s + i.burn_rate_delta, 0),
-    burn_rate_delta_pct: impacts.reduce((s, i) => s + i.burn_rate_delta_pct, 0),
-    months_remaining_delta: impacts.reduce((s, i) => s + i.months_remaining_delta, 0),
+    // Percentage-point deltas are not additive across projects; omit for multi-project.
+    burn_rate_delta_pct: multiProject ? undefined : impacts.reduce((s, i) => s + (i.burn_rate_delta_pct ?? 0), 0),
+    // months_remaining is per-project; summing across projects is not meaningful.
+    months_remaining_delta: multiProject ? 0 : impacts.reduce((s, i) => s + i.months_remaining_delta, 0),
     headcount_delta: impacts.reduce((s, i) => s + i.headcount_delta, 0),
     fte_delta: impacts.reduce((s, i) => s + i.fte_delta, 0),
   };

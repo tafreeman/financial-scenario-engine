@@ -58,7 +58,7 @@ function renderImpactSummary(result: ScenarioResult): string {
     const costDir = cost_delta_monthly > 0 ? "increase" : cost_delta_monthly < 0 ? "decrease" : "no change in";
     const lines = [`This **${label}** on **${project}** would result in a monthly cost ${costDir} of **${fmt(Math.abs(cost_delta_monthly))}**.`];
 
-    if (margin_delta_pct !== 0) {
+    if (margin_delta_pct != null && margin_delta_pct !== 0) {
       const marginDir = margin_delta_pct > 0 ? "improve" : "decrease";
       lines.push(`Margin would ${marginDir} by **${fmtPct(Math.abs(margin_delta_pct))}** percentage points.`);
     }
@@ -113,10 +113,10 @@ function renderObservations(result: ScenarioResult): string[] {
     if (cost_delta_monthly < 0 && revenue_delta_monthly < 0) {
       obs.push("Both cost and revenue decrease — ensure the revenue loss is acceptable.");
     }
-    if (cost_delta_monthly > 0 && margin_delta_pct > 0) {
+    if (cost_delta_monthly > 0 && margin_delta_pct != null && margin_delta_pct > 0) {
       obs.push("Cost increases but margin improves — the additional revenue outpaces the cost.");
     }
-    if (Math.abs(burn_rate_delta_pct) > 20) {
+    if (burn_rate_delta_pct != null && Math.abs(burn_rate_delta_pct) > 20) {
       obs.push(`Burn rate changes significantly (${fmtPctDelta(burn_rate_delta_pct)}) — monitor budget runway closely.`);
     }
   }
@@ -185,13 +185,13 @@ function renderRecommendation(result: ScenarioResult): string {
   if (result.impact) {
     const { cost_delta_monthly, margin_delta_pct, months_remaining_delta } = result.impact;
 
-    if (cost_delta_monthly < 0 && margin_delta_pct >= 0) {
+    if (cost_delta_monthly < 0 && (margin_delta_pct == null || margin_delta_pct >= 0)) {
       return "This change reduces costs while maintaining or improving margins — **recommend proceeding** with appropriate stakeholder review.";
     }
     if (cost_delta_monthly > 0 && months_remaining_delta < -2) {
       return "This change significantly reduces budget runway — **consider alternatives** that achieve the same goal with lower cost impact.";
     }
-    if (margin_delta_pct < -5) {
+    if (margin_delta_pct != null && margin_delta_pct < -5) {
       return "Significant margin compression — **explore alternative staffing models** before implementing.";
     }
     return "Review the numbers above and assess alignment with project goals before making changes.";

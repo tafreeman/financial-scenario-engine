@@ -200,10 +200,21 @@ export interface ScenarioImpact {
   cost_delta_annual: number;
   revenue_delta_monthly: number;
   revenue_delta_annual: number;
-  margin_delta_pct: number;
+  /**
+   * Percentage-point change in margin.  Defined for single-project results.
+   * Omitted (undefined) on multi-project composite aggregates because
+   * percentage-point deltas from different projects are not additive — summing
+   * them yields a dimensionless-meaningless number.
+   */
+  margin_delta_pct?: number;
   margin_delta_dollars_monthly: number;
   burn_rate_delta: number;
-  burn_rate_delta_pct: number;
+  /**
+   * Percentage-point change in burn rate.  Defined for single-project results.
+   * Omitted (undefined) on multi-project composite aggregates for the same
+   * non-additivity reason as margin_delta_pct.
+   */
+  burn_rate_delta_pct?: number;
   months_remaining_delta: number;
   headcount_delta: number;
   fte_delta: number;
