@@ -16,6 +16,9 @@ import {
   saveScenario,
 } from "./db.js";
 import { parseIntent, narrateResult, agenticScenario, type IntentParseFailure } from "./ai.js";
+
+/** Maximum wall-clock budget for the v3 agentic endpoint (ms). */
+const MAX_AGENTIC_TIMEOUT_MS = 90_000;
 import { executeScenario } from "./engine/executor.js";
 import { loadPortfolioSnapshot } from "./loaders.js";
 import { generateNarrative } from "./engine/narrative.js";
@@ -290,7 +293,20 @@ apiRouter.post("/scenario/v3", async (req: Request, res: Response) => {
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
   try {
-    const result = await agenticScenario(query);
+    // Race the agentic loop against an endpoint budget to prevent runaway iteration.
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("AGENTIC_TIMEOUT")), MAX_AGENTIC_TIMEOUT_MS)
+    );
+    let result;
+    try {
+      result = await Promise.race([agenticScenario(query), timeoutPromise]);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "AGENTIC_TIMEOUT") {
+        res.status(504).json({ error: `Agentic scenario timed out after ${MAX_AGENTIC_TIMEOUT_MS / 1000}s. Try a simpler query.` });
+        return;
+      }
+      throw err;
+    }
 
     // Persist to history
     saveScenario(query, result.content, JSON.stringify(result.scenarios_explored), result.model);
@@ -300,6 +316,23 @@ apiRouter.post("/scenario/v3", async (req: Request, res: Response) => {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
+
+// ─── Config key allowlist ────────────────────────────────────────────────────
+// Only these keys may be written via PUT /api/config.  Any request containing
+// a key outside this set is rejected with 400.  This prevents clients from
+// injecting arbitrary config keys (closes partial mitigation from Wave-1).
+// Note: endpoint / auth hardening (authentication on this route) remains open.
+const CONFIG_WRITABLE_KEYS = z.object({
+  github_pat: z.string().optional(),
+  model: z.string().optional(),
+  endpoint: z.string().url().optional(),
+  temperature: z.string().optional(),
+  max_tokens: z.string().optional(),
+  llm_provider: z.enum(["github", "ollama"]).optional(),
+  ollama_model: z.string().optional(),
+  ollama_endpoint: z.string().url().optional(),
+  llm_timeout_ms: z.string().optional(),
+}).strict();
 
 // ---- Config ----
 apiRouter.get("/config", (_req, res) => {
@@ -316,9 +349,14 @@ apiRouter.get("/config", (_req, res) => {
 });
 
 apiRouter.put("/config", (req: Request, res: Response) => {
-  const entries = req.body as Record<string, string>;
+  const parsed = CONFIG_WRITABLE_KEYS.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Unknown or invalid config keys", details: parsed.error.issues });
+    return;
+  }
+  const entries = parsed.data as Record<string, string | undefined>;
   for (const [key, value] of Object.entries(entries)) {
-    setConfig(key, value);
+    if (value !== undefined) setConfig(key, value);
   }
   res.json({ ok: true });
 });

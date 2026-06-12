@@ -36,6 +36,29 @@ interface ChatResponse {
 /** Supported LLM providers */
 export type LlmProvider = "github" | "ollama";
 
+/** Default LLM request timeout (ms). Overridable via config key "llm_timeout_ms". */
+export const DEFAULT_LLM_TIMEOUT_MS = 30_000;
+
+/**
+ * Parse and clamp temperature to [0, 2].
+ * Returns the default (0.2) when the stored string is not a finite number.
+ */
+function parseTemperature(raw: string): number {
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v)) return 0.2;
+  return Math.max(0, Math.min(2, v));
+}
+
+/**
+ * Parse and clamp max_tokens to [100, 4000].
+ * Returns the default (2000) when the stored string is not a finite integer.
+ */
+function parseMaxTokens(raw: string): number {
+  const v = parseInt(raw, 10);
+  if (!Number.isFinite(v)) return 2000;
+  return Math.max(100, Math.min(4000, v));
+}
+
 /** Centralized AI config with defaults applied */
 function getAiConfig() {
   const provider = (getConfig("llm_provider") || "github") as LlmProvider;
@@ -46,8 +69,9 @@ function getAiConfig() {
       pat: "", // not needed for Ollama
       model: getConfig("ollama_model") || "llama3.2",
       endpoint: getConfig("ollama_endpoint") || "http://localhost:11434/v1/chat/completions",
-      temperature: parseFloat(getConfig("temperature") || "0.2"),
-      maxTokens: parseInt(getConfig("max_tokens") || "2000", 10),
+      temperature: parseTemperature(getConfig("temperature") || "0.2"),
+      maxTokens: parseMaxTokens(getConfig("max_tokens") || "2000"),
+      timeoutMs: parseInt(getConfig("llm_timeout_ms") || String(DEFAULT_LLM_TIMEOUT_MS), 10) || DEFAULT_LLM_TIMEOUT_MS,
     };
   }
 
@@ -56,8 +80,9 @@ function getAiConfig() {
     pat: getConfig("github_pat") || process.env.GITHUB_TOKEN || "",
     model: getConfig("model") || "openai/gpt-4.1",
     endpoint: getConfig("endpoint") || "https://models.github.ai/inference/chat/completions",
-    temperature: parseFloat(getConfig("temperature") || "0.2"),
-    maxTokens: parseInt(getConfig("max_tokens") || "2000", 10),
+    temperature: parseTemperature(getConfig("temperature") || "0.2"),
+    maxTokens: parseMaxTokens(getConfig("max_tokens") || "2000"),
+    timeoutMs: parseInt(getConfig("llm_timeout_ms") || String(DEFAULT_LLM_TIMEOUT_MS), 10) || DEFAULT_LLM_TIMEOUT_MS,
   };
 }
 
@@ -514,7 +539,19 @@ export function processToolCalls(
   scenariosExplored: ScenarioResult[]
 ): void {
   for (const toolCall of toolCalls) {
-    if (toolCall.function.name !== "run_scenario") continue;
+    // #24: Unknown tool names must push an error tool message so the tool_call_id
+    // is paired — unpaired tool_call_ids cause protocol violations on the next
+    // iteration of the agentic loop.
+    if (toolCall.function.name !== "run_scenario") {
+      messages.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: JSON.stringify({
+          error: `Unknown tool "${toolCall.function.name}". Only "run_scenario" is supported.`,
+        }),
+      });
+      continue;
+    }
     try {
       // Validate LLM-supplied tool arguments at the boundary before any math runs —
       // mirrors the V2 parse path (scenarioOperationSchema.safeParse) so unvalidated
@@ -533,8 +570,22 @@ export function processToolCalls(
   }
 }
 
-/** Make a chat completion request to the configured LLM provider (GitHub Models or Ollama) */
-async function chatRequest(endpoint: string, pat: string, payload: Record<string, unknown>): Promise<ChatResponse> {
+/**
+ * Make a chat completion request to the configured LLM provider (GitHub Models or Ollama).
+ *
+ * Uses an AbortController so a hung endpoint is cancelled after `timeoutMs`
+ * (default: DEFAULT_LLM_TIMEOUT_MS = 30 s, configurable via DB key "llm_timeout_ms").
+ * A timeout results in an Error whose message contains "LLM request timed out".
+ *
+ * @param fetchImpl - Injectable fetch implementation (defaults to globalThis.fetch).
+ *   Pass a stub in tests to avoid actual network calls or real sleeping.
+ */
+async function chatRequest(
+  endpoint: string,
+  pat: string,
+  payload: Record<string, unknown>,
+  fetchImpl: typeof fetch = globalThis.fetch
+): Promise<ChatResponse> {
   const config = getAiConfig();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -547,18 +598,31 @@ async function chatRequest(endpoint: string, pat: string, payload: Record<string
   }
   // Ollama's OpenAI-compatible endpoint needs no auth headers
 
-  const resp = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
-  if (!resp.ok) {
-    const errBody = await resp.text();
-    throw new Error(`HTTP ${resp.status}: ${resp.statusText}\n${errBody.slice(0, 500)}`);
+  try {
+    const resp = await fetchImpl(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${resp.statusText}\n${errBody.slice(0, 500)}`);
+    }
+
+    return resp.json() as Promise<ChatResponse>;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`LLM request timed out after ${config.timeoutMs}ms (endpoint: ${endpoint})`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return resp.json();
 }
 
 /** Run an agentic analysis where the LLM calls the engine multiple times */
