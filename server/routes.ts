@@ -240,6 +240,12 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
     // Step 2: Deterministic engine computes results
     const engineResult = executeScenario(operation, loadPortfolioSnapshot());
 
+    // Surface project-resolution errors as 422 Unprocessable Entity
+    if (engineResult.error) {
+      res.status(422).json({ error: engineResult.error });
+      return;
+    }
+
     // Step 3: Generate narrative (template-based by default, LLM if explicitly requested)
     let narrative = "";
     let model = "";
@@ -264,6 +270,9 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
     // Step 4: Persist to history
     saveScenario(query, narrative, JSON.stringify(engineResult), model);
 
+    // Rounding policy (see server/engine/types.ts): the engine returns full
+    // floating-point precision in all financial fields.  Clients are responsible
+    // for formatting dollar values to cents and percentages to one decimal place.
     res.json({ engine: engineResult, narrative, model, tokensUsed });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

@@ -41,6 +41,12 @@ describe("calcPersonMarginDollars", () => {
     expect(calcPersonMarginDollars(245, 185, 40)).toBe((245 - 185) * 40 * WEEKS_PER_MONTH);
   });
 
+  it("golden: calcPersonMarginDollars(245, 185, 40) ≈ (245-185)*40*(52/12) to 2 dp (#22)", () => {
+    // Changing WEEKS_PER_MONTH from 52/12 to 4.33 or 4.3 changes this value.
+    const expected = (245 - 185) * 40 * (52 / 12);
+    expect(calcPersonMarginDollars(245, 185, 40)).toBeCloseTo(expected, 2);
+  });
+
   it("returns 0 at zero hours", () => {
     expect(calcPersonMarginDollars(245, 185, 0)).toBe(0);
   });

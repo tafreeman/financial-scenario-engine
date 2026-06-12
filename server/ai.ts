@@ -617,7 +617,7 @@ async function chatRequest(
     return resp.json() as Promise<ChatResponse>;
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`LLM request timed out after ${config.timeoutMs}ms (endpoint: ${endpoint})`);
+      throw new Error(`LLM request timed out after ${config.timeoutMs}ms (endpoint: ${endpoint})`, { cause: err });
     }
     throw err;
   } finally {
