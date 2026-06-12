@@ -203,3 +203,52 @@ describe("executeScenario — evm_analysis with pinned asOfDate", () => {
     // under the proxy. The wall-clock sensitivity lives entirely in pv/spi/sv.
   });
 });
+
+// ─── handleComposite accumulated state (#20) ─────────────────────────────────
+
+describe("handleComposite — accumulated state for same-project sub-ops (#20)", () => {
+  it("two sequential staffing changes on the same project equal applying both mutations", () => {
+    // First mutation: remove Senior Developer from Alpha
+    const removeOp = {
+      action: "remove" as const,
+      project: "Project Alpha",
+      remove: [{ role: "Senior Developer", count: 1 }],
+    };
+    // Second mutation: add a Mid-level Developer to Alpha (on top of the remove)
+    const addOp = {
+      action: "add" as const,
+      project: "Project Alpha",
+      add: [{ role: "Mid-level Developer", count: 1, hours_per_week: 40 }],
+    };
+
+    // Run as a composite — both sub-ops target the same project
+    const compositeResult = executeScenario(
+      { action: "what_if_composite", sub_operations: [removeOp, addOp] },
+      portfolio,
+      DATE_T0
+    );
+
+    // Run both mutations sequentially against independent snapshots to get expected deltas
+    const afterRemove = executeScenario(removeOp, portfolio, DATE_T0);
+    const portfolioAfterRemove: PortfolioSnapshot = {
+      ...portfolio,
+      projects: portfolio.projects.map(p =>
+        p.name !== "Project Alpha" ? p : {
+          ...p,
+          staffing: p.staffing.filter(s => s.labor_category !== "Senior Developer"),
+        }
+      ),
+    };
+    const afterAdd = executeScenario(addOp, portfolioAfterRemove, DATE_T0);
+
+    // The composite's aggregate cost_delta_monthly should equal the sum of both deltas
+    const expectedCostDelta =
+      (afterRemove.impact?.cost_delta_monthly ?? 0) +
+      (afterAdd.impact?.cost_delta_monthly ?? 0);
+
+    expect(compositeResult.impact?.cost_delta_monthly).toBeCloseTo(expectedCostDelta, 2);
+
+    // Verify we have two sub-results
+    expect(compositeResult.sub_results).toHaveLength(2);
+  });
+});

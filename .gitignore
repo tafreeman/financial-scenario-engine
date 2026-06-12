@@ -4,6 +4,7 @@ client/dist-pages/
 client/node_modules/
 data/*.db
 data/*.db-shm
+data/*.db.backup
 *.db-journal
 *.db-wal
 *.tsbuildinfo

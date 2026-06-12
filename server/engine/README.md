@@ -35,7 +35,7 @@ Foundation for the entire engine. No imports from other engine modules.
 **Constants:**
 | Name | Value | Meaning |
 |------|-------|---------|
-| `WEEKS_PER_MONTH` | 4.33 | 365.25 / 12 / 7 |
+| `WEEKS_PER_MONTH` | 52 / 12 (≈ 4.3333) | 52 weeks / 12 months |
 | `HOURS_PER_YEAR` | 2080 | 52 × 40 |
 | `WORKING_DAYS_PER_MONTH` | 21.67 | 260 / 12 |
 | `WEEKS_PER_YEAR` | 52 | — |
@@ -161,14 +161,16 @@ Also exports `ROLE_ABBREVIATIONS` dictionary for common aliases.
 
 ### `executor.ts` — Scenario orchestration
 
-Entry point for running a complete scenario. This is the engine boundary that loads data from the database, calls the pure calculation functions, and assembles the `ScenarioResult` envelope.
+Entry point for running a complete scenario. Calls the pure calculation functions and assembles the `ScenarioResult` envelope. Has no database access — callers are responsible for loading the portfolio via `loadPortfolioSnapshot()` from `server/loaders.ts` before invoking the engine.
 
 | Export | Description |
 |--------|-------------|
-| `loadPortfolioSnapshot()` | Loads full DB state into `PortfolioSnapshot` |
-| `executeScenario(operation)` | Main entrypoint: operation → `ScenarioResult` |
+| `executeScenario(operation, portfolio)` | Main entrypoint: operation + snapshot → `ScenarioResult` |
 | `resolveProject(name, snapshot)` | Fuzzy-find project by name |
 | `resolveRole(role, categories)` | Fuzzy-find labor category by role name |
+
+> **Note:** `loadPortfolioSnapshot()` lives in `server/loaders.ts`, not in this module.
+> Keeping DB I/O out of the engine preserves the pure/testable character of all calculation functions.
 
 ---
 
@@ -223,4 +225,4 @@ Test files:
 2. **Immutability** — Mutation functions return new arrays; never modify inputs.
 3. **Safe arithmetic** — `safeDivide()` prevents `Infinity`/`NaN` from propagating.
 4. **Determinism** — Same inputs always produce the same output. The LLM provides intent; the engine provides numbers.
-5. **Separation from AI** — The engine has no knowledge of LLM providers or prompts. `executor.ts` is the database-backed adapter at the edge of the engine.
+5. **Separation from AI** — The engine has no knowledge of LLM providers or prompts. `executor.ts` is the calculation orchestrator; database I/O lives in `server/loaders.ts`, keeping the engine itself free of any DB dependency.

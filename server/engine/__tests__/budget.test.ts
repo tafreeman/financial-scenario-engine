@@ -110,6 +110,17 @@ describe("calcBudgetMetrics", () => {
     expect(result.budget_exhaustion_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("golden: months_remaining = remaining / burn to 2 dp with expected formula (#22)", () => {
+    // Use a burn rate derived from a staffing record so the test is sensitive to
+    // the WEEKS_PER_MONTH constant: if it changes, the burn changes, so months_remaining changes.
+    // Burn = cost_rate(185) * hours(40) * WEEKS_PER_MONTH = 185*40*(52/12)
+    const burn = 185 * 40 * (52 / 12);
+    const remaining = testProject.total_budget - testProject.spent_to_date; // 765000
+    const expectedMonths = remaining / burn;
+    const result = calcBudgetMetrics(testProject, burn);
+    expect(result.months_remaining).toBeCloseTo(expectedMonths, 2);
+  });
+
   it("handles zero burn rate", () => {
     const result = calcBudgetMetrics(testProject, 0);
     expect(result.months_remaining).toBe(0);

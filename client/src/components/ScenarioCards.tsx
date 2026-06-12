@@ -41,8 +41,8 @@ export default function ScenarioCards({ result }: Props) {
           />
           <DeltaCard
             label="Margin"
-            value={fmtPctDelta(impact.margin_delta_pct)}
-            color={deltaColor(impact.margin_delta_pct)}
+            value={impact.margin_delta_pct != null ? fmtPctDelta(impact.margin_delta_pct) : "N/A"}
+            color={impact.margin_delta_pct != null ? deltaColor(impact.margin_delta_pct) : "text-steel-500"}
             icon={TrendingDown}
           />
           <DeltaCard

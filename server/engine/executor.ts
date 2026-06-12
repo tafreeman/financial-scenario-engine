@@ -1,16 +1,12 @@
 import {
   type ScenarioOperation,
   type ScenarioResult,
+  type ScenarioImpact,
   type PortfolioSnapshot,
   type ProjectSnapshot,
   type LaborCategory,
   type StaffingRecord,
 } from "./types.js";
-import {
-  getProjectsWithBurn,
-  getStaffingByProject,
-  getLaborCategories,
-} from "../db.js";
 import { calcProjectLabor } from "./labor.js";
 import { calcProjectMarginFromLabor } from "./margin.js";
 import { fuzzyMatchWithConfidence, ROLE_ABBREVIATIONS } from "./matching.js";
@@ -28,40 +24,6 @@ import {
   calcUnexpectedCostImpact,
 } from "./scenarios.js";
 import { calcPortfolioMetrics } from "./portfolio.js";
-
-// ─── Portfolio Loading ───────────────────────────────────────────────────────
-
-/** Load complete portfolio state from database */
-export function loadPortfolioSnapshot(): PortfolioSnapshot {
-  const projectRows = getProjectsWithBurn();
-  const allStaffing = getStaffingByProject() as StaffingRecord[];
-  const categories = getLaborCategories() as LaborCategory[];
-
-  // Group staffing by project_id in O(S) instead of O(P*S) filtering
-  const staffingByProject = new Map<number, StaffingRecord[]>();
-  for (const s of allStaffing) {
-    if (s.is_active !== 1) continue;
-    let list = staffingByProject.get(s.project_id);
-    if (!list) {
-      list = [];
-      staffingByProject.set(s.project_id, list);
-    }
-    list.push(s);
-  }
-
-  const projects: ProjectSnapshot[] = projectRows.map(p => ({
-    id: p.id,
-    name: p.name,
-    total_budget: p.total_budget,
-    spent_to_date: p.spent_to_date,
-    start_date: p.start_date,
-    end_date: p.end_date,
-    status: p.status,
-    staffing: staffingByProject.get(p.id) ?? [],
-  }));
-
-  return { projects, labor_categories: categories };
-}
 
 // ─── Name Resolution ─────────────────────────────────────────────────────────
 
@@ -94,53 +56,98 @@ export function resolveRole(
 
 // ─── Metric Computation Helpers ──────────────────────────────────────────────
 
-function computeState(staffing: StaffingRecord[], project: ProjectSnapshot) {
+function computeState(staffing: StaffingRecord[], project: ProjectSnapshot, asOf?: Date) {
   const labor = calcProjectLabor(staffing);
   const margin = calcProjectMarginFromLabor(labor);
-  const budget = calcBudgetMetrics(project, labor.monthly_cost);
+  const budget = calcBudgetMetrics(project, labor.monthly_cost, asOf);
   return { labor, margin, budget };
+}
+
+/** Build a minimal error ScenarioResult (no financials) */
+function errorResult(
+  operation: ScenarioOperation,
+  timestamp: string,
+  errorMsg: string
+): ScenarioResult {
+  return {
+    operation,
+    timestamp,
+    projects_involved: [],
+    current: {
+      labor: {
+        monthly_cost: 0, monthly_revenue: 0, annual_cost: 0, annual_revenue: 0,
+        blended_cost_rate: 0, blended_bill_rate: 0, fte_count: 0, headcount: 0,
+      },
+      margin: {
+        margin_pct: 0, margin_dollars_monthly: 0, margin_dollars_annual: 0,
+        gross_margin_pct: 0, contribution_margin: 0, net_direct_labor_multiplier: 0,
+      },
+      budget: {
+        monthly_burn_rate: 0, remaining_budget: 0, months_remaining: 0,
+        budget_exhaustion_date: "N/A", annual_run_rate: 0,
+      },
+    },
+    error: errorMsg,
+    warnings: [errorMsg],
+  };
 }
 
 // ─── Main Executor ───────────────────────────────────────────────────────────
 
-/** Execute a scenario operation against current database state.
+/** Execute a scenario operation against a portfolio snapshot.
  *
  *  @param operation - The structured scenario operation to execute.
- *  @param preloadedPortfolio - Optional pre-loaded portfolio to avoid redundant DB queries
- *    (e.g. in composite operations).
- *  @param asOfDate - Reference date for time-dependent calculations (timeline extension,
- *    EVM planned value).  Defaults to the current wall-clock time when omitted.
- *    Pass an explicit date in tests and batch runs to make outputs deterministic.
+ *  @param portfolio - Pre-loaded portfolio snapshot (required).  Callers are
+ *    responsible for loading the portfolio via `loadPortfolioSnapshot()` from
+ *    `server/loaders.ts` before calling this function.  Keeping DB I/O out of
+ *    the engine makes the calculation functions pure and fully testable without
+ *    filesystem access.
+ *  @param asOfDate - Reference date for time-dependent calculations (timeline
+ *    extension, EVM planned value, budget exhaustion date).  Defaults to the
+ *    current wall-clock time when omitted.  Pass an explicit date in tests and
+ *    batch runs to make outputs deterministic.
  */
 export function executeScenario(
   operation: ScenarioOperation,
-  preloadedPortfolio?: PortfolioSnapshot,
+  portfolio: PortfolioSnapshot,
   asOfDate?: Date
 ): ScenarioResult {
-  const portfolio = preloadedPortfolio ?? loadPortfolioSnapshot();
   const warnings: string[] = [];
-  const timestamp = new Date().toISOString();
+  const timestamp = (asOfDate ?? new Date()).toISOString();
 
   // Determine target project(s)
   const projectName = operation.project;
   let targetProject: ProjectSnapshot | null = null;
 
+  // Actions that require a specific named project — NOT portfolio-level actions.
+  // burn_rate_check and margin_analysis legitimately fall back to portfolio-wide
+  // analysis when no project (or "all") is specified.
+  const requiresNamedProject =
+    operation.action !== "burn_rate_check" &&
+    operation.action !== "margin_analysis" &&
+    operation.action !== "reallocation" &&
+    operation.action !== "what_if_composite";
+
   if (projectName && projectName.toLowerCase() !== "all") {
     targetProject = resolveProject(projectName, portfolio, warnings);
     if (!targetProject) {
+      if (requiresNamedProject) {
+        // The caller named a specific project that does not exist in the portfolio.
+        // Return a clean error instead of silently operating on portfolio.projects[0].
+        return errorResult(
+          operation, timestamp,
+          `Unknown project "${projectName}". No matching project found in the portfolio.`
+        );
+      }
       warnings.push(`Could not resolve project "${projectName}". Showing portfolio-level analysis.`);
     }
   }
-
-  const _projectsInvolved = targetProject
-    ? [targetProject.name]
-    : portfolio.projects.map(p => p.name);
 
   // Route to the appropriate handler
   switch (operation.action) {
     case "burn_rate_check":
     case "margin_analysis":
-      return handleAnalysis(operation, portfolio, targetProject, warnings, timestamp);
+      return handleAnalysis(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "evm_analysis":
       return handleEvmAnalysis(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
@@ -150,26 +157,31 @@ export function executeScenario(
     case "remove":
     case "rate_change":
     case "hours_change":
-      return handleStaffingChange(operation, portfolio, targetProject, warnings, timestamp);
+      return handleStaffingChange(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "timeline_extension":
       return handleTimelineExtension(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "unexpected_cost":
-      return handleUnexpectedCost(operation, portfolio, targetProject, warnings, timestamp);
+      return handleUnexpectedCost(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
     case "reallocation":
-      return handleReallocation(operation, portfolio, warnings, timestamp);
+      return handleReallocation(operation, portfolio, warnings, timestamp, asOfDate);
 
     case "what_if_composite":
       return handleComposite(operation, portfolio, targetProject, warnings, timestamp, asOfDate);
 
-    default:
-      warnings.push(`Unknown action: ${operation.action}. Defaulting to burn rate check.`);
+    default: {
+      // Exhaustiveness guard: TypeScript will flag any unhandled action enum value
+      // added to ScenarioOperation in the future.
+      const _exhaustive: never = operation.action;
+      void _exhaustive;
+      warnings.push(`Unknown action: ${String(operation.action)}. Defaulting to burn rate check.`);
       return handleAnalysis(
         { ...operation, action: "burn_rate_check" },
-        portfolio, targetProject, warnings, timestamp
+        portfolio, targetProject, warnings, timestamp, asOfDate
       );
+    }
   }
 }
 
@@ -180,10 +192,11 @@ function handleAnalysis(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOf?: Date
 ): ScenarioResult {
   if (targetProject) {
-    const current = computeState(targetProject.staffing, targetProject);
+    const current = computeState(targetProject.staffing, targetProject, asOf);
     if (current.labor.headcount === 0) {
       warnings.push(`${targetProject.name} has no active staffing.`);
     }
@@ -250,12 +263,17 @@ function handleEvmAnalysis(
   timestamp: string,
   asOfDate?: Date
 ): ScenarioResult {
+  // #13: return an explicit error result when no project can be resolved
   if (!targetProject) {
+    if (portfolio.projects.length === 0) {
+      return errorResult(operation, timestamp, "EVM analysis requires a specific project but the portfolio is empty.");
+    }
     warnings.push("EVM analysis requires a specific project. Using first project.");
-    targetProject = portfolio.projects[0];
+    // Safe because we just checked length > 0
+    targetProject = portfolio.projects[0] as ProjectSnapshot;
   }
 
-  const current = computeState(targetProject.staffing, targetProject);
+  const current = computeState(targetProject.staffing, targetProject, asOfDate);
 
   // EVM estimation
   const bac = targetProject.total_budget;
@@ -306,15 +324,21 @@ function handleStaffingChange(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOf?: Date
 ): ScenarioResult {
+  // #13: return an explicit error result when no project can be resolved
   if (!targetProject) {
+    if (portfolio.projects.length === 0) {
+      return errorResult(operation, timestamp, `Staffing changes require a specific project but the portfolio is empty.`);
+    }
     warnings.push("Staffing changes require a specific project. Using first project.");
-    targetProject = portfolio.projects[0];
+    // Safe because we just checked length > 0
+    targetProject = portfolio.projects[0] as ProjectSnapshot;
   }
 
   const beforeStaffing = targetProject.staffing;
-  const before = computeState(beforeStaffing, targetProject);
+  const before = computeState(beforeStaffing, targetProject, asOf);
 
   // Apply the mutation
   let afterStaffing: StaffingRecord[];
@@ -345,7 +369,7 @@ function handleStaffingChange(
       afterStaffing = beforeStaffing;
   }
 
-  const after = computeState(afterStaffing, targetProject);
+  const after = computeState(afterStaffing, targetProject, asOf);
   const impact = calcScenarioImpact(before, after);
 
   // Generate warnings
@@ -379,12 +403,17 @@ function handleTimelineExtension(
   timestamp: string,
   asOfDate?: Date
 ): ScenarioResult {
+  // #13: return an explicit error result when no project can be resolved
   if (!targetProject) {
+    if (portfolio.projects.length === 0) {
+      return errorResult(operation, timestamp, "Timeline extension requires a specific project but the portfolio is empty.");
+    }
     warnings.push("Timeline extension requires a specific project. Using first project.");
-    targetProject = portfolio.projects[0];
+    // Safe because we just checked length > 0
+    targetProject = portfolio.projects[0] as ProjectSnapshot;
   }
 
-  const current = computeState(targetProject.staffing, targetProject);
+  const current = computeState(targetProject.staffing, targetProject, asOfDate);
   const extensionResult = calcTimelineExtensionImpact(
     targetProject,
     current.labor.monthly_cost,
@@ -400,7 +429,8 @@ function handleTimelineExtension(
   // Projected budget after extension
   const projectedBudget = calcBudgetMetrics(
     { ...targetProject, end_date: extensionResult.new_end_date },
-    current.labor.monthly_cost
+    current.labor.monthly_cost,
+    asOfDate
   );
 
   return {
@@ -436,14 +466,20 @@ function handleUnexpectedCost(
   portfolio: PortfolioSnapshot,
   targetProject: ProjectSnapshot | null,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOf?: Date
 ): ScenarioResult {
+  // #13: return an explicit error result when no project can be resolved
   if (!targetProject) {
+    if (portfolio.projects.length === 0) {
+      return errorResult(operation, timestamp, "Unexpected cost requires a specific project but the portfolio is empty.");
+    }
     warnings.push("Unexpected cost requires a specific project. Using first project.");
-    targetProject = portfolio.projects[0];
+    // Safe because we just checked length > 0
+    targetProject = portfolio.projects[0] as ProjectSnapshot;
   }
 
-  const current = computeState(targetProject.staffing, targetProject);
+  const current = computeState(targetProject.staffing, targetProject, asOf);
   const costResult = calcUnexpectedCostImpact(
     targetProject,
     current.labor.monthly_cost,
@@ -460,7 +496,8 @@ function handleUnexpectedCost(
       ...targetProject,
       spent_to_date: targetProject.spent_to_date + costResult.total_one_time,
     },
-    newBurn
+    newBurn,
+    asOf
   );
 
   return {
@@ -501,31 +538,36 @@ function handleReallocation(
   operation: ScenarioOperation,
   portfolio: PortfolioSnapshot,
   warnings: string[],
-  timestamp: string
+  timestamp: string,
+  asOf?: Date
 ): ScenarioResult {
   const projectNames = operation.projects ?? [];
   if (projectNames.length < 2) {
     warnings.push("Reallocation requires at least 2 projects.");
     return handleAnalysis(
       { ...operation, action: "burn_rate_check" },
-      portfolio, null, warnings, timestamp
+      portfolio, null, warnings, timestamp, asOf
     );
   }
 
-  const fromProject = resolveProject(projectNames[0], portfolio, warnings);
-  const toProject = resolveProject(projectNames[1], portfolio, warnings);
+  const [fromName, toName] = projectNames;
+  if (!fromName || !toName) {
+    return errorResult(operation, timestamp, "Reallocation requires exactly two resolvable project names.");
+  }
+  const fromProject = resolveProject(fromName, portfolio, warnings);
+  const toProject = resolveProject(toName, portfolio, warnings);
 
   if (!fromProject || !toProject) {
     warnings.push("Could not resolve one or both projects for reallocation.");
     return handleAnalysis(
       { ...operation, action: "burn_rate_check" },
-      portfolio, null, warnings, timestamp
+      portfolio, null, warnings, timestamp, asOf
     );
   }
 
   // Apply remove from source, add to destination
-  const fromBefore = computeState(fromProject.staffing, fromProject);
-  const toBefore = computeState(toProject.staffing, toProject);
+  const fromBefore = computeState(fromProject.staffing, fromProject, asOf);
+  const toBefore = computeState(toProject.staffing, toProject, asOf);
 
   const fromAfterStaffing = applyRemove(fromProject.staffing, operation.remove);
   const toAfterStaffing = applyAdd(
@@ -533,8 +575,8 @@ function handleReallocation(
     operation.add, toProject.id, toProject.name
   );
 
-  const fromAfter = computeState(fromAfterStaffing, fromProject);
-  const toAfter = computeState(toAfterStaffing, toProject);
+  const fromAfter = computeState(fromAfterStaffing, fromProject, asOf);
+  const toAfter = computeState(toAfterStaffing, toProject, asOf);
 
   return {
     operation,
@@ -581,25 +623,177 @@ function handleComposite(
     warnings.push("Composite operation has no sub-operations.");
     return handleAnalysis(
       { ...operation, action: "burn_rate_check" },
-      portfolio, targetProject, warnings, timestamp
+      portfolio, targetProject, warnings, timestamp, asOfDate
     );
   }
 
-  const subResults = operation.sub_operations.map(subOp => executeScenario(subOp, portfolio, asOfDate));
+  // #20: Thread accumulated state through sub-operations.
+  // Each sub-op runs against the UPDATED portfolio from the previous sub-op,
+  // so two same-project staffing changes see the correct intermediate state.
+  let accPortfolio = portfolio;
+  const subResults: ScenarioResult[] = [];
+  for (const subOp of operation.sub_operations) {
+    const result = executeScenario(subOp, accPortfolio, asOfDate);
+    subResults.push(result);
+    // Rebuild portfolio by replaying the sub-op's mutations onto the accumulated snapshot
+    accPortfolio = mergeProjectedState(accPortfolio, subOp);
+  }
 
-  // Aggregate: use first sub-result's current as the "before" baseline
-  const firstResult = subResults[0];
+  // #12: Aggregate impact — sum all non-null impact deltas rather than returning
+  // the last sub-result's impact, which gives wrong results for multi-project composites.
+  const multiProject = [...new Set(subResults.flatMap(r => r.projects_involved))].length > 1;
+  const aggregateImpact = sumImpacts(subResults, multiProject);
   const allWarnings = [...warnings, ...subResults.flatMap(r => r.warnings)];
+
+  // For multi-project composites current/projected are not meaningful aggregates;
+  // the individual sub_results carry the per-project before/after state.
+  // For single-project composites we use the first sub-result's current and last's projected.
+  const firstSubResult = subResults[0];
+  const lastSubResult = subResults[subResults.length - 1];
+  const current = (multiProject || !firstSubResult)
+    ? {
+        labor: { monthly_cost: 0, monthly_revenue: 0, annual_cost: 0, annual_revenue: 0, blended_cost_rate: 0, blended_bill_rate: 0, fte_count: 0, headcount: 0 },
+        margin: { margin_pct: 0, margin_dollars_monthly: 0, margin_dollars_annual: 0, gross_margin_pct: 0, contribution_margin: 0, net_direct_labor_multiplier: 0 },
+        budget: { monthly_burn_rate: 0, remaining_budget: 0, months_remaining: 0, budget_exhaustion_date: "N/A", annual_run_rate: 0 },
+      }
+    : firstSubResult.current;
 
   return {
     operation,
     timestamp,
     project_name: targetProject?.name,
     projects_involved: [...new Set(subResults.flatMap(r => r.projects_involved))],
-    current: firstResult.current,
-    projected: subResults[subResults.length - 1].projected,
-    impact: subResults[subResults.length - 1].impact,
+    current,
+    projected: multiProject ? undefined : lastSubResult?.projected,
+    impact: aggregateImpact,
     sub_results: subResults,
     warnings: allWarnings,
+  };
+}
+
+// ─── Composite helpers ────────────────────────────────────────────────────────
+
+/**
+ * After a sub-operation in a composite, rebuild the portfolio by re-applying
+ * the staffing mutation to the affected project.  This ensures the next
+ * sub-operation sees the accumulated mutations rather than the original snapshot
+ * — fixing the "same-project sub-ops see un-mutated state" bug (#20).
+ *
+ * Since ScenarioResult doesn't carry the raw afterStaffing array, we re-derive
+ * the updated staffing by replaying the same apply* functions used in the handler.
+ */
+function mergeProjectedState(
+  portfolio: PortfolioSnapshot,
+  subOp: ScenarioOperation
+): PortfolioSnapshot {
+  switch (subOp.action) {
+    case "swap":
+    case "add":
+    case "remove":
+    case "rate_change":
+    case "hours_change": {
+      const projectName = subOp.project;
+      if (!projectName || projectName.toLowerCase() === "all") return portfolio;
+      const projects = portfolio.projects.map(p => {
+        if (p.name.toLowerCase() !== projectName.toLowerCase()) return p;
+        let updated: StaffingRecord[];
+        switch (subOp.action) {
+          case "swap":
+            updated = applySwap(p.staffing, portfolio.labor_categories, subOp.remove, subOp.add, p.id, p.name);
+            break;
+          case "add":
+            updated = applyAdd(p.staffing, portfolio.labor_categories, subOp.add, p.id, p.name);
+            break;
+          case "remove":
+            updated = applyRemove(p.staffing, subOp.remove);
+            break;
+          case "rate_change":
+            updated = applyRateChange(p.staffing, subOp.rate_changes);
+            break;
+          case "hours_change":
+            updated = applyHoursChange(p.staffing, subOp.hours_changes);
+            break;
+          default:
+            updated = p.staffing;
+        }
+        return { ...p, staffing: updated };
+      });
+      return { ...portfolio, projects };
+    }
+    case "unexpected_cost": {
+      // Patch spent_to_date for one-time costs so subsequent sub-ops see correct budget
+      const projectName = subOp.project;
+      if (!projectName || projectName.toLowerCase() === "all") return portfolio;
+      const additionalOneTime = (subOp.additional_costs ?? [])
+        .filter(c => !c.is_recurring)
+        .reduce((s, c) => s + c.amount, 0);
+      if (additionalOneTime === 0) return portfolio;
+      const projects = portfolio.projects.map(p =>
+        p.name.toLowerCase() !== projectName.toLowerCase()
+          ? p
+          : { ...p, spent_to_date: p.spent_to_date + additionalOneTime }
+      );
+      return { ...portfolio, projects };
+    }
+    case "reallocation": {
+      // Replay remove from source, add to destination
+      const projectNames = subOp.projects ?? [];
+      const fromName = projectNames[0];
+      const toName = projectNames[1];
+      if (!fromName || !toName) return portfolio;
+      const projects = portfolio.projects.map(p => {
+        if (p.name.toLowerCase() === fromName.toLowerCase()) {
+          return { ...p, staffing: applyRemove(p.staffing, subOp.remove) };
+        }
+        if (p.name.toLowerCase() === toName.toLowerCase()) {
+          return { ...p, staffing: applyAdd(p.staffing, portfolio.labor_categories, subOp.add, p.id, p.name) };
+        }
+        return p;
+      });
+      return { ...portfolio, projects };
+    }
+    default:
+      // Analysis-only or composite — no staffing state change to propagate
+      return portfolio;
+  }
+}
+
+/**
+ * Sum all non-null impact deltas across sub-results to form the composite
+ * aggregate (#12).
+ *
+ * @param multiProject - When true the composite spans more than one project.
+ *   In that case, margin_delta_pct and burn_rate_delta_pct are intentionally
+ *   omitted from the aggregate: percentage-point deltas from *different*
+ *   projects are not additive — summing them yields a dimensionless-meaningless
+ *   number.  Dollar/headcount/fte deltas ARE additive across projects and are
+ *   always summed.
+ *
+ *   months_remaining_delta is also omitted for multi-project composites: each
+ *   project has its own remaining budget, so the sum of per-project month
+ *   changes is not a coherent portfolio-level figure.
+ *
+ *   For single-project composites all fields are summed normally (valid).
+ */
+function sumImpacts(subResults: ScenarioResult[], multiProject: boolean): ScenarioImpact {
+  const impacts = subResults
+    .map(r => r.impact)
+    .filter((i): i is ScenarioImpact => i != null);
+
+  return {
+    cost_delta_monthly: impacts.reduce((s, i) => s + i.cost_delta_monthly, 0),
+    cost_delta_annual: impacts.reduce((s, i) => s + i.cost_delta_annual, 0),
+    revenue_delta_monthly: impacts.reduce((s, i) => s + i.revenue_delta_monthly, 0),
+    revenue_delta_annual: impacts.reduce((s, i) => s + i.revenue_delta_annual, 0),
+    // Percentage-point deltas are not additive across projects; omit for multi-project.
+    margin_delta_pct: multiProject ? undefined : impacts.reduce((s, i) => s + (i.margin_delta_pct ?? 0), 0),
+    margin_delta_dollars_monthly: impacts.reduce((s, i) => s + i.margin_delta_dollars_monthly, 0),
+    burn_rate_delta: impacts.reduce((s, i) => s + i.burn_rate_delta, 0),
+    // Percentage-point deltas are not additive across projects; omit for multi-project.
+    burn_rate_delta_pct: multiProject ? undefined : impacts.reduce((s, i) => s + (i.burn_rate_delta_pct ?? 0), 0),
+    // months_remaining is per-project; summing across projects is not meaningful.
+    months_remaining_delta: multiProject ? 0 : impacts.reduce((s, i) => s + i.months_remaining_delta, 0),
+    headcount_delta: impacts.reduce((s, i) => s + i.headcount_delta, 0),
+    fte_delta: impacts.reduce((s, i) => s + i.fte_delta, 0),
   };
 }

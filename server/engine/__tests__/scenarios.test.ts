@@ -48,7 +48,9 @@ describe("applyRemove", () => {
   });
 
   it("does not remove more than count", () => {
-    const twoDevs = [...alphaStaffing, { ...alphaStaffing[0], id: 99, person_name: "Other Dev" }];
+    const firstStaff = alphaStaffing[0];
+    if (!firstStaff) throw new Error("fixture is empty");
+    const twoDevs = [...alphaStaffing, { ...firstStaff, id: 99, person_name: "Other Dev" }];
     const result = applyRemove(twoDevs, [{ role: "Senior Developer", count: 1 }]);
     expect(result.filter(s => s.labor_category === "Senior Developer").length).toBe(1);
   });
@@ -89,7 +91,9 @@ describe("applyAdd", () => {
 
   it("defaults hours to 40", () => {
     const result = applyAdd([], categories, [{ role: "Senior Developer", count: 1 }], 1, "Test");
-    expect(result[0].hours_per_week).toBe(40);
+    const first = result[0];
+    if (!first) throw new Error("result is empty");
+    expect(first.hours_per_week).toBe(40);
   });
 
   it("skips unresolvable roles", () => {
@@ -123,7 +127,7 @@ describe("applyRateChange", () => {
 
   it("does not mutate original array", () => {
     applyRateChange(alphaStaffing, [{ role: "Senior Developer", new_bill_rate: 999 }]);
-    expect(alphaStaffing[0].bill_rate).toBe(245); // original unchanged
+    expect(alphaStaffing[0]?.bill_rate).toBe(245); // original unchanged
   });
 });
 

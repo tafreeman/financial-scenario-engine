@@ -1,6 +1,20 @@
 // ─── Constants ────────────────────────────────────────────────────────────────
+//
+// All month-length arithmetic derives from a single base: WEEKS_PER_MONTH = 52 / 12.
+// This eliminates the historical divergence between the engine constant (4.33) and
+// the SQL literals (also 4.33) — both now reference the same irrational fraction.
+//
+// Rounding policy: all intermediate calculations use full floating-point precision.
+// Rounding to presentation precision (cents / one decimal for %) is applied only
+// at the API serialisation layer (see routes.ts).  No rounding is applied inside
+// the engine itself.
 
-export const WEEKS_PER_MONTH = 4.33; // 365.25 / 12 / 7
+/** Average weeks per calendar month: 52 / 12 ≈ 4.3333… */
+export const WEEKS_PER_MONTH = 52 / 12;
+
+/** Average calendar days per month: 365.25 / 12 ≈ 30.4375 */
+export const DAYS_PER_MONTH = 365.25 / 12;
+
 export const HOURS_PER_YEAR = 2080; // 52 weeks × 40 hours
 export const WORKING_DAYS_PER_MONTH = 21.67; // 260 / 12
 export const WEEKS_PER_YEAR = 52;
@@ -186,10 +200,21 @@ export interface ScenarioImpact {
   cost_delta_annual: number;
   revenue_delta_monthly: number;
   revenue_delta_annual: number;
-  margin_delta_pct: number;
+  /**
+   * Percentage-point change in margin.  Defined for single-project results.
+   * Omitted (undefined) on multi-project composite aggregates because
+   * percentage-point deltas from different projects are not additive — summing
+   * them yields a dimensionless-meaningless number.
+   */
+  margin_delta_pct?: number;
   margin_delta_dollars_monthly: number;
   burn_rate_delta: number;
-  burn_rate_delta_pct: number;
+  /**
+   * Percentage-point change in burn rate.  Defined for single-project results.
+   * Omitted (undefined) on multi-project composite aggregates for the same
+   * non-additivity reason as margin_delta_pct.
+   */
+  burn_rate_delta_pct?: number;
   months_remaining_delta: number;
   headcount_delta: number;
   fte_delta: number;
@@ -241,6 +266,13 @@ export interface ScenarioResult {
 
   // Warnings and flags
   warnings: string[];
+
+  /**
+   * Set when the operation cannot be executed (e.g. unresolvable project name).
+   * When present, financial fields carry zero values and must not be displayed.
+   * The API surfaces this as a 422 response.
+   */
+  error?: string;
 
   // Sub-results for composite operations
   sub_results?: ScenarioResult[];

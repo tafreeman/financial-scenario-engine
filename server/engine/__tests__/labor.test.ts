@@ -35,8 +35,15 @@ function makeStaff(overrides: Partial<StaffingRecord> = {}): StaffingRecord {
 
 describe("monthlyCost", () => {
   it("computes cost_rate * hours * WEEKS_PER_MONTH", () => {
-    // Formula: costRate × hoursPerWeek × 4.33
+    // Formula: costRate × hoursPerWeek × WEEKS_PER_MONTH (= 52/12)
     expect(monthlyCost(185, 40)).toBe(185 * 40 * WEEKS_PER_MONTH);
+  });
+
+  it("golden: monthlyCost(100, 40) ≈ 100 * 40 * (52/12) to 2 decimal places (#22)", () => {
+    // This assertion uses the formula directly so changing WEEKS_PER_MONTH from
+    // 52/12 to any other value (e.g. 4.33 or 4.3) will cause this test to fail.
+    const expected = 100 * 40 * (52 / 12);
+    expect(monthlyCost(100, 40)).toBeCloseTo(expected, 2);
   });
 
   it("handles zero hours", () => {

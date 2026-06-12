@@ -8,4 +8,4 @@ export * from "./utilization.js";
 export * from "./scenarios.js";
 export * from "./portfolio.js";
 export * from "./matching.js";
-export { executeScenario, loadPortfolioSnapshot, resolveProject, resolveRole } from "./executor.js";
+export { executeScenario, resolveProject, resolveRole } from "./executor.js";

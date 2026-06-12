@@ -1,4 +1,5 @@
 import {
+  DAYS_PER_MONTH,
   safeDivide,
   type ScenarioOperation,
   type ScenarioImpact,
@@ -26,7 +27,8 @@ export function applyRemove(
   for (const spec of remove) {
     let remaining = spec.count;
     for (let i = result.length - 1; i >= 0 && remaining > 0; i--) {
-      const s = result[i];
+      const s: StaffingRecord | undefined = result[i];
+      if (!s) continue;
       const roleMatch = s.labor_category.toLowerCase().includes(spec.role.toLowerCase());
       const nameMatch = !spec.person_name ||
         (s.person_name ?? "").toLowerCase().includes(spec.person_name.toLowerCase());
@@ -156,7 +158,7 @@ export function calcTimelineExtensionImpact(
     newEnd.setMonth(newEnd.getMonth() + extensionMonths);
   } else if (newEndDate) {
     newEnd = new Date(newEndDate);
-    additionalMonths = (newEnd.getTime() - oldEnd.getTime()) / (30.44 * 24 * 60 * 60 * 1000);
+    additionalMonths = (newEnd.getTime() - oldEnd.getTime()) / (DAYS_PER_MONTH * 24 * 60 * 60 * 1000);
   } else {
     return {
       new_end_date: project.end_date,
@@ -171,12 +173,12 @@ export function calcTimelineExtensionImpact(
   const _remaining = calcRemainingBudget(project.total_budget, project.spent_to_date);
   // Calculate total months remaining from asOfDate to new end
   const now = asOfDate ?? new Date();
-  const remainingMonthsNew = (newEnd.getTime() - now.getTime()) / (30.44 * 24 * 60 * 60 * 1000);
+  const remainingMonthsNew = (newEnd.getTime() - now.getTime()) / (DAYS_PER_MONTH * 24 * 60 * 60 * 1000);
   const new_total_projected = project.spent_to_date + monthlyBurn * Math.max(0, remainingMonthsNew);
   const budget_gap = new_total_projected - project.total_budget;
 
   return {
-    new_end_date: newEnd.toISOString().split("T")[0],
+    new_end_date: newEnd.toISOString().split("T")[0] ?? newEnd.toISOString().slice(0, 10),
     additional_months: additionalMonths,
     additional_cost,
     new_total_projected,

@@ -1,5 +1,50 @@
 import { expect, test } from "@playwright/test";
 
+// ─── Engine constants (mirrors server/engine/types.ts) ───────────────────────
+//
+// WEEKS_PER_MONTH must stay in sync with the value exported by
+// server/engine/types.ts.  Using the identical expression (52 / 12) rather
+// than a pre-computed literal ensures this test tracks future changes to the
+// constant automatically — the same arithmetic that the engine applies is
+// applied here.
+//
+// If WEEKS_PER_MONTH is ever changed in types.ts, update this line to match
+// and the derived assertions below will recompute automatically.
+const WEEKS_PER_MONTH = 52 / 12; // ← identical to server/engine/types.ts
+
+// ─── Seed data cost-rate table (mirrors server/db.ts seedSampleData) ─────────
+//
+// cost_rate values by labor category (matches db.ts insertCat order):
+//   [1] Lead Architect: $210/hr
+//   [2] Senior Developer: $185/hr
+//   [3] Mid-level Developer: $135/hr
+//   [4] Junior Developer: $95/hr
+//   [5] Business Analyst: $125/hr
+//   [6] QA Engineer: $115/hr
+//
+// Staffing assignments from db.ts insertStaff:
+//   Alpha: J. Smith (cat 2, 40 h/wk), K. Chen (cat 3, 40 h/wk), L. Park (cat 5, 30 h/wk)
+//   Beta:  M. Jones (cat 1, 40 h/wk), N. Davis (cat 2, 40 h/wk), P. Wilson (cat 6, 40 h/wk)
+//   Gamma: R. Brown (cat 3, 40 h/wk), S. Lee (cat 4, 40 h/wk)
+//
+// Monthly burn per person = cost_rate × hours_per_week × WEEKS_PER_MONTH
+// (same formula used in db.ts getProjectsWithBurn and getStaffingByProject)
+const SEED_MONTHLY_BURN =
+  185 * 40 * WEEKS_PER_MONTH +  // J. Smith  — Senior Dev
+  135 * 40 * WEEKS_PER_MONTH +  // K. Chen   — Mid Dev
+  125 * 30 * WEEKS_PER_MONTH +  // L. Park   — BA (30 h/wk)
+  210 * 40 * WEEKS_PER_MONTH +  // M. Jones  — Lead Architect
+  185 * 40 * WEEKS_PER_MONTH +  // N. Davis  — Senior Dev
+  115 * 40 * WEEKS_PER_MONTH +  // P. Wilson — QA
+  135 * 40 * WEEKS_PER_MONTH +  // R. Brown  — Mid Dev
+   95 * 40 * WEEKS_PER_MONTH;   // S. Lee    — Junior Dev
+// = 46150 × (52/12) ≈ 199,983.33…  → Math.round → 199,983
+
+// Format exactly as client/src/format.ts fmt(): "$" + Math.round(n).toLocaleString()
+// Node's toLocaleString() on a round integer produces the same comma-separated
+// output as the browser for values in this range (e.g. "199,983").
+const EXPECTED_BURN_TEXT = "$" + Math.round(SEED_MONTHLY_BURN).toLocaleString();
+
 // Seeded test data (created automatically by the server on first start):
 //   Projects:
 //     - Project Alpha: $1,250,000 budget, $485,000 spent
@@ -94,7 +139,7 @@ test.describe("Dashboard", () => {
     // Seed data (deterministic — same every run):
     //   Alpha: $1,250,000 + Beta: $2,100,000 + Gamma: $680,000 = $4,030,000
     //   8 staff members across 3 projects
-    //   Monthly burn = sum of (cost_rate × hours/week × 4.33) per person
+    //   Monthly burn = sum of (cost_rate × hours/week × WEEKS_PER_MONTH) — see SEED_MONTHLY_BURN above per person
     //   Blended margin = (revenue - cost) / revenue × 100
 
     // ── ARRANGE: Navigate to the dashboard ──
@@ -109,7 +154,7 @@ test.describe("Dashboard", () => {
     await expect(budgetCard).toContainText("$4,030,000");
 
     const burnCard = page.locator(".card", { has: page.getByText("Monthly Burn") });
-    await expect(burnCard).toContainText("$199,830");
+    await expect(burnCard).toContainText(EXPECTED_BURN_TEXT);
 
     const marginCard = page.locator(".card", { has: page.getByText("Blended Margin") });
     await expect(marginCard).toContainText("26.8%");

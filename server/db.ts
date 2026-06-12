@@ -94,31 +94,34 @@ function initSchema() {
     );
   `);
 
-  // Seed default config if empty
-  const configCount = d.prepare("SELECT COUNT(*) as c FROM config").get() as CountRow;
-  if (configCount.c === 0) {
-    const insertConfig = d.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)");
-    insertConfig.run("github_pat", "");
-    insertConfig.run("model", "openai/gpt-4.1");
-    insertConfig.run("endpoint", "https://models.github.ai/inference/chat/completions");
-    insertConfig.run("temperature", "0.2");
-    insertConfig.run("max_tokens", "2000");
-    insertConfig.run("llm_provider", "github");
-    insertConfig.run("ollama_model", "llama3.2");
-    insertConfig.run("ollama_endpoint", "http://localhost:11434/v1/chat/completions");
-  }
+  // Seed default config — INSERT OR IGNORE is idempotent (safe for concurrent workers)
+  const insertConfig = d.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)");
+  insertConfig.run("github_pat", "");
+  insertConfig.run("model", "openai/gpt-4.1");
+  insertConfig.run("endpoint", "https://models.github.ai/inference/chat/completions");
+  insertConfig.run("temperature", "0.2");
+  insertConfig.run("max_tokens", "2000");
+  insertConfig.run("llm_provider", "github");
+  insertConfig.run("ollama_model", "llama3.2");
+  insertConfig.run("ollama_endpoint", "http://localhost:11434/v1/chat/completions");
 
-  // Seed sample data if empty
-  const projCount = d.prepare("SELECT COUNT(*) as c FROM projects").get() as CountRow;
-  if (projCount.c === 0) {
-    seedSampleData(d);
-  }
+  // Seed sample data — wrapped in a transaction so concurrent workers can't
+  // both observe projCount === 0 and then race to INSERT the same rows.
+  // INSERT OR IGNORE on labor_categories prevents UNIQUE violations if a
+  // parallel worker already committed the same name between the count check
+  // and the insert.
+  d.transaction(() => {
+    const projCount = d.prepare("SELECT COUNT(*) as c FROM projects").get() as CountRow;
+    if (projCount.c === 0) {
+      seedSampleData(d);
+    }
+  })();
 }
 
 function seedSampleData(d: Database.Database) {
-  // Labor categories
+  // Labor categories — INSERT OR IGNORE so repeated calls are safe
   const insertCat = d.prepare(
-    "INSERT INTO labor_categories (name, bill_rate, cost_rate) VALUES (?, ?, ?)"
+    "INSERT OR IGNORE INTO labor_categories (name, bill_rate, cost_rate) VALUES (?, ?, ?)"
   );
   const categories = [
     ["Lead Architect", 285, 210],
@@ -134,9 +137,9 @@ function seedSampleData(d: Database.Database) {
     insertCat.run(name, bill, cost);
   }
 
-  // Projects
+  // Projects — INSERT OR IGNORE so repeated calls are safe
   const insertProj = d.prepare(
-    "INSERT INTO projects (name, total_budget, spent_to_date, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)"
+    "INSERT OR IGNORE INTO projects (name, total_budget, spent_to_date, start_date, end_date, status) VALUES (?, ?, ?, ?, ?, ?)"
   );
   insertProj.run("Project Alpha", 1250000, 485000, "2025-10-01", "2026-09-30", "active");
   insertProj.run("Project Beta", 2100000, 1340000, "2025-04-01", "2026-03-31", "active");
@@ -202,10 +205,10 @@ export function getProjectsWithBurn(): ProjectRow[] {
       p.id, p.name, p.total_budget, p.spent_to_date,
       (p.total_budget - p.spent_to_date) as remaining,
       p.start_date, p.end_date, p.status,
-      COALESCE(SUM(lc.cost_rate * s.hours_per_week * 4.33), 0) as monthly_burn,
+      COALESCE(SUM(lc.cost_rate * s.hours_per_week * 52.0 / 12), 0) as monthly_burn,
       CASE
-        WHEN COALESCE(SUM(lc.cost_rate * s.hours_per_week * 4.33), 0) > 0
-        THEN (p.total_budget - p.spent_to_date) / SUM(lc.cost_rate * s.hours_per_week * 4.33)
+        WHEN COALESCE(SUM(lc.cost_rate * s.hours_per_week * 52.0 / 12), 0) > 0
+        THEN (p.total_budget - p.spent_to_date) / SUM(lc.cost_rate * s.hours_per_week * 52.0 / 12)
         ELSE 0
       END as months_left
     FROM projects p
@@ -227,8 +230,8 @@ export function getStaffingByProject(projectId?: number, activeOnly = false) {
     SELECT s.id, s.person_name, s.hours_per_week, s.is_active,
            p.name as project_name, p.id as project_id,
            lc.name as labor_category, lc.bill_rate, lc.cost_rate,
-           (lc.cost_rate * s.hours_per_week * 4.33) as monthly_cost,
-           (lc.bill_rate * s.hours_per_week * 4.33) as monthly_revenue,
+           (lc.cost_rate * s.hours_per_week * 52.0 / 12) as monthly_cost,
+           (lc.bill_rate * s.hours_per_week * 52.0 / 12) as monthly_revenue,
            ((lc.bill_rate - lc.cost_rate) / lc.bill_rate) as margin
     FROM staffing s
     JOIN projects p ON p.id = s.project_id
