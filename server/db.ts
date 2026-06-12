@@ -202,10 +202,10 @@ export function getProjectsWithBurn(): ProjectRow[] {
       p.id, p.name, p.total_budget, p.spent_to_date,
       (p.total_budget - p.spent_to_date) as remaining,
       p.start_date, p.end_date, p.status,
-      COALESCE(SUM(lc.cost_rate * s.hours_per_week * 4.33), 0) as monthly_burn,
+      COALESCE(SUM(lc.cost_rate * s.hours_per_week * 52.0 / 12), 0) as monthly_burn,
       CASE
-        WHEN COALESCE(SUM(lc.cost_rate * s.hours_per_week * 4.33), 0) > 0
-        THEN (p.total_budget - p.spent_to_date) / SUM(lc.cost_rate * s.hours_per_week * 4.33)
+        WHEN COALESCE(SUM(lc.cost_rate * s.hours_per_week * 52.0 / 12), 0) > 0
+        THEN (p.total_budget - p.spent_to_date) / SUM(lc.cost_rate * s.hours_per_week * 52.0 / 12)
         ELSE 0
       END as months_left
     FROM projects p
@@ -227,8 +227,8 @@ export function getStaffingByProject(projectId?: number, activeOnly = false) {
     SELECT s.id, s.person_name, s.hours_per_week, s.is_active,
            p.name as project_name, p.id as project_id,
            lc.name as labor_category, lc.bill_rate, lc.cost_rate,
-           (lc.cost_rate * s.hours_per_week * 4.33) as monthly_cost,
-           (lc.bill_rate * s.hours_per_week * 4.33) as monthly_revenue,
+           (lc.cost_rate * s.hours_per_week * 52.0 / 12) as monthly_cost,
+           (lc.bill_rate * s.hours_per_week * 52.0 / 12) as monthly_revenue,
            ((lc.bill_rate - lc.cost_rate) / lc.bill_rate) as margin
     FROM staffing s
     JOIN projects p ON p.id = s.project_id

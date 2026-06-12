@@ -1,6 +1,20 @@
 // ─── Constants ────────────────────────────────────────────────────────────────
+//
+// All month-length arithmetic derives from a single base: WEEKS_PER_MONTH = 52 / 12.
+// This eliminates the historical divergence between the engine constant (4.33) and
+// the SQL literals (also 4.33) — both now reference the same irrational fraction.
+//
+// Rounding policy: all intermediate calculations use full floating-point precision.
+// Rounding to presentation precision (cents / one decimal for %) is applied only
+// at the API serialisation layer (see routes.ts).  No rounding is applied inside
+// the engine itself.
 
-export const WEEKS_PER_MONTH = 4.33; // 365.25 / 12 / 7
+/** Average weeks per calendar month: 52 / 12 ≈ 4.3333… */
+export const WEEKS_PER_MONTH = 52 / 12;
+
+/** Average calendar days per month: 365.25 / 12 ≈ 30.4375 */
+export const DAYS_PER_MONTH = 365.25 / 12;
+
 export const HOURS_PER_YEAR = 2080; // 52 weeks × 40 hours
 export const WORKING_DAYS_PER_MONTH = 21.67; // 260 / 12
 export const WEEKS_PER_YEAR = 52;
