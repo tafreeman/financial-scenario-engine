@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { requireAppToken } from "./auth.js";
 import {
   getProjectsWithBurn,
   getStaffingByProject,
@@ -223,7 +224,10 @@ apiRouter.get("/scenarios", (req, res) => {
 });
 
 // ---- AI Scenario V2 (deterministic engine + narrative) ----
-apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
+// requireAppToken: scenario routes send financial context to the LLM and
+// persist results to the database — they must not be callable by unauthenticated
+// co-located processes.
+apiRouter.post("/scenario/v2", requireAppToken, async (req: Request, res: Response) => {
   const { query, skip_narrative, use_llm_narrative } = req.body;
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
@@ -279,7 +283,7 @@ apiRouter.post("/scenario/v2", async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post("/scenario/v2/parse-only", async (req: Request, res: Response) => {
+apiRouter.post("/scenario/v2/parse-only", requireAppToken, async (req: Request, res: Response) => {
   const { query } = req.body;
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
@@ -297,7 +301,7 @@ apiRouter.post("/scenario/v2/parse-only", async (req: Request, res: Response) =>
 });
 
 // ---- AI Scenario V3 (agentic tool-calling loop) ----
-apiRouter.post("/scenario/v3", async (req: Request, res: Response) => {
+apiRouter.post("/scenario/v3", requireAppToken, async (req: Request, res: Response) => {
   const { query } = req.body;
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
@@ -330,16 +334,103 @@ apiRouter.post("/scenario/v3", async (req: Request, res: Response) => {
 // Only these keys may be written via PUT /api/config.  Any request containing
 // a key outside this set is rejected with 400.  This prevents clients from
 // injecting arbitrary config keys (closes partial mitigation from Wave-1).
-// Note: endpoint / auth hardening (authentication on this route) remains open.
+//
+// SSRF guards:
+//  - `endpoint` (GitHub Models) must use https and must NOT resolve to a private
+//    or loopback address.  The only legitimate value points at models.github.ai
+//    or another cloud endpoint; pointing it at 127.0.0.1 / 192.168.x makes no
+//    sense and would allow a co-located process to redirect PAT exfiltration.
+//  - `ollama_endpoint` MUST also use https in production, but Ollama's default
+//    local binding is plain http://localhost:11434 — that specific host is
+//    explicitly allowed so the Ollama workflow continues to work.  Private-range
+//    IPs (10/8, 172.16/12, 192.168/16) and link-local (169.254/16) are still
+//    blocked even for ollama_endpoint.
+
+/** Returns true if the hostname is a loopback address. */
+function isLoopback(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  // IPv4 loopback (127.0.0.0/8)
+  if (/^127\./.test(h)) return true;
+  // IPv6 loopback
+  if (h === "::1" || h === "[::1]") return true;
+  // Hostname aliases
+  if (h === "localhost") return true;
+  return false;
+}
+
+/** Returns true if the hostname falls within an RFC-1918 or link-local range. */
+function isPrivateIp(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (/^10\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (/^192\.168\./.test(h)) return true;
+  if (/^169\.254\./.test(h)) return true;
+  return false;
+}
+
+/**
+ * Zod refinement: reject loopback and private-range hosts in endpoint URLs.
+ * Applied to `endpoint` (GitHub Models) — any loopback/private host is invalid.
+ */
+function refineEndpointNoPrivate(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url);
+    if (protocol !== "https:") return false;
+    if (isLoopback(hostname)) return false;
+    if (isPrivateIp(hostname)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Zod refinement for `ollama_endpoint`:
+ *  - localhost (loopback) is ALLOWED because Ollama's default binding is
+ *    http://localhost:11434 — blocking it would break the primary Ollama flow.
+ *  - Private-range IPs (10/8, 172.16/12, 192.168/16, 169.254/16) are still
+ *    rejected — they provide no legitimate use case and could host hostile servers.
+ *  - https is preferred but http is accepted for localhost only (Ollama does not
+ *    expose TLS by default on the local loopback).
+ */
+function refineOllamaEndpoint(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url);
+    if (protocol !== "https:" && protocol !== "http:") return false;
+    // Localhost via http is permitted (Ollama default)
+    if (isLoopback(hostname)) return true;
+    // Any other host must use https and must not be private-range
+    if (protocol !== "https:") return false;
+    if (isPrivateIp(hostname)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const CONFIG_WRITABLE_KEYS = z.object({
   github_pat: z.string().optional(),
   model: z.string().optional(),
-  endpoint: z.string().url().optional(),
+  endpoint: z
+    .string()
+    .url()
+    .refine(refineEndpointNoPrivate, {
+      message:
+        "endpoint must use https and must not resolve to a loopback or private-range host",
+    })
+    .optional(),
   temperature: z.string().optional(),
   max_tokens: z.string().optional(),
   llm_provider: z.enum(["github", "ollama"]).optional(),
   ollama_model: z.string().optional(),
-  ollama_endpoint: z.string().url().optional(),
+  ollama_endpoint: z
+    .string()
+    .url()
+    .refine(refineOllamaEndpoint, {
+      message:
+        "ollama_endpoint must use https (or http for localhost only) and must not resolve to a private-range IP",
+    })
+    .optional(),
   llm_timeout_ms: z.string().optional(),
 }).strict();
 
@@ -357,7 +448,11 @@ apiRouter.get("/config", (_req, res) => {
   res.json(config);
 });
 
-apiRouter.put("/config", (req: Request, res: Response) => {
+// requireAppToken guards PUT /api/config against unauthenticated writes.
+// Without this guard, any co-located process could overwrite `endpoint` to an
+// attacker-controlled host and cause the next scenario request to exfiltrate
+// the GitHub PAT and financial data (SSRF + PAT exfiltration).
+apiRouter.put("/config", requireAppToken, (req: Request, res: Response) => {
   const parsed = CONFIG_WRITABLE_KEYS.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Unknown or invalid config keys", details: parsed.error.issues });

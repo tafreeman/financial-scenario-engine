@@ -76,9 +76,36 @@ export interface ScenarioHistoryEntry {
   created_at: string;
 }
 
+/**
+ * Read the shared API token from localStorage (key: "app_api_token").
+ * The token is printed to the server console at startup and must be copied
+ * here by the user on first launch (or supplied via the APP_API_TOKEN env var
+ * and baked in during build).
+ *
+ * TODO (client wiring — see client/src/components/SettingsPanel.tsx handleSave):
+ *   Add a "API Token" input field in SettingsPanel that writes
+ *   `localStorage.setItem("app_api_token", value)` when saved, so the user
+ *   only needs to paste it once.  Until that field exists the user must open
+ *   the browser console and run:
+ *     localStorage.setItem("app_api_token", "<token from server console>")
+ */
+function getApiToken(): string {
+  try {
+    return localStorage.getItem("app_api_token") ?? "";
+  } catch {
+    // localStorage unavailable in SSR / test environments
+    return "";
+  }
+}
+
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
+  const token = getApiToken();
+  const extraHeaders: Record<string, string> = token
+    ? { "x-app-token": token }
+    : {};
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...extraHeaders },
     ...opts,
   });
   if (!res.ok) {
