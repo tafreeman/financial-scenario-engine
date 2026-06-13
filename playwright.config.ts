@@ -9,11 +9,17 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: "http://127.0.0.1:3100",
+    // Seed the shared API token into localStorage for every test so the UI
+    // sends x-app-token on mutating calls (e.g. PUT /api/config). The server
+    // is started with the matching APP_API_TOKEN below.
+    storageState: "./tests/e2e/auth-state.json",
   },
   webServer: {
     command: "npm run build && npm run start",
     env: {
       PORT: "3100",
+      // Stable token for e2e; matches tests/e2e/auth-state.json localStorage seed.
+      APP_API_TOKEN: "e2e-app-token",
     },
     url: "http://127.0.0.1:3100/api/health",
     reuseExistingServer: false,

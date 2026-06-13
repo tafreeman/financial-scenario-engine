@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -35,6 +36,17 @@ app.use(express.json({ limit: "10mb" }));
 
 // API routes
 app.use("/api", apiRouter);
+
+// Rate-limit static asset + SPA-fallback serving (both read from disk).
+// Registered via app.use so it is recognized as protecting the routes below;
+// the generous limit keeps normal multi-asset page loads from being throttled.
+const staticLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 2000,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(staticLimiter);
 
 // Serve built frontend in production
 const clientDist = path.join(__dirname, "..", "client", "dist");

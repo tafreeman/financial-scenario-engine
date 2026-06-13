@@ -5,6 +5,10 @@ import { api } from "../api";
 export default function SettingsPanel() {
   const [config, setConfig] = useState<Record<string, string>>({});
   const [pat, setPat] = useState("");
+  const [apiToken, setApiToken] = useState(
+    // Pre-fill from localStorage so the field shows the current stored value.
+    () => { try { return localStorage.getItem("app_api_token") ?? ""; } catch { return ""; } }
+  );
   const [llmProvider, setLlmProvider] = useState("github");
   const [model, setModel] = useState("openai/gpt-4.1");
   const [endpoint, setEndpoint] = useState("https://models.github.ai/inference/chat/completions");
@@ -33,6 +37,15 @@ export default function SettingsPanel() {
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
+
+    // Persist the API token to localStorage so all subsequent requests include
+    // the x-app-token header (see client/src/api.ts getApiToken).
+    // This must happen BEFORE api.updateConfig() because that call itself
+    // requires the token to be present in the header.
+    if (apiToken.trim()) {
+      try { localStorage.setItem("app_api_token", apiToken.trim()); } catch { /* ignore */ }
+    }
+
     const updates: Record<string, string> = {
       llm_provider: llmProvider,
       model, endpoint,
@@ -259,6 +272,31 @@ export default function SettingsPanel() {
           </div>
         </div>
       )}
+
+      {/* API Token — required for mutating routes (config PUT, scenario POST) */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Shield size={16} className="text-navy-700" />
+          <h2 className="text-sm font-semibold text-navy-800">API Token</h2>
+        </div>
+        <p className="text-xs text-steel-500 mb-3">
+          The server prints a token to its console on startup. Paste it here once;
+          it is stored in <code className="bg-steel-50 px-1 rounded">localStorage</code> and
+          sent automatically on every settings update and scenario request.
+        </p>
+        <input
+          type="password"
+          className="input-field w-full font-mono text-xs"
+          placeholder="Paste token from server console…"
+          value={apiToken}
+          onChange={(e) => setApiToken(e.target.value)}
+        />
+        {apiToken && (
+          <p className="text-[10px] text-emerald-600 mt-1.5 flex items-center gap-1">
+            <CheckCircle size={10} /> Token stored in localStorage
+          </p>
+        )}
+      </div>
 
       {/* Security info */}
       <div className="card p-5">

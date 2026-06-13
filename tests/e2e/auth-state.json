@@ -1,0 +1,11 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:3100",
+      "localStorage": [
+        { "name": "app_api_token", "value": "e2e-app-token" }
+      ]
+    }
+  ]
+}
