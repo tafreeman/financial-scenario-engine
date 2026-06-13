@@ -635,8 +635,15 @@ function handleComposite(
   for (const subOp of operation.sub_operations) {
     const result = executeScenario(subOp, accPortfolio, asOfDate);
     subResults.push(result);
-    // Rebuild portfolio by replaying the sub-op's mutations onto the accumulated snapshot
-    accPortfolio = mergeProjectedState(accPortfolio, subOp);
+    // Rebuild portfolio by replaying the sub-op's mutations onto the accumulated snapshot.
+    // Pass the resolved canonical names from the result so that abbreviated project
+    // names (e.g. "Alpha" → "Project Alpha") are matched correctly in the portfolio.
+    accPortfolio = mergeProjectedState(
+      accPortfolio,
+      subOp,
+      result.project_name,
+      result.projects_involved.length > 0 ? result.projects_involved : undefined
+    );
   }
 
   // #12: Aggregate impact — sum all non-null impact deltas rather than returning
@@ -682,9 +689,22 @@ function handleComposite(
  * Since ScenarioResult doesn't carry the raw afterStaffing array, we re-derive
  * the updated staffing by replaying the same apply* functions used in the handler.
  */
+/**
+ * Rebuild the accumulated portfolio state after a sub-operation completes.
+ *
+ * @param resolvedProjectName - The canonical project name returned by executeScenario
+ *   in result.project_name.  When provided this takes priority over subOp.project
+ *   because executeScenario already ran fuzzy/abbreviation matching, so
+ *   "Alpha" → "Project Alpha".  Passing the raw subOp.project string here
+ *   breaks later sub-ops when the user supplied an abbreviated name.
+ * @param resolvedProjectsInvolved - For reallocation sub-ops: the resolved canonical
+ *   project names from result.projects_involved, used instead of subOp.projects.
+ */
 function mergeProjectedState(
   portfolio: PortfolioSnapshot,
-  subOp: ScenarioOperation
+  subOp: ScenarioOperation,
+  resolvedProjectName?: string,
+  resolvedProjectsInvolved?: string[]
 ): PortfolioSnapshot {
   switch (subOp.action) {
     case "swap":
@@ -692,7 +712,9 @@ function mergeProjectedState(
     case "remove":
     case "rate_change":
     case "hours_change": {
-      const projectName = subOp.project;
+      // Prefer the resolved canonical name; fall back to the raw op name only
+      // when resolution wasn't available (e.g. direct calls from tests).
+      const projectName = resolvedProjectName ?? subOp.project;
       if (!projectName || projectName.toLowerCase() === "all") return portfolio;
       const projects = portfolio.projects.map(p => {
         if (p.name.toLowerCase() !== projectName.toLowerCase()) return p;
@@ -722,7 +744,8 @@ function mergeProjectedState(
     }
     case "unexpected_cost": {
       // Patch spent_to_date for one-time costs so subsequent sub-ops see correct budget
-      const projectName = subOp.project;
+      // Use the resolved name if available, otherwise fall back to the raw op name.
+      const projectName = resolvedProjectName ?? subOp.project;
       if (!projectName || projectName.toLowerCase() === "all") return portfolio;
       const additionalOneTime = (subOp.additional_costs ?? [])
         .filter(c => !c.is_recurring)
@@ -736,10 +759,13 @@ function mergeProjectedState(
       return { ...portfolio, projects };
     }
     case "reallocation": {
-      // Replay remove from source, add to destination
-      const projectNames = subOp.projects ?? [];
-      const fromName = projectNames[0];
-      const toName = projectNames[1];
+      // Replay remove from source, add to destination.
+      // Prefer resolved project names (from ScenarioResult.projects_involved) over the
+      // raw subOp.projects strings so that abbreviated names fuzzy-matched during
+      // execution are correctly applied here too.
+      const resolvedNames = resolvedProjectsInvolved ?? subOp.projects ?? [];
+      const fromName = resolvedNames[0];
+      const toName = resolvedNames[1];
       if (!fromName || !toName) return portfolio;
       const projects = portfolio.projects.map(p => {
         if (p.name.toLowerCase() === fromName.toLowerCase()) {

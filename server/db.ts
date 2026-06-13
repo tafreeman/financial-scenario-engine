@@ -323,11 +323,17 @@ export function buildAnonymizedContextSnapshot(): string {
   return ctx;
 }
 
-export function saveScenario(query: string, response: string, context: string, model: string) {
+export function saveScenario(
+  query: string,
+  response: string,
+  context: string,
+  model: string,
+  tokensUsed: number = 0
+) {
   const d = getDb();
   d.prepare(
-    "INSERT INTO scenarios (query, response, context_snapshot, model) VALUES (?, ?, ?, ?)"
-  ).run(query, response, context, model);
+    "INSERT INTO scenarios (query, response, context_snapshot, model, tokens_used) VALUES (?, ?, ?, ?, ?)"
+  ).run(query, response, context, model, tokensUsed);
 }
 
 export function getScenarioHistory(limit = 50) {

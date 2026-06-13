@@ -366,3 +366,92 @@ describe("Fix #3 — handleReallocation: short projectNames guard", () => {
     expect(result.sub_results).toHaveLength(2);
   });
 });
+
+// ─── FIX (mergeProjectedState resolved name): abbreviated project name in composite ─
+//
+// Regression: when the user supplies an abbreviated project name (e.g. "Alpha"
+// instead of "Project Alpha"), the first sub-op fuzzy-matches correctly and
+// produces the right result.  However, mergeProjectedState was using the raw
+// subOp.project string ("Alpha") for the case-insensitive exact-compare against
+// portfolio.projects, which always failed, leaving the accumulated portfolio
+// unchanged.  Subsequent sub-ops then saw the original un-mutated project state.
+//
+// Fix threads result.project_name (the resolved canonical name, "Project Alpha")
+// into mergeProjectedState so the portfolio is correctly patched.
+
+describe("mergeProjectedState resolved name — abbreviated project name in composite", () => {
+  it("two sequential same-project sub-ops with abbreviated name mutate state correctly", () => {
+    // Both sub-ops target "Alpha" (abbreviated) rather than "Project Alpha".
+    // Sub-op 1: remove one Senior Dev.
+    // Sub-op 2: add one Junior Dev.
+    // If mergeProjectedState uses the raw "Alpha" string for matching, sub-op 2
+    // will see the original headcount (no removal applied), and the aggregate
+    // headcount_delta will be wrong (net 0 instead of net 0 from remove+add, but
+    // the projected state after sub-op 1 should reflect the removal).
+    const compositeResult = executeScenario(
+      {
+        action: "what_if_composite",
+        sub_operations: [
+          {
+            action: "remove",
+            project: "Alpha",  // abbreviated — requires fuzzy match
+            remove: [{ role: "Senior Developer", count: 1 }],
+          },
+          {
+            action: "add",
+            project: "Alpha",  // abbreviated — same project
+            add: [{ role: "Junior Developer", count: 1, hours_per_week: 40 }],
+          },
+        ],
+      },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    expect(compositeResult.error).toBeUndefined();
+
+    // Both sub-results must resolve to Project Alpha (not an error)
+    expect(compositeResult.sub_results).toHaveLength(2);
+    const removeResult = compositeResult.sub_results![0]!;
+    const addResult = compositeResult.sub_results![1]!;
+
+    expect(removeResult.error).toBeUndefined();
+    expect(removeResult.project_name).toBe("Project Alpha");
+
+    expect(addResult.error).toBeUndefined();
+    expect(addResult.project_name).toBe("Project Alpha");
+
+    // After the remove sub-op the accumulated portfolio must have one fewer
+    // Senior Dev, so the add sub-op's "current" headcount must reflect that
+    // reduction — not the original 3.
+    // Original staffing: J.Smith (Senior Dev), K.Chen (Mid Dev), L.Park (BA) = headcount 3
+    // After removing 1 Senior Dev: headcount 2.
+    // The add sub-op's current state (before the add) should show headcount 2.
+    expect(addResult.current.labor.headcount).toBe(2);
+
+    // Net composite impact: remove 1 Senior Dev, add 1 Junior Dev → headcount_delta = 0
+    expect(compositeResult.impact?.headcount_delta).toBe(0);
+  });
+
+  it("abbreviated project name sub-op produces the same cost delta as the exact name", () => {
+    // Sanity check: abbreviated and exact names should produce the same result
+    // for a single sub-op (the fuzzy match is already known to work for simple ops).
+    const exactResult = executeScenario(
+      { action: "remove", project: "Project Alpha", remove: [{ role: "Senior Developer", count: 1 }] },
+      singleProjectPortfolio,
+      PINNED
+    );
+    const abbrResult = executeScenario(
+      { action: "remove", project: "Alpha", remove: [{ role: "Senior Developer", count: 1 }] },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    expect(abbrResult.error).toBeUndefined();
+    expect(abbrResult.project_name).toBe(exactResult.project_name);
+    expect(abbrResult.impact?.cost_delta_monthly).toBeCloseTo(
+      exactResult.impact?.cost_delta_monthly ?? 0,
+      2
+    );
+  });
+});

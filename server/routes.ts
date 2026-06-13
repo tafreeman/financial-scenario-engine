@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { z } from "zod";
 import { requireAppToken } from "./auth.js";
@@ -41,6 +42,19 @@ interface StaffingRow {
 }
 
 export const apiRouter = Router();
+
+/**
+ * Per-IP rate limiter applied only to the LLM-backed scenario endpoints.
+ * Each of these can trigger up to 8 paid LLM calls (ai.ts MAX_ITERATIONS=8),
+ * so we throttle to 10 requests per minute per IP to prevent runaway spend.
+ */
+const scenarioRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many scenario requests — please wait before trying again." },
+});
 
 /** Accepted MIME types for Excel uploads. */
 const XLSX_MIME_TYPES = new Set([
@@ -227,7 +241,7 @@ apiRouter.get("/scenarios", (req, res) => {
 // requireAppToken: scenario routes send financial context to the LLM and
 // persist results to the database — they must not be callable by unauthenticated
 // co-located processes.
-apiRouter.post("/scenario/v2", requireAppToken, async (req: Request, res: Response) => {
+apiRouter.post("/scenario/v2", requireAppToken, scenarioRateLimit, async (req: Request, res: Response) => {
   const { query, skip_narrative, use_llm_narrative } = req.body;
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
@@ -272,7 +286,7 @@ apiRouter.post("/scenario/v2", requireAppToken, async (req: Request, res: Respon
     }
 
     // Step 4: Persist to history
-    saveScenario(query, narrative, JSON.stringify(engineResult), model);
+    saveScenario(query, narrative, JSON.stringify(engineResult), model, tokensUsed);
 
     // Rounding policy (see server/engine/types.ts): the engine returns full
     // floating-point precision in all financial fields.  Clients are responsible
@@ -283,7 +297,7 @@ apiRouter.post("/scenario/v2", requireAppToken, async (req: Request, res: Respon
   }
 });
 
-apiRouter.post("/scenario/v2/parse-only", requireAppToken, async (req: Request, res: Response) => {
+apiRouter.post("/scenario/v2/parse-only", requireAppToken, scenarioRateLimit, async (req: Request, res: Response) => {
   const { query } = req.body;
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
@@ -301,7 +315,7 @@ apiRouter.post("/scenario/v2/parse-only", requireAppToken, async (req: Request, 
 });
 
 // ---- AI Scenario V3 (agentic tool-calling loop) ----
-apiRouter.post("/scenario/v3", requireAppToken, async (req: Request, res: Response) => {
+apiRouter.post("/scenario/v3", requireAppToken, scenarioRateLimit, async (req: Request, res: Response) => {
   const { query } = req.body;
   if (!query) { res.status(400).json({ error: "query required" }); return; }
 
@@ -322,7 +336,7 @@ apiRouter.post("/scenario/v3", requireAppToken, async (req: Request, res: Respon
     }
 
     // Persist to history
-    saveScenario(query, result.content, JSON.stringify(result.scenarios_explored), result.model);
+    saveScenario(query, result.content, JSON.stringify(result.scenarios_explored), result.model, result.tokensUsed);
 
     res.json(result);
   } catch (err: unknown) {
