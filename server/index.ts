@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -40,7 +41,15 @@ app.use("/api", apiRouter);
 const clientDist = path.join(__dirname, "..", "client", "dist");
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist));
-  app.get("*", (_req, res) => {
+  // Rate-limit the SPA fallback (it reads index.html from disk on every hit)
+  // so the catch-all route cannot be used as an unbounded file-serving vector.
+  const spaLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 600,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.get("*", spaLimiter, (_req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));
   });
 } else if (!IS_DEV) {
