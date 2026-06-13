@@ -281,8 +281,8 @@ export default function SettingsPanel() {
         </div>
         <p className="text-xs text-steel-500 mb-3">
           The server prints a token to its console on startup. Paste it here once;
-          it is saved to <code className="bg-steel-50 px-1 rounded">localStorage</code> and
-          sent automatically on all settings saves and scenario requests.
+          it is stored in <code className="bg-steel-50 px-1 rounded">localStorage</code> and
+          sent automatically on every settings update and scenario request.
         </p>
         <input
           type="password"
@@ -293,7 +293,7 @@ export default function SettingsPanel() {
         />
         {apiToken && (
           <p className="text-[10px] text-emerald-600 mt-1.5 flex items-center gap-1">
-            <CheckCircle size={10} /> Token saved in localStorage
+            <CheckCircle size={10} /> Token stored in localStorage
           </p>
         )}
       </div>
