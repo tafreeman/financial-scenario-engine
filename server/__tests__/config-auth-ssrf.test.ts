@@ -30,8 +30,25 @@ import { getDb, getAllConfig, setConfig } from "../db.js";
 // and to make the refinements directly testable without standing up the full
 // Express router.
 
+// IPv4-mapped/compatible IPv6 → embedded dotted IPv4 (mirrors routes.ts).
+function mappedIpv4(hostname: string): string | null {
+  let h = hostname.toLowerCase();
+  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
+  const dotted = h.match(/^::(?:ffff:)?((?:\d{1,3}\.){3}\d{1,3})$/);
+  if (dotted?.[1]) return dotted[1];
+  const hex = h.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hex?.[1] && hex[2]) {
+    const hi = parseInt(hex[1], 16);
+    const lo = parseInt(hex[2], 16);
+    return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff].join(".");
+  }
+  return null;
+}
+
 function isLoopback(hostname: string): boolean {
   const h = hostname.toLowerCase();
+  const embedded = mappedIpv4(h);
+  if (embedded !== null) return isLoopback(embedded);
   if (/^127\./.test(h)) return true;
   if (h === "::1" || h === "[::1]") return true;
   if (h === "localhost") return true;
@@ -40,6 +57,8 @@ function isLoopback(hostname: string): boolean {
 
 function isPrivateIp(hostname: string): boolean {
   const h = hostname.toLowerCase();
+  const embedded = mappedIpv4(h);
+  if (embedded !== null) return isPrivateIp(embedded);
   if (/^10\./.test(h)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
   if (/^192\.168\./.test(h)) return true;
@@ -63,6 +82,8 @@ function refineOllamaEndpoint(url: string): boolean {
   try {
     const { hostname, protocol } = new URL(url);
     if (protocol !== "https:" && protocol !== "http:") return false;
+    // Mapped-IPv6 has no legitimate Ollama use; reject before localhost allowance.
+    if (mappedIpv4(hostname) !== null) return false;
     if (isLoopback(hostname)) return true; // localhost http is OK for Ollama
     if (protocol !== "https:") return false;
     if (isPrivateIp(hostname)) return false;
@@ -280,6 +301,85 @@ describe("PUT /config — SSRF guard on endpoint", () => {
     );
     expect(res.statusCode).toBe(200);
   });
+
+  // ── IPv4-mapped IPv6 SSRF bypass (the FIX) ────────────────────────────────
+  // Node preserves these forms verbatim in URL.hostname, so the dotted-decimal
+  // filters never matched them. Each resolves to a loopback / private address.
+
+  it("rejects endpoint with hex IPv4-mapped IPv6 loopback ([::ffff:7f00:1] -> 127.0.0.1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::ffff:7f00:1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with hex IPv4-mapped IPv6 private host ([::ffff:c0a8:0101] -> 192.168.1.1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::ffff:c0a8:0101]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with dotted IPv4-mapped IPv6 private host ([::ffff:192.168.1.1])", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::ffff:192.168.1.1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with dotted IPv4-mapped IPv6 loopback ([::ffff:127.0.0.1])", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::ffff:127.0.0.1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  // IPv4-COMPATIBLE IPv6 (no ffff: segment). Node normalizes the dotted forms
+  // ([::127.0.0.1] / [::192.168.1.1]) to ffff-less hex ([::7f00:1] / [::c0a8:101])
+  // before the refinement runs, so the hex match must treat ffff: as optional.
+  it("rejects endpoint with compatible IPv6 loopback ([::7f00:1] -> 127.0.0.1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::7f00:1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with compatible IPv6 private host ([::c0a8:101] -> 192.168.1.1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::c0a8:101]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with dotted compatible IPv6 loopback ([::127.0.0.1])", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::127.0.0.1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with dotted compatible IPv6 private host ([::192.168.1.1])", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::192.168.1.1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 // ─── (d) SSRF guard on ollama_endpoint ───────────────────────────────────────
@@ -298,6 +398,26 @@ describe("PUT /config — SSRF guard on ollama_endpoint", () => {
     const res = await jsonRequest(
       server, "PUT", "/config",
       { ollama_endpoint: "https://172.16.0.1/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  // ollama legitimately allows http://localhost, but a mapped-IPv6 loopback
+  // must NOT slip through that allowance.
+  it("rejects ollama_endpoint with IPv4-mapped IPv6 loopback ([::ffff:7f00:1] -> 127.0.0.1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { ollama_endpoint: "http://[::ffff:7f00:1]:11434/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects ollama_endpoint with compatible IPv6 loopback ([::7f00:1] -> 127.0.0.1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { ollama_endpoint: "http://[::7f00:1]:11434/v1/chat/completions" },
       AUTH
     );
     expect(res.statusCode).toBe(400);
