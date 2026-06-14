@@ -157,7 +157,7 @@ apiRouter.get("/projects", (_req, res) => {
   res.json(getProjectsWithBurn());
 });
 
-apiRouter.post("/projects", (req: Request, res: Response) => {
+apiRouter.post("/projects", requireAppToken, (req: Request, res: Response) => {
   const { name, total_budget, start_date, end_date } = req.body;
   if (!name) { res.status(400).json({ error: "name required" }); return; }
   try {
@@ -168,7 +168,7 @@ apiRouter.post("/projects", (req: Request, res: Response) => {
   }
 });
 
-apiRouter.patch("/projects/:id", (req: Request, res: Response) => {
+apiRouter.patch("/projects/:id", requireAppToken, (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Invalid project id" });
@@ -204,7 +204,7 @@ apiRouter.get("/staffing", (req, res) => {
   res.json(getStaffingByProject(projectId));
 });
 
-apiRouter.post("/staffing", (req: Request, res: Response) => {
+apiRouter.post("/staffing", requireAppToken, (req: Request, res: Response) => {
   const { project_id, labor_category_id, person_name, hours_per_week } = req.body;
   if (!project_id || !labor_category_id) {
     res.status(400).json({ error: "project_id and labor_category_id required" }); return;
@@ -213,7 +213,7 @@ apiRouter.post("/staffing", (req: Request, res: Response) => {
   res.json({ id: result.lastInsertRowid });
 });
 
-apiRouter.delete("/staffing/:id", (req: Request, res: Response) => {
+apiRouter.delete("/staffing/:id", requireAppToken, (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Invalid staffing id" });
@@ -526,5 +526,9 @@ apiRouter.put("/config", requireAppToken, (req: Request, res: Response) => {
 });
 
 // ---- Excel Import ----
-apiRouter.post("/import/excel", uploadSingle("file"), handleExcelImportV1);
-apiRouter.post("/import/excel/v2", uploadSingle("file"), handleExcelImportV2);
+// requireAppToken runs BEFORE uploadSingle so an unauthenticated caller is
+// rejected with 401 before multer ever buffers the upload. These routes bulk-
+// overwrite the portfolio, so they must not be callable by an unauthenticated
+// co-located process.
+apiRouter.post("/import/excel", requireAppToken, uploadSingle("file"), handleExcelImportV1);
+apiRouter.post("/import/excel/v2", requireAppToken, uploadSingle("file"), handleExcelImportV2);
