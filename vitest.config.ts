@@ -9,6 +9,10 @@ export default defineConfig({
     // active with a known token so the auth integration test can exercise it.
     env: {
       APP_API_TOKEN: "test-app-token-fixed-secret-for-vitest",
+      // Isolate every test from the persistent dev DB (data/finimpact.db).
+      // getDb() seeds schema + sample data into this in-memory DB per worker,
+      // so tests never read or mutate real data and leave nothing behind.
+      DB_PATH: ":memory:",
     },
     coverage: {
       provider: "v8",

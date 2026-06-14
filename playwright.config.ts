@@ -13,6 +13,10 @@ export default defineConfig({
     // sends x-app-token on mutating calls (e.g. PUT /api/config). The server
     // is started with the matching APP_API_TOKEN below.
     storageState: "./tests/e2e/auth-state.json",
+    // Direct API calls via the `request` fixture (e.g. the Excel import specs)
+    // bypass the browser/localStorage, so seed the token as a default header
+    // too. Must match the webServer APP_API_TOKEN below.
+    extraHTTPHeaders: { "x-app-token": "e2e-app-token" },
   },
   webServer: {
     command: "npm run build && npm run start",

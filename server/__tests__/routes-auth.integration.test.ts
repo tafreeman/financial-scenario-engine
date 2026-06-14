@@ -156,8 +156,22 @@ beforeAll(async () => {
   const proj = addProject(`__test_auth_routes_${Date.now()}`, 100_000, "2025-01-01", "2025-12-31");
   projectId = Number(proj.lastInsertRowid);
 
-  // Seed labor category id=2 (Senior Developer) exists per seed data; reuse it.
-  laborCategoryId = 2;
+  // Use whatever labor category exists rather than a hardcoded id: getDb()
+  // seeds sample categories into the in-memory DB, but query dynamically so the
+  // test never depends on a specific seeded id (insert one if none exist).
+  const db = getDb();
+  const cat = db
+    .prepare("SELECT id FROM labor_categories LIMIT 1")
+    .get() as { id: number } | undefined;
+  laborCategoryId = cat
+    ? cat.id
+    : Number(
+        db
+          .prepare(
+            "INSERT INTO labor_categories (name, bill_rate, cost_rate) VALUES (?, ?, ?)",
+          )
+          .run("Test Category", 200, 150).lastInsertRowid,
+      );
   const staff = addStaffing(projectId, laborCategoryId, "Auth Test Person", 40);
   staffingId = Number(staff.lastInsertRowid);
 
@@ -168,7 +182,15 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  // Guard against beforeAll failing before `server` was assigned, which would
+  // otherwise throw a TypeError here and mask the real setup error.
+  if (server) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+  // Remove seeded rows (deleting the project cascades to its staffing).
+  if (projectId) {
+    getDb().prepare("DELETE FROM projects WHERE id = ?").run(projectId);
+  }
 });
 
 // ─── POST /api/projects ────────────────────────────────────────────────────────
