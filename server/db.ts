@@ -3,7 +3,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, "..", "data", "finimpact.db");
+// DB_PATH is overridable via env (12-factor) so tests can use an isolated
+// in-memory database (":memory:") instead of mutating the persistent dev DB.
+const DB_PATH = process.env.DB_PATH ?? path.join(__dirname, "..", "data", "finimpact.db");
 
 type CountRow = { c: number };
 

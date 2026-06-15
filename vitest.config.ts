@@ -3,6 +3,17 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["server/**/__tests__/**/*.test.ts"],
+    // Pin a stable shared secret for the whole suite. server/auth.ts reads
+    // APP_API_TOKEN once at module-load time; setting it here (before any test
+    // module imports auth.ts) makes requireAppToken's guard deterministically
+    // active with a known token so the auth integration test can exercise it.
+    env: {
+      APP_API_TOKEN: "test-app-token-fixed-secret-for-vitest",
+      // Isolate every test from the persistent dev DB (data/finimpact.db).
+      // getDb() seeds schema + sample data into this in-memory DB per worker,
+      // so tests never read or mutate real data and leave nothing behind.
+      DB_PATH: ":memory:",
+    },
     coverage: {
       provider: "v8",
       include: ["server/engine/**/*.ts"],
