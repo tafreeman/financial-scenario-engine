@@ -422,7 +422,7 @@ export function updateProject(
     total_budget: number;
     spent_to_date: number;
     status: string;
-    percent_complete: number;
+    percent_complete: number | null;
   }>
 ): Database.RunResult {
   const d = getDb();
