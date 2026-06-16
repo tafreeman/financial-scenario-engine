@@ -38,8 +38,11 @@ app.use(express.json({ limit: "10mb" }));
 app.use("/api", apiRouter);
 
 // Rate-limit static asset + SPA-fallback serving (both read from disk).
-// Registered via app.use so it is recognized as protecting the routes below;
-// the generous limit keeps normal multi-asset page loads from being throttled.
+// This limiter ONLY guards the express.static + SPA-fallback handlers registered
+// *below* it — the /api routes mounted above are throttled separately inside
+// routes.ts (readRouteLimiter 300/min for all reads, scenarioRateLimit 10/min on
+// the paid LLM endpoints). The high 2000/min ceiling here exists because a single
+// page load fans out into many asset requests, and must not be throttled.
 const staticLimiter = rateLimit({
   windowMs: 60_000,
   limit: 2000,

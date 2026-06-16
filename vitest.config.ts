@@ -21,7 +21,6 @@ export default defineConfig({
         "server/engine/**/__tests__/**",
         "server/engine/executor.ts",   // orchestration layer — covered by Playwright E2E
         "server/engine/portfolio.ts",  // portfolio aggregation — covered by Playwright E2E
-        "server/engine/utilization.ts", // no unit tests yet
         "server/engine/index.ts",       // barrel re-export only
       ],
       thresholds: {

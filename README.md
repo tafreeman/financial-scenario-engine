@@ -221,6 +221,7 @@ financial-scenario-engine/
 ├── server/                     # Express + TypeScript backend
 │   ├── index.ts                # Entry point, static file serving
 │   ├── db.ts                   # SQLite schema, seed data, queries
+│   ├── loaders.ts              # DB rows → PortfolioSnapshot for the engine
 │   ├── ai.ts                   # LLM client (GitHub Models + Ollama) + prompts
 │   ├── routes.ts               # REST API endpoints
 │   ├── engine/                 # Financial calculation engine (pure functions)
@@ -234,7 +235,7 @@ financial-scenario-engine/
 │   │   ├── portfolio.ts        # Portfolio-level aggregation
 │   │   ├── matching.ts         # Fuzzy role-name matching
 │   │   ├── narrative.ts        # Template-based markdown narrative renderer
-│   │   ├── executor.ts         # Scenario orchestration (load → calc → impact)
+│   │   ├── executor.ts         # Scenario orchestration (calc → impact; snapshot passed in)
 │   │   ├── index.ts            # Barrel export
 │   │   └── __tests__/          # Vitest engine unit tests (one file per module)
 │   └── import/

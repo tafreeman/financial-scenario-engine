@@ -124,6 +124,20 @@ describe("scenarioOperationSchema — new_bill_rate and new_cost_rate", () => {
   it("accepts positive new_bill_rate", () => {
     expect(scenarioOperationSchema.safeParse(rateChange({ new_bill_rate: 250 })).success).toBe(true);
   });
+
+  it("rejects a rate_change entry that supplies neither new_bill_rate nor new_cost_rate (ghost mutation)", () => {
+    expect(
+      scenarioOperationSchema.safeParse({
+        action: "rate_change",
+        project: "X",
+        rate_changes: [{ role: "Y" }],
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts a rate_change entry that supplies new_cost_rate only", () => {
+    expect(scenarioOperationSchema.safeParse(rateChange({ new_cost_rate: 150 })).success).toBe(true);
+  });
 });
 
 // ─── amount field (unexpected_cost) ──────────────────────────────────────────

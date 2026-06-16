@@ -24,74 +24,15 @@ import http from "http";
 import { z } from "zod";
 import { requireAppToken, APP_SECRET } from "../auth.js";
 import { getDb, getAllConfig, setConfig } from "../db.js";
+// Import the SSRF refinements from the SAME module routes.ts uses, so this test
+// exercises the production guard implementation rather than a hand-copied clone
+// that could silently drift out of sync.
+import { refineEndpointNoPrivate, refineOllamaEndpoint } from "../ssrf.js";
 
-// ─── Replicate CONFIG_WRITABLE_KEYS schema (mirrors routes.ts) ───────────────
-// We re-declare rather than import from routes.ts to keep the test self-contained
-// and to make the refinements directly testable without standing up the full
-// Express router.
-
-// IPv4-mapped/compatible IPv6 → embedded dotted IPv4 (mirrors routes.ts).
-function mappedIpv4(hostname: string): string | null {
-  let h = hostname.toLowerCase();
-  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
-  const dotted = h.match(/^::(?:ffff:)?((?:\d{1,3}\.){3}\d{1,3})$/);
-  if (dotted?.[1]) return dotted[1];
-  const hex = h.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hex?.[1] && hex[2]) {
-    const hi = parseInt(hex[1], 16);
-    const lo = parseInt(hex[2], 16);
-    return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff].join(".");
-  }
-  return null;
-}
-
-function isLoopback(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  const embedded = mappedIpv4(h);
-  if (embedded !== null) return isLoopback(embedded);
-  if (/^127\./.test(h)) return true;
-  if (h === "::1" || h === "[::1]") return true;
-  if (h === "localhost") return true;
-  return false;
-}
-
-function isPrivateIp(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  const embedded = mappedIpv4(h);
-  if (embedded !== null) return isPrivateIp(embedded);
-  if (/^10\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  if (/^169\.254\./.test(h)) return true;
-  return false;
-}
-
-function refineEndpointNoPrivate(url: string): boolean {
-  try {
-    const { hostname, protocol } = new URL(url);
-    if (protocol !== "https:") return false;
-    if (isLoopback(hostname)) return false;
-    if (isPrivateIp(hostname)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function refineOllamaEndpoint(url: string): boolean {
-  try {
-    const { hostname, protocol } = new URL(url);
-    if (protocol !== "https:" && protocol !== "http:") return false;
-    // Mapped-IPv6 has no legitimate Ollama use; reject before localhost allowance.
-    if (mappedIpv4(hostname) !== null) return false;
-    if (isLoopback(hostname)) return true; // localhost http is OK for Ollama
-    if (protocol !== "https:") return false;
-    if (isPrivateIp(hostname)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
+// ─── CONFIG_WRITABLE_KEYS schema (mirrors routes.ts) ─────────────────────────
+// The schema shape is re-declared here to keep the minimal test app self-contained,
+// but the SSRF refinements are imported from server/ssrf.ts (not copied) so a real
+// regression in the guard would fail this test.
 
 const CONFIG_WRITABLE_KEYS = z.object({
   github_pat: z.string().optional(),

@@ -263,11 +263,18 @@ function handleEvmAnalysis(
   timestamp: string,
   asOfDate?: Date
 ): ScenarioResult {
-  // #13: return an explicit error result when no project can be resolved
+  // #13 / #7: A NAMED-but-unresolvable project is already rejected upstream in
+  // executeScenario() — evm_analysis is in `requiresNamedProject`, so an unknown
+  // operation.project returns errorResult before reaching this handler. Therefore
+  // targetProject === null here means ONLY the no-project-specified case (the
+  // caller asked for EVM without naming a project at all).
   if (!targetProject) {
     if (portfolio.projects.length === 0) {
       return errorResult(operation, timestamp, "EVM analysis requires a specific project but the portfolio is empty.");
     }
+    // No project named: fall back to the first project as a best-effort default.
+    // This fallback is intentionally NOT reached for a wrong/unknown name (that
+    // path errors upstream) — it only serves the "EVM, no project given" case.
     warnings.push("EVM analysis requires a specific project. Using first project.");
     // Safe because we just checked length > 0
     targetProject = portfolio.projects[0] as ProjectSnapshot;

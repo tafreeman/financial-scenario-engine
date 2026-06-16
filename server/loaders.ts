@@ -43,6 +43,9 @@ export function loadPortfolioSnapshot(): PortfolioSnapshot {
     start_date: p.start_date,
     end_date: p.end_date,
     status: p.status,
+    // DB stores NULL when no explicit progress is set; the engine treats absent
+    // (undefined) as "use the spend-ratio proxy", so normalise null → undefined.
+    ...(p.percent_complete != null ? { percent_complete: p.percent_complete } : {}),
     staffing: staffingByProject.get(p.id) ?? [],
   }));
 

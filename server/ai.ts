@@ -353,7 +353,10 @@ export async function narrateResult(
   const payload = {
     model: config.model,
     max_tokens: 1500,
-    temperature: 0.3,
+    // temperature 0: narration is derived from already-fixed engine outputs, so
+    // deterministic prose (same inputs → same narrative) is preferred over
+    // sampling variety. Mirrors parseIntent, which also uses 0.
+    temperature: 0,
     messages: [
       { role: "system", content: NARRATE_PROMPT },
       {

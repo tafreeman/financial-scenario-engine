@@ -15,11 +15,18 @@ const staffRemoveSchema = z.object({
   person_name: z.string().min(1).optional(),
 });
 
-const rateChangeSchema = z.object({
-  role: z.string().min(1),
-  new_bill_rate: z.number().positive().optional(),
-  new_cost_rate: z.number().positive().optional(),
-});
+const rateChangeSchema = z
+  .object({
+    role: z.string().min(1),
+    new_bill_rate: z.number().positive().optional(),
+    new_cost_rate: z.number().positive().optional(),
+  })
+  // Both rate fields are optional, but an entry supplying neither is a no-op
+  // ("ghost mutation"): it parses cleanly yet changes nothing downstream.
+  // Require at least one rate so such entries are rejected at the boundary.
+  .refine(r => r.new_bill_rate !== undefined || r.new_cost_rate !== undefined, {
+    message: "rate_change entry must supply at least one of new_bill_rate or new_cost_rate",
+  });
 
 const hoursChangeSchema = z.object({
   person_name: z.string().min(1),

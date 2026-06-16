@@ -44,6 +44,29 @@ export function getDb(): Database.Database {
   return db;
 }
 
+interface TableColumnInfo {
+  name: string;
+}
+
+/**
+ * Idempotently add a column to a table when it does not already exist.
+ *
+ * SQLite does not support `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so we
+ * inspect PRAGMA table_info first and only issue the ALTER when the column is
+ * missing. `columnType` is interpolated (not parameterized) because SQLite does
+ * not allow bound parameters in DDL — callers pass only trusted literals here.
+ */
+function ensureColumn(
+  d: Database.Database,
+  table: string,
+  column: string,
+  columnType: string
+): void {
+  const cols = d.prepare(`PRAGMA table_info(${table})`).all() as TableColumnInfo[];
+  if (cols.some(c => c.name === column)) return;
+  d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${columnType}`);
+}
+
 function initSchema() {
   const d = getDb();
 
@@ -56,6 +79,7 @@ function initSchema() {
       start_date TEXT,
       end_date TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      percent_complete REAL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -95,6 +119,13 @@ function initSchema() {
       value TEXT NOT NULL
     );
   `);
+
+  // Migration: add projects.percent_complete to databases created before the
+  // column existed. CREATE TABLE IF NOT EXISTS above only adds the column to a
+  // brand-new table, so an ALTER is required for pre-existing dev/prod DBs.
+  // SQLite has no "ADD COLUMN IF NOT EXISTS", so we probe PRAGMA table_info and
+  // only ALTER when absent — making this safe to run on every startup.
+  ensureColumn(d, "projects", "percent_complete", "REAL");
 
   // Seed default config — INSERT OR IGNORE is idempotent (safe for concurrent workers)
   const insertConfig = d.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)");
@@ -198,6 +229,8 @@ export interface ProjectRow {
   start_date: string;
   end_date: string;
   status: string;
+  /** Explicit physical percent complete (0–100); null when never set by a PM. */
+  percent_complete: number | null;
 }
 
 export function getProjectsWithBurn(): ProjectRow[] {
@@ -206,7 +239,7 @@ export function getProjectsWithBurn(): ProjectRow[] {
     SELECT
       p.id, p.name, p.total_budget, p.spent_to_date,
       (p.total_budget - p.spent_to_date) as remaining,
-      p.start_date, p.end_date, p.status,
+      p.start_date, p.end_date, p.status, p.percent_complete,
       COALESCE(SUM(lc.cost_rate * s.hours_per_week * 52.0 / 12), 0) as monthly_burn,
       CASE
         WHEN COALESCE(SUM(lc.cost_rate * s.hours_per_week * 52.0 / 12), 0) > 0
@@ -367,7 +400,13 @@ export function addProject(name: string, totalBudget: number, startDate: string,
 }
 
 /** Column names accepted by updateProject. Any key not in this set is silently ignored. */
-const PROJECT_UPDATE_ALLOWED = new Set(["name", "total_budget", "spent_to_date", "status"]);
+const PROJECT_UPDATE_ALLOWED = new Set([
+  "name",
+  "total_budget",
+  "spent_to_date",
+  "status",
+  "percent_complete",
+]);
 
 /**
  * Update mutable fields on a project row.
@@ -378,7 +417,13 @@ const PROJECT_UPDATE_ALLOWED = new Set(["name", "total_budget", "spent_to_date",
  */
 export function updateProject(
   id: number,
-  fields: Partial<{ name: string; total_budget: number; spent_to_date: number; status: string }>
+  fields: Partial<{
+    name: string;
+    total_budget: number;
+    spent_to_date: number;
+    status: string;
+    percent_complete: number;
+  }>
 ): Database.RunResult {
   const d = getDb();
   const sets: string[] = [];
