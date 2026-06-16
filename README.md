@@ -224,6 +224,8 @@ financial-scenario-engine/
 │   ├── loaders.ts              # DB rows → PortfolioSnapshot for the engine
 │   ├── ai.ts                   # LLM client (GitHub Models + Ollama) + prompts
 │   ├── routes.ts               # REST API endpoints
+│   ├── auth.ts                 # App-token auth (requireAppToken / APP_SECRET) for mutating routes
+│   ├── ssrf.ts                 # SSRF guard helpers for config-endpoint URL refinements
 │   ├── engine/                 # Financial calculation engine (pure functions)
 │   │   ├── types.ts            # Shared types and constants
 │   │   ├── labor.ts            # Labor cost/revenue metrics
