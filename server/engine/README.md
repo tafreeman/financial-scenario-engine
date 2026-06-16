@@ -1,6 +1,6 @@
 # Financial Calculation Engine
 
-TypeScript calculation engine for project financial analysis. The calculation modules in `server/engine/` are synchronous and deterministic; the main exception is `executor.ts`, which loads data from `server/db.ts` and orchestrates those pure calculations.
+TypeScript calculation engine for project financial analysis. The calculation modules in `server/engine/` are synchronous, deterministic, and free of database access. `executor.ts` is the orchestrator: it takes a pre-loaded `PortfolioSnapshot` (passed in by the caller) and runs the pure calculations over it. The database read happens outside the engine, in `server/loaders.ts` (`loadPortfolioSnapshot()`), which converts `server/db.ts` rows into the snapshot the engine consumes.
 
 ## Architecture Overview
 

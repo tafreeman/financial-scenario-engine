@@ -166,6 +166,21 @@ describe("Fix #13 — unknown project name against a non-empty portfolio", () =>
     });
   }
 
+  it('#7: evm_analysis with a named-but-unknown project against a non-empty portfolio returns result.error (no silent projects[0] fallback)', () => {
+    const result = executeScenario(
+      { action: "evm_analysis", project: "NoSuchProject" },
+      twoProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.error).toBeTruthy();
+    expect(result.error).toContain("NoSuchProject");
+    // Must NOT have silently produced EVM for the first project.
+    expect(result.evm).toBeUndefined();
+    expect(result.project_name).not.toBe(alphaSnapshot.name);
+    expect(result.projects_involved).toHaveLength(0);
+  });
+
   it("burn_rate_check with unknown project still falls back to portfolio-wide analysis", () => {
     const result = executeScenario(
       { action: "burn_rate_check", project: UNKNOWN },
