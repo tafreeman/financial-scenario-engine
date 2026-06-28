@@ -38,7 +38,7 @@ describe("intent-corpus — structural integrity", () => {
 
   it("corpus file is a non-empty array", () => {
     expect(Array.isArray(raw)).toBe(true);
-    expect((raw as unknown[]).length).toBeGreaterThan(0);
+    expect((raw as unknown[]).length).toBe(30);
   });
 
   const entries = raw as RawCorpusEntry[];
