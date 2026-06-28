@@ -223,6 +223,43 @@ describe("Fix #13 — unknown project name against a non-empty portfolio", () =>
   });
 });
 
+// ─── project-less evm/staffing require a named project (no silent projects[0]) ─
+
+describe("project-less evm_analysis / staffing changes require a named project", () => {
+  it("evm_analysis with no project named returns an error, not numbers for the first project", () => {
+    const result = executeScenario({ action: "evm_analysis" }, twoProjectPortfolio, PINNED);
+
+    expect(result.error).toBeTruthy();
+    expect(result.evm).toBeUndefined();
+    expect(result.project_name).not.toBe(alphaSnapshot.name);
+    expect(result.projects_involved).toHaveLength(0);
+  });
+
+  it("staffing change with no project named returns an error, not financials for the first project", () => {
+    const result = executeScenario(
+      { action: "add", add: [{ role: "Senior Developer", count: 1 }] },
+      twoProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.error).toBeTruthy();
+    expect(result.project_name).not.toBe(alphaSnapshot.name);
+    expect(result.projects_involved).toHaveLength(0);
+  });
+
+  it("evm_analysis with a valid named project still succeeds (regression guard)", () => {
+    const result = executeScenario(
+      { action: "evm_analysis", project: "Project Alpha" },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.evm).toBeDefined();
+    expect(result.project_name).toBe("Project Alpha");
+  });
+});
+
 // ─── Fix #2: sumImpacts percentage-delta suppression for multi-project composites ─
 
 describe("Fix #2 — sumImpacts: pct deltas suppressed for multi-project composites", () => {

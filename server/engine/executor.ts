@@ -269,15 +269,16 @@ function handleEvmAnalysis(
   // targetProject === null here means ONLY the no-project-specified case (the
   // caller asked for EVM without naming a project at all).
   if (!targetProject) {
-    if (portfolio.projects.length === 0) {
-      return errorResult(operation, timestamp, "EVM analysis requires a specific project but the portfolio is empty.");
-    }
-    // No project named: fall back to the first project as a best-effort default.
-    // This fallback is intentionally NOT reached for a wrong/unknown name (that
-    // path errors upstream) — it only serves the "EVM, no project given" case.
-    warnings.push("EVM analysis requires a specific project. Using first project.");
-    // Safe because we just checked length > 0
-    targetProject = portfolio.projects[0] as ProjectSnapshot;
+    // EVM is a project-specific analysis; with no project named there is no
+    // correct default. Silently using projects[0] would report another project's
+    // numbers under the caller's request, so return an explicit error instead.
+    return errorResult(
+      operation,
+      timestamp,
+      portfolio.projects.length === 0
+        ? "EVM analysis requires a specific project but the portfolio is empty."
+        : "EVM analysis requires a specific project. Name the project to analyze."
+    );
   }
 
   const current = computeState(targetProject.staffing, targetProject, asOfDate);
@@ -334,14 +335,17 @@ function handleStaffingChange(
   timestamp: string,
   asOf?: Date
 ): ScenarioResult {
-  // #13: return an explicit error result when no project can be resolved
+  // #13: return an explicit error result when no project can be resolved.
+  // Staffing changes target one project's roster; with no project named there is
+  // no correct default, so error rather than silently mutating projects[0].
   if (!targetProject) {
-    if (portfolio.projects.length === 0) {
-      return errorResult(operation, timestamp, `Staffing changes require a specific project but the portfolio is empty.`);
-    }
-    warnings.push("Staffing changes require a specific project. Using first project.");
-    // Safe because we just checked length > 0
-    targetProject = portfolio.projects[0] as ProjectSnapshot;
+    return errorResult(
+      operation,
+      timestamp,
+      portfolio.projects.length === 0
+        ? `Staffing changes require a specific project but the portfolio is empty.`
+        : `Staffing changes require a specific project. Name the project to modify.`
+    );
   }
 
   const beforeStaffing = targetProject.staffing;
