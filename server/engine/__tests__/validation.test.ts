@@ -226,6 +226,30 @@ describe("scenarioOperationSchema — extension_months", () => {
   });
 });
 
+// ─── new_end_date field (timeline_extension) ─────────────────────────────────
+
+describe("scenarioOperationSchema — new_end_date (timeline_extension)", () => {
+  function timelineExtension(newEndDate: unknown) {
+    return { action: "timeline_extension", new_end_date: newEndDate };
+  }
+
+  it("rejects a non-date string", () => {
+    expect(scenarioOperationSchema.safeParse(timelineExtension("not-a-date")).success).toBe(false);
+  });
+
+  it("rejects a non-ISO format (MM/DD/YYYY)", () => {
+    expect(scenarioOperationSchema.safeParse(timelineExtension("09/30/2026")).success).toBe(false);
+  });
+
+  it("rejects an impossible calendar date (2026-02-30)", () => {
+    expect(scenarioOperationSchema.safeParse(timelineExtension("2026-02-30")).success).toBe(false);
+  });
+
+  it("accepts a valid ISO date (YYYY-MM-DD)", () => {
+    expect(scenarioOperationSchema.safeParse(timelineExtension("2026-12-31")).success).toBe(true);
+  });
+});
+
 // ─── string min(1) fields ─────────────────────────────────────────────────────
 
 describe("scenarioOperationSchema — string fields require min length 1", () => {

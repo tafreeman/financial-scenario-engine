@@ -470,3 +470,25 @@ describe("mergeProjectedState resolved name — abbreviated project name in comp
     );
   });
 });
+
+// ─── Invalid new_end_date guard: a direct call must not throw RangeError ──────
+//
+// The boundary schema (validation.ts) rejects a malformed new_end_date, but a
+// direct executeScenario call bypasses it. An unparseable date string previously
+// produced an Invalid Date whose toISOString() threw RangeError on the hot path.
+
+describe("timeline_extension — invalid new_end_date does not throw", () => {
+  it("returns a clean result instead of a RangeError for an unparseable date", () => {
+    const op: ScenarioOperation = {
+      action: "timeline_extension",
+      project: "Project Alpha",
+      new_end_date: "not-a-date",
+    };
+
+    expect(() => executeScenario(op, singleProjectPortfolio, PINNED)).not.toThrow();
+
+    const result = executeScenario(op, singleProjectPortfolio, PINNED);
+    expect(result).toBeDefined();
+    expect(result.current).toBeDefined();
+  });
+});
