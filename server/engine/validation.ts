@@ -67,7 +67,18 @@ export const scenarioOperationSchema: z.ZodType<ScenarioOperation> = z.object({
   add: z.array(staffAddSchema).optional(),
   rate_changes: z.array(rateChangeSchema).optional(),
   hours_changes: z.array(hoursChangeSchema).optional(),
-  new_end_date: z.string().optional(),
+  new_end_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "new_end_date must be an ISO calendar date (YYYY-MM-DD)")
+    // Round-trip rejects impossible dates that JS silently rolls over
+    // (e.g. 2026-02-30 -> 2026-03-02), which Date.parse alone accepts. The NaN
+    // guard must run first so an unparseable string short-circuits before
+    // toISOString(), which would otherwise throw RangeError on an Invalid Date.
+    .refine(s => {
+      const parsed = new Date(`${s}T00:00:00Z`);
+      return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === s;
+    }, { message: "new_end_date must be a real calendar date" })
+    .optional(),
   extension_months: z.number().int().positive().optional(),
   additional_costs: z.array(additionalCostSchema).optional(),
   sub_operations: z.array(z.lazy(() => scenarioOperationSchema)).optional(),

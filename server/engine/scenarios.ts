@@ -158,6 +158,18 @@ export function calcTimelineExtensionImpact(
     newEnd.setMonth(newEnd.getMonth() + extensionMonths);
   } else if (newEndDate) {
     newEnd = new Date(newEndDate);
+    // Defense-in-depth: the boundary schema (validation.ts) rejects a malformed
+    // new_end_date, but a direct call bypasses it. An Invalid Date would make the
+    // newEnd.toISOString() below throw RangeError, so treat it as no extension.
+    if (Number.isNaN(newEnd.getTime())) {
+      return {
+        new_end_date: project.end_date,
+        additional_months: 0,
+        additional_cost: 0,
+        new_total_projected: project.spent_to_date,
+        budget_gap: 0,
+      };
+    }
     additionalMonths = (newEnd.getTime() - oldEnd.getTime()) / (DAYS_PER_MONTH * 24 * 60 * 60 * 1000);
   } else {
     return {
