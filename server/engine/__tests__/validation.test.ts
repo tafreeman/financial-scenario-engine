@@ -38,6 +38,46 @@ describe("scenarioOperationSchema — count field", () => {
   });
 });
 
+// ─── strict mode (unknown-key rejection) ─────────────────────────────────────
+
+describe("scenarioOperationSchema — strict mode rejects unknown keys", () => {
+  it("rejects an unknown top-level key", () => {
+    expect(
+      scenarioOperationSchema.safeParse({
+        action: "burn_rate_check",
+        project: "Alpha",
+        injected: "nope",
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects an unknown key inside a nested staff entry", () => {
+    expect(
+      scenarioOperationSchema.safeParse(validAdd({ rogue_field: 1 })).success
+    ).toBe(false);
+  });
+
+  it("rejects an unknown key inside a sub_operation (recursive strictness)", () => {
+    expect(
+      scenarioOperationSchema.safeParse({
+        action: "what_if_composite",
+        sub_operations: [
+          { action: "burn_rate_check", project: "Alpha", sneaky: 1 },
+        ],
+      }).success
+    ).toBe(false);
+  });
+
+  it("still accepts a clean operation with only declared keys", () => {
+    expect(
+      scenarioOperationSchema.safeParse({
+        action: "burn_rate_check",
+        project: "Alpha",
+      }).success
+    ).toBe(true);
+  });
+});
+
 // ─── hours_per_week field ─────────────────────────────────────────────────────
 
 describe("scenarioOperationSchema — hours_per_week", () => {
