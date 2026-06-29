@@ -219,6 +219,15 @@ describe("POST /api/projects — requireAppToken guard", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("rejects an impossible calendar date (2026-02-31) with 400", async () => {
+    const res = await jsonRequest(
+      server, "POST", "/api/projects",
+      { name: `febdate_${Date.now()}`, start_date: "2026-02-31" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
   it("accepts valid ISO start_date and end_date", async () => {
     const res = await jsonRequest(
       server, "POST", "/api/projects",
