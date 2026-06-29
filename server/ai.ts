@@ -39,6 +39,30 @@ export type LlmProvider = "github" | "ollama";
 /** Default LLM request timeout (ms). Overridable via config key "llm_timeout_ms". */
 export const DEFAULT_LLM_TIMEOUT_MS = 30_000;
 
+/** Bounded-retry policy for transient LLM transport failures. */
+export const LLM_MAX_RETRY_ATTEMPTS = 3;
+export const LLM_RETRY_BASE_DELAY_MS = 500;
+/** HTTP statuses worth retrying: rate limit + transient gateway/upstream errors. */
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+
+/** Real sleep; injectable in tests so retries don't actually wait. */
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Delay before the next retry: honor a `Retry-After` header (integer seconds)
+ * when the server sends one, else exponential backoff with jitter.
+ */
+function retryDelayMs(attempt: number, headers?: Headers): number {
+  const retryAfter = headers?.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  }
+  const backoff = LLM_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+  return backoff + Math.random() * LLM_RETRY_BASE_DELAY_MS;
+}
+
 /**
  * Parse and clamp temperature to [0, 2].
  * Returns the default (0.2) when the stored string is not a finite number.
@@ -583,11 +607,12 @@ export function processToolCalls(
  * @param fetchImpl - Injectable fetch implementation (defaults to globalThis.fetch).
  *   Pass a stub in tests to avoid actual network calls or real sleeping.
  */
-async function chatRequest(
+export async function chatRequest(
   endpoint: string,
   pat: string,
   payload: Record<string, unknown>,
-  fetchImpl: typeof fetch = globalThis.fetch
+  fetchImpl: typeof fetch = globalThis.fetch,
+  sleepImpl: (ms: number) => Promise<void> = defaultSleep
 ): Promise<ChatResponse> {
   const config = getAiConfig();
   const headers: Record<string, string> = {
@@ -601,31 +626,58 @@ async function chatRequest(
   }
   // Ollama's OpenAI-compatible endpoint needs no auth headers
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= LLM_MAX_RETRY_ATTEMPTS; attempt++) {
+    // Each attempt gets its own fresh timeout budget.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
-  try {
-    const resp = await fetchImpl(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    let resp: Response;
+    try {
+      resp = await fetchImpl(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
+        // A timeout already consumed the full per-attempt budget; do not retry.
+        throw new Error(
+          `LLM request timed out after ${config.timeoutMs}ms (endpoint: ${endpoint})`,
+          { cause: err }
+        );
+      }
+      // Transient transport error (e.g. dropped connection): retry if budget remains.
+      if (attempt < LLM_MAX_RETRY_ATTEMPTS) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        await sleepImpl(retryDelayMs(attempt));
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!resp.ok) {
       const errBody = await resp.text();
-      throw new Error(`HTTP ${resp.status}: ${resp.statusText}\n${errBody.slice(0, 500)}`);
+      const error = new Error(
+        `HTTP ${resp.status}: ${resp.statusText}\n${errBody.slice(0, 500)}`
+      );
+      // Retry only transient statuses; a 4xx like 400/401/404 fails fast.
+      if (RETRYABLE_STATUS.has(resp.status) && attempt < LLM_MAX_RETRY_ATTEMPTS) {
+        lastError = error;
+        await sleepImpl(retryDelayMs(attempt, resp.headers));
+        continue;
+      }
+      throw error;
     }
 
     return resp.json() as Promise<ChatResponse>;
-  } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`LLM request timed out after ${config.timeoutMs}ms (endpoint: ${endpoint})`, { cause: err });
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
   }
+
+  // Unreachable in practice — the final attempt always returns or throws above.
+  throw lastError ?? new Error("LLM request failed after all retries");
 }
 
 /** Run an agentic analysis where the LLM calls the engine multiple times */
