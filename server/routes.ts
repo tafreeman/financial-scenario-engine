@@ -146,6 +146,17 @@ const patchProjectSchema = z.object({
   percent_complete: z.number().min(0).max(100).optional(),
 }).strict();
 
+/** POST /projects body. Dates, when provided, must be ISO calendar dates: the
+ *  engine does `new Date(project.start_date)` on this value, and a garbage string
+ *  yields an Invalid Date → NaN that silently poisons every EVM metric (PV, CPI,
+ *  SPI, EAC). Validate at the boundary; unknown keys are rejected. */
+const postProjectSchema = z.object({
+  name: z.string().min(1),
+  total_budget: z.number().nonnegative().optional(),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "start_date must be an ISO date (YYYY-MM-DD)").optional(),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "end_date must be an ISO date (YYYY-MM-DD)").optional(),
+}).strict();
+
 // ---- Health ----
 apiRouter.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -187,10 +198,14 @@ apiRouter.get("/projects", (_req, res) => {
 });
 
 apiRouter.post("/projects", requireAppToken, (req: Request, res: Response) => {
-  const { name, total_budget, start_date, end_date } = req.body;
-  if (!name) { res.status(400).json({ error: "name required" }); return; }
+  const parsed = postProjectSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid fields", details: parsed.error.issues });
+    return;
+  }
+  const { name, total_budget, start_date, end_date } = parsed.data;
   try {
-    const result = addProject(name, total_budget || 0, start_date || "", end_date || "");
+    const result = addProject(name, total_budget ?? 0, start_date ?? "", end_date ?? "");
     res.json({ id: result.lastInsertRowid });
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
