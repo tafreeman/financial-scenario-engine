@@ -209,6 +209,29 @@ describe("POST /api/projects — requireAppToken guard", () => {
     );
     expect(res.statusCode).not.toBe(401);
   });
+
+  it("rejects a non-ISO start_date with 400 (blocks the new Date() NaN injection)", async () => {
+    const res = await jsonRequest(
+      server, "POST", "/api/projects",
+      { name: `baddate_${Date.now()}`, start_date: "not-a-date" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("accepts valid ISO start_date and end_date", async () => {
+    const res = await jsonRequest(
+      server, "POST", "/api/projects",
+      {
+        name: `gooddate_${Date.now()}`,
+        total_budget: 5000,
+        start_date: "2026-01-01",
+        end_date: "2026-12-31",
+      },
+      AUTH
+    );
+    expect(res.statusCode).toBe(200);
+  });
 });
 
 // ─── PATCH /api/projects/:id ────────────────────────────────────────────────────
