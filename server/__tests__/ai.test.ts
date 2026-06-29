@@ -3,6 +3,7 @@ import {
   parseIntent,
   processToolCalls,
   chatRequest,
+  getAiConfig,
   parseTimeoutMs,
   DEFAULT_LLM_TIMEOUT_MS,
   LLM_TIMEOUT_MAX_MS,
@@ -22,6 +23,7 @@ const configKeys = [
   "ollama_model",
   "temperature",
   "max_tokens",
+  "llm_timeout_ms",
 ] as const;
 
 let originalConfig: Record<(typeof configKeys)[number], string>;
@@ -142,6 +144,26 @@ describe("parseTimeoutMs — clamp llm_timeout_ms (config DoS guard)", () => {
 
   it("honors a valid positive timeout", () => {
     expect(parseTimeoutMs("60000")).toBe(60000);
+  });
+});
+
+describe("getAiConfig — llm_timeout_ms clamp wired for both providers (#28)", () => {
+  it("clamps a negative timeout on the ollama provider path", () => {
+    setConfig("llm_provider", "ollama");
+    setConfig("llm_timeout_ms", "-1");
+    expect(getAiConfig().timeoutMs).toBe(DEFAULT_LLM_TIMEOUT_MS);
+  });
+
+  it("clamps a negative timeout on the github provider path", () => {
+    setConfig("llm_provider", "github");
+    setConfig("llm_timeout_ms", "-1");
+    expect(getAiConfig().timeoutMs).toBe(DEFAULT_LLM_TIMEOUT_MS);
+  });
+
+  it("honors a valid timeout on the github provider path", () => {
+    setConfig("llm_provider", "github");
+    setConfig("llm_timeout_ms", "45000");
+    expect(getAiConfig().timeoutMs).toBe(45000);
   });
 });
 

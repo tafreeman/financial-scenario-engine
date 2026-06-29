@@ -98,7 +98,7 @@ export function parseTimeoutMs(raw: string): number {
 }
 
 /** Centralized AI config with defaults applied */
-function getAiConfig() {
+export function getAiConfig() {
   const provider = (getConfig("llm_provider") || "github") as LlmProvider;
 
   if (provider === "ollama") {
@@ -120,7 +120,7 @@ function getAiConfig() {
     endpoint: getConfig("endpoint") || "https://models.github.ai/inference/chat/completions",
     temperature: parseTemperature(getConfig("temperature") || "0.2"),
     maxTokens: parseMaxTokens(getConfig("max_tokens") || "2000"),
-    timeoutMs: parseInt(getConfig("llm_timeout_ms") || String(DEFAULT_LLM_TIMEOUT_MS), 10) || DEFAULT_LLM_TIMEOUT_MS,
+    timeoutMs: parseTimeoutMs(getConfig("llm_timeout_ms") || ""),
   };
 }
 
