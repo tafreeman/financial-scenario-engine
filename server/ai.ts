@@ -38,6 +38,8 @@ export type LlmProvider = "github" | "ollama";
 
 /** Default LLM request timeout (ms). Overridable via config key "llm_timeout_ms". */
 export const DEFAULT_LLM_TIMEOUT_MS = 30_000;
+/** Upper bound for a configured timeout; anything larger is clamped to it. */
+export const LLM_TIMEOUT_MAX_MS = 120_000;
 
 /** Bounded-retry policy for transient LLM transport failures. */
 export const LLM_MAX_RETRY_ATTEMPTS = 3;
@@ -83,6 +85,18 @@ function parseMaxTokens(raw: string): number {
   return Math.max(100, Math.min(4000, v));
 }
 
+/**
+ * Parse llm_timeout_ms into a usable positive timeout. Only a finite integer in
+ * [1, LLM_TIMEOUT_MAX_MS] is honored; anything else (negative, zero, NaN, or
+ * absurdly large) returns DEFAULT_LLM_TIMEOUT_MS. This stops a stored "-1"/"0"
+ * from yielding setTimeout(abort, <= 0), which aborts every request immediately.
+ */
+export function parseTimeoutMs(raw: string): number {
+  const v = parseInt(raw, 10);
+  if (!Number.isFinite(v) || v <= 0) return DEFAULT_LLM_TIMEOUT_MS;
+  return Math.min(v, LLM_TIMEOUT_MAX_MS);
+}
+
 /** Centralized AI config with defaults applied */
 function getAiConfig() {
   const provider = (getConfig("llm_provider") || "github") as LlmProvider;
@@ -95,7 +109,7 @@ function getAiConfig() {
       endpoint: getConfig("ollama_endpoint") || "http://localhost:11434/v1/chat/completions",
       temperature: parseTemperature(getConfig("temperature") || "0.2"),
       maxTokens: parseMaxTokens(getConfig("max_tokens") || "2000"),
-      timeoutMs: parseInt(getConfig("llm_timeout_ms") || String(DEFAULT_LLM_TIMEOUT_MS), 10) || DEFAULT_LLM_TIMEOUT_MS,
+      timeoutMs: parseTimeoutMs(getConfig("llm_timeout_ms") || ""),
     };
   }
 

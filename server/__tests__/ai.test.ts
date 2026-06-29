@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { parseIntent, processToolCalls, chatRequest } from "../ai.js";
+import {
+  parseIntent,
+  processToolCalls,
+  chatRequest,
+  parseTimeoutMs,
+  DEFAULT_LLM_TIMEOUT_MS,
+  LLM_TIMEOUT_MAX_MS,
+} from "../ai.js";
 import type { ToolCall, ChatMessage } from "../ai.js";
 import type { ScenarioResult } from "../engine/types.js";
 import { getConfig, setConfig } from "../db.js";
@@ -118,6 +125,23 @@ describe("chatRequest — bounded retry with backoff", () => {
 
     expect(fetchStub).toHaveBeenCalledTimes(1);
     expect(sleepStub).not.toHaveBeenCalled();
+  });
+});
+
+describe("parseTimeoutMs — clamp llm_timeout_ms (config DoS guard)", () => {
+  it("falls back to the default for negative, zero, and non-numeric values", () => {
+    expect(parseTimeoutMs("-1")).toBe(DEFAULT_LLM_TIMEOUT_MS);
+    expect(parseTimeoutMs("0")).toBe(DEFAULT_LLM_TIMEOUT_MS);
+    expect(parseTimeoutMs("abc")).toBe(DEFAULT_LLM_TIMEOUT_MS);
+    expect(parseTimeoutMs("")).toBe(DEFAULT_LLM_TIMEOUT_MS);
+  });
+
+  it("clamps an absurdly large value to the max", () => {
+    expect(parseTimeoutMs("99999999")).toBe(LLM_TIMEOUT_MAX_MS);
+  });
+
+  it("honors a valid positive timeout", () => {
+    expect(parseTimeoutMs("60000")).toBe(60000);
   });
 });
 
