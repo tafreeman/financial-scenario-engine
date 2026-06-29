@@ -146,15 +146,33 @@ const patchProjectSchema = z.object({
   percent_complete: z.number().min(0).max(100).optional(),
 }).strict();
 
-/** POST /projects body. Dates, when provided, must be ISO calendar dates: the
- *  engine does `new Date(project.start_date)` on this value, and a garbage string
- *  yields an Invalid Date → NaN that silently poisons every EVM metric (PV, CPI,
- *  SPI, EAC). Validate at the boundary; unknown keys are rejected. */
+/** ISO calendar date (YYYY-MM-DD) that must also be a *real* date. The regex
+ *  alone accepts impossible dates like "2026-02-31", which `new Date()` silently
+ *  rolls over (→ 2026-03-03); the round-trip refine (mirroring the new_end_date
+ *  guard in engine/validation.ts) rejects them. The NaN check runs first so an
+ *  unparseable value short-circuits before toISOString() can throw RangeError. */
+function isoCalendarDate(field: string) {
+  return z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, `${field} must be an ISO date (YYYY-MM-DD)`)
+    .refine(
+      (s) => {
+        const d = new Date(`${s}T00:00:00Z`);
+        return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+      },
+      { message: `${field} must be a real calendar date` },
+    );
+}
+
+/** POST /projects body. Dates, when provided, must be real ISO calendar dates:
+ *  the engine does `new Date(project.start_date)`, and a garbage or impossible
+ *  date yields an Invalid Date → NaN that silently poisons every EVM metric
+ *  (PV, CPI, SPI, EAC). Validate at the boundary; unknown keys are rejected. */
 const postProjectSchema = z.object({
   name: z.string().min(1),
   total_budget: z.number().nonnegative().optional(),
-  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "start_date must be an ISO date (YYYY-MM-DD)").optional(),
-  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "end_date must be an ISO date (YYYY-MM-DD)").optional(),
+  start_date: isoCalendarDate("start_date").optional(),
+  end_date: isoCalendarDate("end_date").optional(),
 }).strict();
 
 // ---- Health ----
