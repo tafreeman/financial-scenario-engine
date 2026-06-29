@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { parseIntent, processToolCalls } from "../ai.js";
+import { parseIntent, processToolCalls, chatRequest } from "../ai.js";
 import type { ToolCall, ChatMessage } from "../ai.js";
 import type { ScenarioResult } from "../engine/types.js";
 import { getConfig, setConfig } from "../db.js";
@@ -56,6 +56,68 @@ describe("parseIntent - explicit parse failure contract", () => {
     if (result.ok) throw new Error("Expected parse failure");
     expect(result.code).toBe("invalid_json");
     expect(JSON.stringify(result)).not.toContain("burn_rate_check");
+  });
+});
+
+describe("chatRequest — bounded retry with backoff", () => {
+  it("retries a 429 once and then succeeds, without real sleeping", async () => {
+    const tooMany = {
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: new Headers(),
+      text: async () => "rate limited",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "ok" } }],
+      }),
+    };
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(tooMany)
+      .mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => {
+      sleeps.push(ms);
+    };
+
+    const resp = await chatRequest(
+      "http://localhost:11434/v1/chat/completions",
+      "",
+      { model: "llama3.2" },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+    expect(sleeps).toHaveLength(1);
+    const typed = resp as { choices: { message: { content: string } }[] };
+    expect(typed.choices[0]?.message.content).toBe("ok");
+  });
+
+  it("does not retry on timeout (AbortError) and surfaces a timeout error", async () => {
+    const abortErr = new Error("The operation was aborted");
+    abortErr.name = "AbortError";
+    const fetchStub = vi.fn().mockRejectedValue(abortErr);
+    const sleepStub = vi.fn(async (): Promise<void> => {});
+
+    await expect(
+      chatRequest(
+        "http://localhost:11434/v1/chat/completions",
+        "",
+        { model: "llama3.2" },
+        fetchStub as unknown as typeof fetch,
+        sleepStub
+      )
+    ).rejects.toThrow(/timed out/);
+
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(sleepStub).not.toHaveBeenCalled();
   });
 });
 
