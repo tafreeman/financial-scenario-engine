@@ -639,6 +639,10 @@ export async function chatRequest(
         headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
+        // Block SSRF redirect-bypass: an allowlisted endpoint must not be able to
+        // 3xx-redirect the request onto an internal host. Node fetch follows up to
+        // 20 redirects by default; the supported providers never redirect inference.
+        redirect: "error",
       });
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") {

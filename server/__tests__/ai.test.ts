@@ -119,6 +119,28 @@ describe("chatRequest — bounded retry with backoff", () => {
     expect(fetchStub).toHaveBeenCalledTimes(1);
     expect(sleepStub).not.toHaveBeenCalled();
   });
+
+  it("calls fetch with redirect:'error' to block SSRF redirect bypass", async () => {
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValue(success);
+
+    await chatRequest(
+      "http://localhost:11434/v1/chat/completions",
+      "",
+      { model: "llama3.2" },
+      fetchStub as unknown as typeof fetch,
+      async () => {}
+    );
+
+    const opts = fetchStub.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(opts?.redirect).toBe("error");
+  });
 });
 
 /**
