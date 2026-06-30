@@ -666,6 +666,13 @@ export async function chatRequest(
           { cause: err }
         );
       }
+      // A blocked redirect (redirect: "error" makes undici throw "unexpected
+      // redirect") is a permanent config/SSRF issue, not a transient failure —
+      // fail fast instead of re-POSTing the payload + PAT to the redirecting
+      // endpoint LLM_MAX_RETRY_ATTEMPTS times.
+      if (err instanceof Error && /redirect/i.test(err.message)) {
+        throw err;
+      }
       // Transient transport error (e.g. dropped connection): retry if budget remains.
       if (attempt < LLM_MAX_RETRY_ATTEMPTS) {
         lastError = err instanceof Error ? err : new Error(String(err));
