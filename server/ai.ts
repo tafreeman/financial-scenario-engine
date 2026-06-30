@@ -64,7 +64,10 @@ const defaultSleep = (ms: number): Promise<void> =>
  */
 function retryDelayMs(attempt: number, headers?: Headers): number {
   const retryAfter = headers?.get("retry-after");
-  if (retryAfter) {
+  // Ignore an empty or whitespace-only Retry-After: Number("") and Number("  ")
+  // are both 0 (finite and >= 0), which would otherwise force a 0ms instant
+  // retry and skip the exponential backoff.
+  if (retryAfter && retryAfter.trim() !== "") {
     const seconds = Number(retryAfter);
     if (Number.isFinite(seconds) && seconds >= 0) {
       // Cap the server-supplied delay so a huge Retry-After can't stall the
@@ -689,6 +692,13 @@ export async function chatRequest(
           `LLM request timed out after ${config.timeoutMs}ms (endpoint: ${endpoint})`,
           { cause: err }
         );
+      }
+      // A blocked redirect (redirect: "error" makes undici throw "unexpected
+      // redirect") is a permanent config/SSRF issue, not a transient failure —
+      // fail fast instead of re-POSTing the payload + PAT to the redirecting
+      // endpoint LLM_MAX_RETRY_ATTEMPTS times.
+      if (err instanceof Error && /redirect/i.test(err.message)) {
+        throw err;
       }
       // Transient transport error (e.g. dropped connection): retry if budget remains.
       if (attempt < LLM_MAX_RETRY_ATTEMPTS) {

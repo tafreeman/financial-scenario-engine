@@ -191,6 +191,71 @@ describe("chatRequest — bounded retry with backoff", () => {
     expect(sleeps[0]).toBe(60_000);
     expect(sleeps[0]).toBeLessThan(3_600_000);
   });
+
+  it("ignores a whitespace-only Retry-After (no 0ms instant retry)", async () => {
+    const tooMany = {
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      // Plain object instead of Headers (which strips OWS) so the blank value
+      // reaches retryDelayMs verbatim. Number("  ") is 0, which without the
+      // guard would force a 0ms retry; it must fall through to backoff instead.
+      headers: {
+        get: (k: string) => (k.toLowerCase() === "retry-after" ? "   " : null),
+      },
+      text: async () => "rate limited",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "ok" } }],
+      }),
+    };
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(tooMany)
+      .mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => {
+      sleeps.push(ms);
+    };
+
+    await chatRequest(
+      "http://localhost:11434/v1/chat/completions",
+      "",
+      { model: "llama3.2" },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBeGreaterThan(0);
+  });
+
+  it("does not retry a blocked redirect and fails fast", async () => {
+    // redirect: "error" makes undici reject with "unexpected redirect"; that is a
+    // permanent SSRF/config issue, so the request must fail immediately rather
+    // than re-POST the payload to the redirecting endpoint on every retry.
+    const redirectErr = new TypeError("fetch failed: unexpected redirect");
+    const fetchStub = vi.fn().mockRejectedValue(redirectErr);
+    const sleepStub = vi.fn(async (): Promise<void> => {});
+
+    await expect(
+      chatRequest(
+        "http://localhost:11434/v1/chat/completions",
+        "",
+        { model: "llama3.2" },
+        fetchStub as unknown as typeof fetch,
+        sleepStub
+      )
+    ).rejects.toThrow(/redirect/i);
+
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(sleepStub).not.toHaveBeenCalled();
+  });
 });
 
 describe("parseTimeoutMs — clamp llm_timeout_ms (config DoS guard)", () => {
