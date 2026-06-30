@@ -47,6 +47,13 @@ export const LLM_RETRY_BASE_DELAY_MS = 500;
 /** HTTP statuses worth retrying: rate limit + transient gateway/upstream errors. */
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 
+/**
+ * Cap on a server-supplied `Retry-After` (ms). A hostile or buggy header
+ * (`Retry-After: 3600`) must not stall the request for minutes/hours; beyond
+ * this ceiling we sleep the cap rather than the full advertised delay.
+ */
+const RETRY_AFTER_MAX_MS = 60_000;
+
 /** Real sleep; injectable in tests so retries don't actually wait. */
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -59,7 +66,11 @@ function retryDelayMs(attempt: number, headers?: Headers): number {
   const retryAfter = headers?.get("retry-after");
   if (retryAfter) {
     const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      // Cap the server-supplied delay so a huge Retry-After can't stall the
+      // request for minutes/hours.
+      return Math.min(seconds * 1000, RETRY_AFTER_MAX_MS);
+    }
   }
   const backoff = LLM_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
   return backoff + Math.random() * LLM_RETRY_BASE_DELAY_MS;
@@ -76,23 +87,36 @@ function parseTemperature(raw: string): number {
 }
 
 /**
+ * Strict integer parse. Unlike `parseInt`, which stops at the first non-digit
+ * and silently truncates ("1e6" -> 1, "30.5" -> 30, "10abc" -> 10, "30 000" ->
+ * 30), this rejects any string that is not solely an optional sign plus digits,
+ * returning NaN so the caller falls back to its default. Prevents a malformed
+ * config value from yielding an absurdly small number.
+ */
+function strictInt(raw: string): number {
+  return /^[+-]?\d+$/.test(raw.trim()) ? Number(raw) : NaN;
+}
+
+/**
  * Parse and clamp max_tokens to [100, 4000].
- * Returns the default (2000) when the stored string is not a finite integer.
+ * Returns the default (2000) when the stored string is not a plain integer.
  */
 function parseMaxTokens(raw: string): number {
-  const v = parseInt(raw, 10);
+  const v = strictInt(raw);
   if (!Number.isFinite(v)) return 2000;
   return Math.max(100, Math.min(4000, v));
 }
 
 /**
- * Parse llm_timeout_ms into a usable positive timeout. Only a finite integer in
- * [1, LLM_TIMEOUT_MAX_MS] is honored; anything else (negative, zero, NaN, or
- * absurdly large) returns DEFAULT_LLM_TIMEOUT_MS. This stops a stored "-1"/"0"
- * from yielding setTimeout(abort, <= 0), which aborts every request immediately.
+ * Parse llm_timeout_ms into a usable positive timeout. Only a plain integer in
+ * [1, LLM_TIMEOUT_MAX_MS] is honored; anything else (negative, zero, NaN,
+ * scientific notation like "1e6", a garbage suffix like "10abc", a decimal, or
+ * an absurdly large value) returns DEFAULT_LLM_TIMEOUT_MS. This stops a stored
+ * "-1"/"0" — or a parseInt-truncated "1e6" -> 1 — from yielding
+ * setTimeout(abort, <= a few ms), which aborts every request almost instantly.
  */
 export function parseTimeoutMs(raw: string): number {
-  const v = parseInt(raw, 10);
+  const v = strictInt(raw);
   if (!Number.isFinite(v) || v <= 0) return DEFAULT_LLM_TIMEOUT_MS;
   return Math.min(v, LLM_TIMEOUT_MAX_MS);
 }
