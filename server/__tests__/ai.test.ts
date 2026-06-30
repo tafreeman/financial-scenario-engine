@@ -150,6 +150,28 @@ describe("chatRequest — bounded retry with backoff", () => {
     const opts = fetchStub.mock.calls[0]?.[1] as RequestInit | undefined;
     expect(opts?.redirect).toBe("error");
   });
+
+  it("does not retry a blocked redirect and fails fast", async () => {
+    // redirect: "error" makes undici reject with "unexpected redirect"; that is a
+    // permanent SSRF/config issue, so the request must fail immediately rather
+    // than re-POST the payload to the redirecting endpoint on every retry.
+    const redirectErr = new TypeError("fetch failed: unexpected redirect");
+    const fetchStub = vi.fn().mockRejectedValue(redirectErr);
+    const sleepStub = vi.fn(async (): Promise<void> => {});
+
+    await expect(
+      chatRequest(
+        "http://localhost:11434/v1/chat/completions",
+        "",
+        { model: "llama3.2" },
+        fetchStub as unknown as typeof fetch,
+        sleepStub
+      )
+    ).rejects.toThrow(/redirect/i);
+
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(sleepStub).not.toHaveBeenCalled();
+  });
 });
 
 describe("parseTimeoutMs — clamp llm_timeout_ms (config DoS guard)", () => {
