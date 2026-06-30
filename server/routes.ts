@@ -167,13 +167,28 @@ function isoCalendarDate(field: string) {
 /** POST /projects body. Dates, when provided, must be real ISO calendar dates:
  *  the engine does `new Date(project.start_date)`, and a garbage or impossible
  *  date yields an Invalid Date → NaN that silently poisons every EVM metric
- *  (PV, CPI, SPI, EAC). Validate at the boundary; unknown keys are rejected. */
-const postProjectSchema = z.object({
-  name: z.string().min(1),
-  total_budget: z.number().nonnegative().optional(),
-  start_date: isoCalendarDate("start_date").optional(),
-  end_date: isoCalendarDate("end_date").optional(),
-}).strict();
+ *  (PV, CPI, SPI, EAC). Validate at the boundary; unknown keys are rejected.
+ *  When BOTH dates are supplied they must form a forward range: an inverted
+ *  range (start after end) yields a negative planned-duration that distorts the
+ *  same EVM metrics, so reject it here rather than letting it reach the engine. */
+const postProjectSchema = z
+  .object({
+    name: z.string().min(1),
+    total_budget: z.number().nonnegative().optional(),
+    start_date: isoCalendarDate("start_date").optional(),
+    end_date: isoCalendarDate("end_date").optional(),
+  })
+  .strict()
+  .refine(
+    (data) =>
+      // Only compare when both endpoints are present; each has already passed
+      // isoCalendarDate (a real YYYY-MM-DD), so the Date parse cannot be NaN.
+      data.start_date === undefined ||
+      data.end_date === undefined ||
+      new Date(`${data.start_date}T00:00:00Z`).getTime() <=
+        new Date(`${data.end_date}T00:00:00Z`).getTime(),
+    { message: "start_date must be on or before end_date", path: ["end_date"] },
+  );
 
 // ---- Health ----
 apiRouter.get("/health", (_req, res) => {
