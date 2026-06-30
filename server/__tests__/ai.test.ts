@@ -151,6 +151,90 @@ describe("chatRequest — bounded retry with backoff", () => {
     expect(opts?.redirect).toBe("error");
   });
 
+  it("caps a huge Retry-After header so it cannot stall the request", async () => {
+    const tooMany = {
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: new Headers({ "retry-after": "3600" }), // server asks for 1 hour
+      text: async () => "rate limited",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "ok" } }],
+      }),
+    };
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(tooMany)
+      .mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => {
+      sleeps.push(ms);
+    };
+
+    await chatRequest(
+      "http://localhost:11434/v1/chat/completions",
+      "",
+      { model: "llama3.2" },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    // 3600s -> 3_600_000ms would block the request for an hour; the cap holds
+    // the honored delay to 60_000ms.
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBe(60_000);
+    expect(sleeps[0]).toBeLessThan(3_600_000);
+  });
+
+  it("ignores a whitespace-only Retry-After (no 0ms instant retry)", async () => {
+    const tooMany = {
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      // Plain object instead of Headers (which strips OWS) so the blank value
+      // reaches retryDelayMs verbatim. Number("  ") is 0, which without the
+      // guard would force a 0ms retry; it must fall through to backoff instead.
+      headers: {
+        get: (k: string) => (k.toLowerCase() === "retry-after" ? "   " : null),
+      },
+      text: async () => "rate limited",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "ok" } }],
+      }),
+    };
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(tooMany)
+      .mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => {
+      sleeps.push(ms);
+    };
+
+    await chatRequest(
+      "http://localhost:11434/v1/chat/completions",
+      "",
+      { model: "llama3.2" },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBeGreaterThan(0);
+  });
+
   it("does not retry a blocked redirect and fails fast", async () => {
     // redirect: "error" makes undici reject with "unexpected redirect"; that is a
     // permanent SSRF/config issue, so the request must fail immediately rather
@@ -180,6 +264,15 @@ describe("parseTimeoutMs — clamp llm_timeout_ms (config DoS guard)", () => {
     expect(parseTimeoutMs("0")).toBe(DEFAULT_LLM_TIMEOUT_MS);
     expect(parseTimeoutMs("abc")).toBe(DEFAULT_LLM_TIMEOUT_MS);
     expect(parseTimeoutMs("")).toBe(DEFAULT_LLM_TIMEOUT_MS);
+  });
+
+  it("rejects scientific notation, decimals, and garbage suffixes (parseInt truncation DoS)", () => {
+    // parseInt would truncate these to 1 / 30 / 10 / 30 — a near-zero timeout
+    // that aborts every request. strictInt rejects them outright.
+    expect(parseTimeoutMs("1e6")).toBe(DEFAULT_LLM_TIMEOUT_MS);
+    expect(parseTimeoutMs("30.5")).toBe(DEFAULT_LLM_TIMEOUT_MS);
+    expect(parseTimeoutMs("10abc")).toBe(DEFAULT_LLM_TIMEOUT_MS);
+    expect(parseTimeoutMs("30 000")).toBe(DEFAULT_LLM_TIMEOUT_MS);
   });
 
   it("clamps an absurdly large value to the max", () => {
