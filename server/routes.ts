@@ -190,6 +190,20 @@ const postProjectSchema = z
     { message: "start_date must be on or before end_date", path: ["end_date"] },
   );
 
+/** POST /staffing body. Unlike every other mutating route, this endpoint used to
+ *  destructure req.body directly and rely on truthiness checks (`!project_id`),
+ *  which silently accept 0/negative ids and any hours_per_week value (including
+ *  negative numbers) into the DB. Validate at the boundary like the project
+ *  routes; unknown keys are rejected. hours_per_week defaults to 40 (matching
+ *  the DB column default and the prior `|| 40` fallback) and is capped at 168
+ *  (hours in a week) to reject nonsensical values. */
+const postStaffingSchema = z.object({
+  project_id: z.number().int().positive(),
+  labor_category_id: z.number().int().positive(),
+  person_name: z.string().min(1).max(200).optional(),
+  hours_per_week: z.number().positive().max(168).default(40),
+}).strict();
+
 // ---- Health ----
 apiRouter.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -282,11 +296,13 @@ apiRouter.get("/staffing", (req, res) => {
 });
 
 apiRouter.post("/staffing", requireAppToken, (req: Request, res: Response) => {
-  const { project_id, labor_category_id, person_name, hours_per_week } = req.body;
-  if (!project_id || !labor_category_id) {
-    res.status(400).json({ error: "project_id and labor_category_id required" }); return;
+  const parsed = postStaffingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid fields", details: parsed.error.issues });
+    return;
   }
-  const result = addStaffing(project_id, labor_category_id, person_name || "", hours_per_week || 40);
+  const { project_id, labor_category_id, person_name, hours_per_week } = parsed.data;
+  const result = addStaffing(project_id, labor_category_id, person_name ?? "", hours_per_week);
   res.json({ id: result.lastInsertRowid });
 });
 
