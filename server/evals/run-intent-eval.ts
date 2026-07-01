@@ -14,7 +14,8 @@
  * than model behavior.
  *
  * Usage:
- *   npm run eval:intent
+ *   npm run eval:intent                       # local/dev — missing token skips (exit 0)
+ *   EVAL_INTENT_GATED=1 npm run eval:intent    # CI/gated — missing token is FATAL (exit 1)
  *
  * Requires: GITHUB_TOKEN env var (same one the server uses for the GitHub
  * Models API). NOTE: unlike the server, the runner does NOT read the SQLite
@@ -24,9 +25,15 @@
  * Prints per-case results and an aggregate accuracy summary, then writes JSON
  * results to server/evals/results/latest.json.
  *
+ * Accuracy gate: the observed action accuracy is compared against the
+ * committed INTENT_CORPUS_ACCURACY_THRESHOLD (server/evals/eval-config.ts).
+ * Falling below it fails the run (see exit codes) — this is what lets a real
+ * intent-parsing regression fail CI instead of being silently absorbed.
+ *
  * Exit codes:
- *   0 — ran successfully (even if some cases failed), or API key absent (skip)
- *   1 — fatal error (corpus unreadable, etc.)
+ *   0 — accuracy >= threshold, or API key absent AND not running gated
+ *   1 — accuracy < threshold, API key absent while EVAL_INTENT_GATED=1/true,
+ *       or a fatal error (corpus unreadable, etc.)
  */
 
 import { readFileSync, mkdirSync, writeFileSync } from "fs";
@@ -35,11 +42,24 @@ import { fileURLToPath } from "url";
 import { PARSE_INTENT_PROMPT } from "../ai.js";
 import { scenarioOperationSchema } from "../engine/validation.js";
 import type { ScenarioOperation } from "../engine/types.js";
+import { INTENT_CORPUS_ACCURACY_THRESHOLD } from "./eval-config.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const EVAL_MODEL = "openai/gpt-4.1";
 const EVAL_ENDPOINT = "https://models.github.ai/inference/chat/completions";
+
+/**
+ * "Gated" runs (CI, or anyone opting in locally) treat a missing GITHUB_TOKEN
+ * as a FATAL error rather than a silent skip — otherwise a credential-less CI
+ * job would report green without ever exercising the model. Recognizes "1"
+ * and "true" (case-insensitive) so either style of CI env-var convention works.
+ */
+export function isGatedRun(): boolean {
+  const flag = (process.env.EVAL_INTENT_GATED ?? "").trim().toLowerCase();
+  return flag === "1" || flag === "true";
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -254,10 +274,21 @@ async function callParseIntent(query: string, apiKey: string): Promise<ScenarioO
 
 async function main(): Promise<void> {
   const apiKey = process.env.GITHUB_TOKEN ?? "";
+  const gated = isGatedRun();
+
   if (!apiKey) {
+    if (gated) {
+      console.error(
+        "eval:intent — no API key found, but EVAL_INTENT_GATED is set.\n" +
+          "Set GITHUB_TOKEN so this gated run can actually exercise the model.\n" +
+          "Failing rather than silently skipping the accuracy gate."
+      );
+      process.exit(1);
+    }
     console.error(
       "eval:intent — no API key found. Set GITHUB_TOKEN to run against the GitHub Models API.\n" +
-        "Exiting without error so CI is not broken."
+        "Exiting without error so ungated/local runs are not broken.\n" +
+        "(Set EVAL_INTENT_GATED=1 to make a missing token fail instead of skip.)"
     );
     process.exit(0);
   }
@@ -371,9 +402,37 @@ async function main(): Promise<void> {
   const outPath = resolve(resultsDir, "latest.json");
   writeFileSync(outPath, JSON.stringify(summary, null, 2), "utf-8");
   console.log(`\nResults written to: ${outPath}\n`);
+
+  // ─── Accuracy gate ────────────────────────────────────────────────────────
+  // This is the actual regression gate: a real drop in intent-parsing quality
+  // must fail the command (and therefore CI), not just print a lower number.
+  // Uses process.exitCode (not process.exit) so the console/file output above
+  // has already flushed before the process exits non-zero.
+  if (actionAccuracy < INTENT_CORPUS_ACCURACY_THRESHOLD) {
+    console.error(
+      `eval:intent — FAIL: action accuracy ${(actionAccuracy * 100).toFixed(1)}% is below the ` +
+        `committed threshold ${(INTENT_CORPUS_ACCURACY_THRESHOLD * 100).toFixed(1)}% ` +
+        `(server/evals/eval-config.ts).`
+    );
+    process.exitCode = 1;
+    return;
+  }
+  console.log(
+    `eval:intent — PASS: action accuracy ${(actionAccuracy * 100).toFixed(1)}% meets the ` +
+      `committed threshold ${(INTENT_CORPUS_ACCURACY_THRESHOLD * 100).toFixed(1)}%.`
+  );
 }
 
-main().catch((err: unknown) => {
-  console.error("eval:intent — fatal error:", err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+// Only run when executed directly (`npm run eval:intent` / `tsx
+// server/evals/run-intent-eval.ts`), not when imported — e.g. by
+// server/__tests__/intent-eval-gate.test.ts, which imports isGatedRun() for
+// unit testing and must not trigger a live network run as a side effect of
+// that import.
+const isDirectExecution = process.argv[1] !== undefined && __filename === resolve(process.argv[1]);
+
+if (isDirectExecution) {
+  main().catch((err: unknown) => {
+    console.error("eval:intent — fatal error:", err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}
