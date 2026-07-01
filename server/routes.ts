@@ -87,6 +87,18 @@ const XLSX_MIME_TYPES = new Set([
   "application/vnd.ms-excel",                                           // .xls (legacy)
 ]);
 
+/**
+ * Bounds for GET /scenarios ?limit=.
+ *
+ * Mirrors getScenarioHistory's own default (server/db.ts) so an absent param
+ * behaves identically to before this fix. SCENARIOS_MAX_LIMIT caps an
+ * oversized-but-numeric value (e.g. ?limit=99999999) so a single request
+ * can't force an unbounded table scan/response — verified empirically that
+ * better-sqlite3 has no built-in ceiling on a bound LIMIT parameter.
+ */
+const SCENARIOS_DEFAULT_LIMIT = 50;
+const SCENARIOS_MAX_LIMIT = 500;
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB — prevents OOM from arbitrarily large uploads
@@ -290,8 +302,22 @@ apiRouter.patch("/projects/:id", requireAppToken, (req: Request, res: Response) 
 });
 
 // ---- Staffing ----
-apiRouter.get("/staffing", (req, res) => {
-  const projectId = req.query.project_id ? Number(req.query.project_id) : undefined;
+apiRouter.get("/staffing", (req: Request, res: Response) => {
+  let projectId: number | undefined;
+  if (req.query.project_id !== undefined) {
+    const parsedId = Number(req.query.project_id);
+    // Mirrors the :id guard on PATCH /projects/:id and DELETE /staffing/:id
+    // below — reject non-numeric/non-positive-integer values instead of
+    // silently falling through. Without this, Number("abc") = NaN, and
+    // `if (projectId)` in getStaffingByProject treats NaN as falsy, so a
+    // request scoped to one project silently returns EVERY project's
+    // staffing instead of erroring.
+    if (!Number.isInteger(parsedId) || parsedId <= 0) {
+      res.status(400).json({ error: "Invalid project_id" });
+      return;
+    }
+    projectId = parsedId;
+  }
   res.json(getStaffingByProject(projectId));
 });
 
@@ -325,8 +351,24 @@ apiRouter.get("/rates", (_req, res) => {
 // V1 removed — it sent raw financial data to LLM and let it hallucinate numbers.
 // Use V2 (deterministic engine + optional narration) or V3 (agentic tool-calling) instead.
 
-apiRouter.get("/scenarios", (req, res) => {
-  const limit = req.query.limit ? Number(req.query.limit) : 50;
+apiRouter.get("/scenarios", (req: Request, res: Response) => {
+  let limit = SCENARIOS_DEFAULT_LIMIT;
+  if (req.query.limit !== undefined) {
+    const parsedLimit = Number(req.query.limit);
+    // Without this guard, ?limit=abc produces NaN, which better-sqlite3
+    // rejects at bind time with a thrown "datatype mismatch" (verified
+    // empirically) — an unguarded 500 with no matching route-level try/catch.
+    // Reject non-numeric/non-positive input the same way the sibling :id
+    // routes below reject invalid ids, rather than let it reach the DB layer.
+    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+      res.status(400).json({ error: "Invalid limit" });
+      return;
+    }
+    // A numeric-but-oversized value (e.g. ?limit=99999999) is not "invalid,"
+    // just too large — clamp it rather than reject, matching LIMIT/page-size
+    // conventions elsewhere.
+    limit = Math.min(parsedLimit, SCENARIOS_MAX_LIMIT);
+  }
   res.json(getScenarioHistory(limit));
 });
 
