@@ -20,7 +20,7 @@
  *      raising it back above passes.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { INTENT_CORPUS_ACCURACY_THRESHOLD } from "../evals/eval-config.js";
 import { isGatedRun } from "../evals/run-intent-eval.js";
 
