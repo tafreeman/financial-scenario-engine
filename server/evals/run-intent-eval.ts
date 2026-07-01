@@ -1,26 +1,32 @@
 /**
  * Intent-parsing eval runner
  *
- * Sends each corpus entry through the SAME intent-parsing path production uses —
- * the real PARSE_INTENT_PROMPT (imported from server/ai.ts, single source of
- * truth), real model call, real scenarioOperationSchema validation — and scores
- * exact-action + field-level match against expected.
- *
- * Production-fidelity note: like parseIntent() in server/ai.ts, a model
- * response that is not valid JSON or fails schema validation falls back to
- * {action: "burn_rate_check", _fallback: true} and is SCORED as that fallback
- * (the per-case result records that a fallback occurred). Only transport/HTTP
- * failures are recorded as errors, since they reflect infrastructure rather
- * than model behavior.
+ * Calls the PRODUCTION parseIntent() (server/ai.ts) directly for every corpus
+ * entry — same prompt, same model config resolution (getAiConfig() /
+ * getConfig(), including the SQLite config table), same schema validation,
+ * same typed failure contract. There is no separate reimplementation of the
+ * parse path here: this file previously had its own callParseIntent() that
+ * duplicated production's HTTP call and JSON/schema handling, and that copy
+ * had drifted — it returned a fabricated {action:"burn_rate_check",
+ * _fallback:true} shape on failure that production stopped producing once
+ * parseIntent() was refactored to return a typed IntentParseResult
+ * (IntentParseSuccess | IntentParseFailure; see server/ai.ts). Calling
+ * parseIntent() directly means a prompt or schema regression fails this eval
+ * exactly the way it fails production — never masked behind a fake
+ * burn_rate_check success.
  *
  * Usage:
  *   npm run eval:intent                       # local/dev — missing token skips (exit 0)
  *   EVAL_INTENT_GATED=1 npm run eval:intent    # CI/gated — missing token is FATAL (exit 1)
  *
  * Requires: GITHUB_TOKEN env var (same one the server uses for the GitHub
- * Models API). NOTE: unlike the server, the runner does NOT read the SQLite
- * config table — it always uses the default model and GitHub Models endpoint
- * below, even if your deployment is configured for Ollama or another model.
+ * Models API — see server/ai.ts getAiConfig(), which prefers the SQLite
+ * "github_pat" config value and falls back to this env var). The model and
+ * endpoint used are whatever getAiConfig() resolves — the DB's seeded
+ * defaults (model "openai/gpt-4.1", endpoint the GitHub Models chat
+ * completions URL, provider "github") unless a deployment has explicitly
+ * reconfigured them via /api/config, in which case this eval now faithfully
+ * reflects that deployment instead of silently ignoring it.
  *
  * Prints per-case results and an aggregate accuracy summary, then writes JSON
  * results to server/evals/results/latest.json.
@@ -39,16 +45,12 @@
 import { readFileSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { PARSE_INTENT_PROMPT } from "../ai.js";
-import { scenarioOperationSchema } from "../engine/validation.js";
+import { parseIntent, getAiConfig } from "../ai.js";
 import type { ScenarioOperation } from "../engine/types.js";
 import { INTENT_CORPUS_ACCURACY_THRESHOLD } from "./eval-config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const EVAL_MODEL = "openai/gpt-4.1";
-const EVAL_ENDPOINT = "https://models.github.ai/inference/chat/completions";
 
 /**
  * "Gated" runs (CI, or anyone opting in locally) treat a missing GITHUB_TOKEN
@@ -83,9 +85,12 @@ interface CaseResult {
   /** True when the score came from an entry in expectedAlternatives rather
    *  than the primary expected value. */
   matchedAlternative: boolean;
-  /** True when the model output failed JSON/schema parsing and production's
-   *  burn_rate_check fallback was applied before scoring. */
-  fallback: boolean;
+  /** Set to production's IntentParseFailure.code when parseIntent() returned
+   *  a typed failure (ok: false) instead of a parsed operation — e.g.
+   *  "invalid_json" or "invalid_operation". Undefined when parsing
+   *  succeeded. Scored as a miss (fieldScore 0), exactly like production
+   *  surfaces it as a 422 rather than a disguised burn_rate_check. */
+  parseFailureCode?: string;
   fieldMatches: Record<string, boolean>;
   fieldScore: number;
   notes?: string;
@@ -105,7 +110,10 @@ interface EvalSummary {
   passCount: number;
   failCount: number;
   errorCount: number;
-  fallbackCount: number;
+  /** Count of cases where parseIntent() returned a typed IntentParseFailure
+   *  (see CaseResult.parseFailureCode) rather than throwing a transport
+   *  error. Distinct from errorCount, which is transport/HTTP failures only. */
+  parseFailureCount: number;
   cases: CaseResult[];
 }
 
@@ -201,92 +209,33 @@ function scoreAgainstCandidates(entry: CorpusEntry, actual: ScenarioOperation): 
   return best;
 }
 
-// ─── LLM call ────────────────────────────────────────────────────────────────
-
-interface ChatResponse {
-  choices: Array<{ message: { content: string | null } }>;
-}
-
-/**
- * Run one query through the production parse path: same prompt, same model
- * settings (temperature 0, max_tokens 500), same markdown-fence stripping,
- * same schema validation, and the same burn_rate_check fallback on
- * unparseable or schema-invalid output (mirrors parseIntent in server/ai.ts).
- * Throws only on transport/HTTP failures.
- */
-async function callParseIntent(query: string, apiKey: string): Promise<ScenarioOperation> {
-  const payload = {
-    model: EVAL_MODEL,
-    max_tokens: 500,
-    temperature: 0,
-    messages: [
-      { role: "system", content: `${PARSE_INTENT_PROMPT}\n\nCURRENT DATA:\n${EVAL_CONTEXT_SNAPSHOT}` },
-      { role: "user", content: query },
-    ],
-  };
-
-  const resp = await fetch(EVAL_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${apiKey}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`HTTP ${resp.status}: ${body.slice(0, 300)}`);
-  }
-
-  const data = (await resp.json()) as ChatResponse;
-  const content = data.choices?.[0]?.message?.content ?? "";
-  const cleaned = content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    // Production behavior (server/ai.ts parseIntent): non-JSON output falls
-    // back to burn_rate_check rather than erroring.
-    return {
-      action: "burn_rate_check",
-      _fallback: true,
-      _fallback_reason: `Model returned non-JSON: ${cleaned.slice(0, 200)}`,
-    };
-  }
-
-  const validation = scenarioOperationSchema.safeParse(parsed);
-  if (!validation.success) {
-    // Production behavior: schema-invalid output falls back to burn_rate_check.
-    return {
-      action: "burn_rate_check",
-      _fallback: true,
-      _fallback_reason: `Schema validation failed: ${validation.error.message.slice(0, 200)}`,
-    };
-  }
-  return validation.data;
-}
-
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const apiKey = process.env.GITHUB_TOKEN ?? "";
   const gated = isGatedRun();
 
-  if (!apiKey) {
+  // Fast upfront skip/gate check. This intentionally checks only the
+  // GITHUB_TOKEN env var (not the full getAiConfig()/isProviderConfigured()
+  // precondition production uses) so a credential-less run exits with one
+  // clear message instead of running the whole corpus through parseIntent()
+  // and recording a "provider_unconfigured" IntentParseFailure per case. A
+  // deployment that instead sets the DB "github_pat" config value (with no
+  // GITHUB_TOKEN env var) or that uses the "ollama" provider (no token
+  // needed) will not hit this early-exit — it falls through to the real
+  // parseIntent() calls below, which resolve their own config correctly.
+  if (!process.env.GITHUB_TOKEN) {
     if (gated) {
       console.error(
-        "eval:intent — no API key found, but EVAL_INTENT_GATED is set.\n" +
-          "Set GITHUB_TOKEN so this gated run can actually exercise the model.\n" +
-          "Failing rather than silently skipping the accuracy gate."
+        "eval:intent — no GITHUB_TOKEN found, but EVAL_INTENT_GATED is set.\n" +
+          "Set GITHUB_TOKEN (or configure the DB github_pat / ollama provider) so this\n" +
+          "gated run can actually exercise the model. Failing rather than silently\n" +
+          "skipping the accuracy gate."
       );
       process.exit(1);
     }
     console.error(
-      "eval:intent — no API key found. Set GITHUB_TOKEN to run against the GitHub Models API.\n" +
+      "eval:intent — no GITHUB_TOKEN found. Set it to run against the GitHub Models API\n" +
+        "(or configure the DB github_pat / ollama provider directly).\n" +
         "Exiting without error so ungated/local runs are not broken.\n" +
         "(Set EVAL_INTENT_GATED=1 to make a missing token fail instead of skip.)"
     );
@@ -297,11 +246,16 @@ async function main(): Promise<void> {
   const corpusPath = resolve(__dirname, "intent-corpus.json");
   const corpus = JSON.parse(readFileSync(corpusPath, "utf-8")) as CorpusEntry[];
 
-  console.log(`\nIntent-parsing eval — ${corpus.length} cases, model: ${EVAL_MODEL}`);
+  // Resolved via the SAME getAiConfig() production uses — reflects the
+  // SQLite config table (or its seeded defaults) rather than a value
+  // hardcoded in this file, so the printed/recorded model+endpoint always
+  // match what parseIntent() actually called below.
+  const resolvedConfig = getAiConfig();
+
+  console.log(`\nIntent-parsing eval — ${corpus.length} cases, model: ${resolvedConfig.model}`);
   console.log(
-    "NOTE: the runner always uses the default model/endpoint above — it does NOT\n" +
-      "read the app's SQLite config, so a deployment configured for Ollama or a\n" +
-      "different model is not reflected in this eval."
+    `Provider: ${resolvedConfig.provider}  Endpoint: ${resolvedConfig.endpoint}\n` +
+      "(Resolved via the app's SQLite config table, same as production — see server/ai.ts getAiConfig().)"
   );
   console.log("─".repeat(70));
 
@@ -309,22 +263,30 @@ async function main(): Promise<void> {
   let passCount = 0;
   let failCount = 0;
   let errorCount = 0;
-  let fallbackCount = 0;
+  let parseFailureCount = 0;
 
   for (const entry of corpus) {
     process.stdout.write(`  ${entry.id.padEnd(26)}`);
 
     let actual: ScenarioOperation | null = null;
+    let parseFailureCode: string | undefined;
     let caseError: string | undefined;
 
     try {
-      actual = await callParseIntent(entry.query, apiKey);
+      // Calls the PRODUCTION parse path directly — no reimplementation.
+      const result = await parseIntent(entry.query, EVAL_CONTEXT_SNAPSHOT);
+      if (result.ok) {
+        actual = result.operation;
+      } else {
+        // Typed failure (server/ai.ts IntentParseFailure) — scored as a miss
+        // below via the null `actual`, exactly as production returns a 422
+        // rather than a disguised burn_rate_check success.
+        parseFailureCode = result.code;
+        parseFailureCount++;
+      }
     } catch (err: unknown) {
       caseError = err instanceof Error ? err.message : String(err);
     }
-
-    const fallback = actual?._fallback === true;
-    if (fallback) fallbackCount++;
 
     const score: CandidateScore =
       actual !== null
@@ -333,7 +295,7 @@ async function main(): Promise<void> {
 
     const statusIcon = caseError ? "ERR" : score.actionMatch ? " OK" : "FAI";
     const fieldPct = `${Math.round(Math.max(score.fieldScore, 0) * 100)}%`.padStart(4);
-    const flags = [fallback ? "fallback" : "", score.matchedAlternative ? "alt" : ""]
+    const flags = [parseFailureCode ? `parse:${parseFailureCode}` : "", score.matchedAlternative ? "alt" : ""]
       .filter(Boolean)
       .join(",");
     console.log(`[${statusIcon}] action=${actual?.action ?? "n/a"} fields=${fieldPct}${flags ? ` (${flags})` : ""}`);
@@ -354,7 +316,7 @@ async function main(): Promise<void> {
       actual,
       actionMatch: score.actionMatch,
       matchedAlternative: score.matchedAlternative,
-      fallback,
+      ...(parseFailureCode ? { parseFailureCode } : {}),
       fieldMatches: score.fieldMatches,
       fieldScore: caseError ? 0 : Math.max(score.fieldScore, 0),
       notes: entry.notes,
@@ -375,25 +337,25 @@ async function main(): Promise<void> {
   console.log("\n" + "─".repeat(70));
   console.log(`Action accuracy : ${passCount}/${corpusSize} = ${(actionAccuracy * 100).toFixed(1)}%  (over all cases; transport errors count as misses)`);
   console.log(`Mean field score: ${(meanFieldScore * 100).toFixed(1)}%  (same denominator: all ${corpusSize} cases)`);
-  console.log(`  Passed    : ${passCount}`);
-  console.log(`  Failed    : ${failCount}`);
-  console.log(`  Errors    : ${errorCount}  (transport/HTTP only — scored 0)`);
-  console.log(`  Fallbacks : ${fallbackCount}  (output fell back to burn_rate_check, as in production)`);
+  console.log(`  Passed         : ${passCount}`);
+  console.log(`  Failed         : ${failCount}`);
+  console.log(`  Errors         : ${errorCount}  (transport/HTTP only — scored 0)`);
+  console.log(`  Parse failures : ${parseFailureCount}  (typed IntentParseFailure from production parseIntent() — scored 0, as production returns 422)`);
   console.log("─".repeat(70));
 
   // ─── Write results artifact ──────────────────────────────────────────────
 
   const summary: EvalSummary = {
     runDate: new Date().toISOString(),
-    model: EVAL_MODEL,
-    endpoint: EVAL_ENDPOINT,
+    model: resolvedConfig.model,
+    endpoint: resolvedConfig.endpoint,
     corpusSize,
     actionAccuracy,
     meanFieldScore,
     passCount,
     failCount,
     errorCount,
-    fallbackCount,
+    parseFailureCount,
     cases: results,
   };
 
