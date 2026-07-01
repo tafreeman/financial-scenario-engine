@@ -1,0 +1,82 @@
+name: Real Model Eval
+
+# Runs the intent-parsing eval (server/evals/run-intent-eval.ts) against the
+# REAL GitHub Models API in GATED mode (EVAL_INTENT_GATED=1 — see
+# server/evals/run-intent-eval.ts and .env.example), so a real intent-parsing
+# accuracy regression fails the build instead of being silently absorbed.
+#
+# This calls a live, metered inference endpoint, so it intentionally does NOT
+# run on every push/PR:
+#   - pull_request: only when the PR carries the "run-live-eval" label —
+#     labeling/unlabeling re-triggers the workflow (see the `types:` list
+#     below), so a maintainer can opt a specific PR in on demand.
+#   - schedule: nightly on main, so an accuracy regression is caught even
+#     when no PR happens to carry the label that day.
+#   - workflow_dispatch: manual on-demand run from the Actions tab.
+#
+# On an unlabeled PR the single job below exits immediately (see the `if:`
+# guard on the job) with a neutral "skipped" conclusion rather than failing —
+# GitHub branch protection treats a skipped required check as passing, so
+# this can be safely marked as a required status check without blocking
+# every ordinary PR on a live-model call.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  schedule:
+    # 06:17 UTC nightly — off the top of the hour to avoid the queueing spike
+    # every workflow scheduled for :00 competes for on GitHub-hosted runners.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+# Only the Models API call itself needs credentials beyond the default
+# checkout; models: read lets the auto-provisioned secrets.GITHUB_TOKEN call
+# the GitHub Models inference endpoint (server/ai.ts / .env.example
+# GITHUB_TOKEN) without a separate long-lived PAT secret.
+permissions:
+  contents: read
+  models: read
+
+concurrency:
+  group: real-model-eval-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-model-eval:
+    name: real-model-eval
+    runs-on: ubuntu-latest
+    # Gate: run on schedule/manual dispatch unconditionally, or on a PR only
+    # when it carries the run-live-eval label. An unlabeled PR event (open,
+    # sync, reopen, or an unrelated label change) skips cleanly here rather
+    # than failing, so this job can be a required check without blocking
+    # every PR on a live, metered model call.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'run-live-eval')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run intent eval (gated — real model, accuracy-gated)
+        env:
+          EVAL_INTENT_GATED: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run eval:intent
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: intent-eval-results
+          path: server/evals/results/latest.json
+          if-no-files-found: warn
+          retention-days: 30

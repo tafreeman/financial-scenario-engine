@@ -1,0 +1,53 @@
+# Dependency trees are reinstalled inside the image (native module
+# better-sqlite3 must be built for the Linux runtime, not copied from host).
+node_modules/
+client/node_modules/
+docs/node_modules/
+
+# Client build artifacts — rebuilt by the "build" stage; dist-pages is the
+# GitHub Pages-only static bundle and is never used by the server image.
+client/dist/
+client/dist-pages/
+client/*.tsbuildinfo
+*.tsbuildinfo
+
+# Secrets and local env — never bake credentials into an image layer.
+.env
+.env.*
+!.env.example
+
+# SQLite data files — storage is externalized to a mounted volume
+# (see Dockerfile ENV DB_PATH=/app/data/finimpact.db); shipping a dev/local
+# .db in the image would silently seed stale or sensitive data.
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.db.backup
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db.backup
+
+# Test / coverage / eval output — not needed at runtime.
+coverage/
+test-results/
+server/evals/results/
+playwright-report/
+
+# VCS and editor metadata.
+.git/
+.gitignore
+.github/
+.vscode/
+.vs/
+.sonar/
+
+# Docs site (VitePress) — unrelated to the server/client runtime image.
+docs/
+
+# Misc local-only artifacts.
+.claude/
+.clone/
+_analysis/
+*.log
