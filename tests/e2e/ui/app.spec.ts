@@ -360,6 +360,8 @@ test.describe("Staffing view", () => {
 
 
 test.describe("Settings panel", () => {
+  const modelSelect = (page: import("@playwright/test").Page) =>
+    page.locator("label:text-is('Model')").locator("xpath=following-sibling::select[1]");
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -369,8 +371,7 @@ test.describe("Settings panel", () => {
   test("loads default configuration values", async ({ page }) => {
     // toHaveValue() checks the current value of an input or select element.
     // This is different from toContainText() — it checks the form value, not visible text.
-    const modelSelect = page.locator("select.input-field");
-    await expect(modelSelect).toHaveValue("openai/gpt-4.1");
+    await expect(modelSelect(page)).toHaveValue("openai/gpt-4.1");
 
     // Check the endpoint input has the expected URL
     const endpointInput = page.locator("input.input-field[value*='models.github.ai']");
@@ -382,8 +383,7 @@ test.describe("Settings panel", () => {
 
   test("saves model configuration and persists across page reload", async ({ page }) => {
     // Step 1: Change the model dropdown
-    const modelSelect = page.locator("select.input-field");
-    await modelSelect.selectOption("openai/gpt-4o");
+    await modelSelect(page).selectOption("openai/gpt-4o");
 
     // Step 2: Click Save
     await page.getByRole("button", { name: /Save Settings/ }).click();
@@ -394,12 +394,11 @@ test.describe("Settings panel", () => {
     // Step 4: Reload the entire page to verify the change persisted to the database
     await page.goto("/");
     await page.getByRole("button", { name: "Settings" }).click();
-    const reloadedSelect = page.locator("select.input-field");
-    await expect(reloadedSelect).toHaveValue("openai/gpt-4o");
+    await expect(modelSelect(page)).toHaveValue("openai/gpt-4o");
 
     // CLEANUP: Restore the default so other tests aren't affected.
     // Always leave the database in the same state you found it.
-    await reloadedSelect.selectOption("openai/gpt-4.1");
+    await modelSelect(page).selectOption("openai/gpt-4.1");
     await page.getByRole("button", { name: /Save Settings/ }).click();
     await expect(page.getByText("Saved")).toBeVisible();
   });
