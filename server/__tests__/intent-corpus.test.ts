@@ -22,13 +22,37 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  *      value is a legal ScenarioOperation.
  *   3. `query` is a non-empty string.
  *   4. `id` is a non-empty string.
+ *   5. The optional `category` field, when present, is one of
+ *      KNOWN_CATEGORIES (currently just "adversarial") — this is the schema
+ *      extension WP2-D introduced to tag prompt-injection/jailbreak/edge-case
+ *      corpus entries so run-intent-eval.ts can report accuracy split by
+ *      category (overall vs. excluding adversarial cases), rather than
+ *      hiding a robustness dip inside a single blended mean.
+ *   6. At least one corpus entry is tagged `category: "adversarial"` — a
+ *      floor (not an exact count) so the adversarial slice can never
+ *      silently regress to empty while every other integrity check still
+ *      passes.
+ *
+ * Degenerate-input corpus entries (e.g. "degenerate-001"/"degenerate-002" —
+ * a single meaningless character, a whitespace-only string) intentionally
+ * still satisfy the non-empty-string `query` floor below; a literally empty
+ * string ("") is deliberately excluded from the corpus so this integrity
+ * floor stays an unambiguous guard against accidentally-blank entries rather
+ * than a case that has to distinguish "corpus bug" from "deliberate test
+ * case" (production separately rejects an empty query with HTTP 400 before
+ * parseIntent() is ever reached — see server/routes.ts's `!query` guard).
  */
+
+/** Known values for the optional corpus-entry `category` field. */
+const KNOWN_CATEGORIES = ["adversarial"] as const;
+type KnownCategory = (typeof KNOWN_CATEGORIES)[number];
 
 interface RawCorpusEntry {
   id: unknown;
   query: unknown;
   expected: unknown;
   expectedAlternatives?: unknown;
+  category?: unknown;
   notes?: unknown;
 }
 
@@ -38,7 +62,12 @@ describe("intent-corpus — structural integrity", () => {
 
   it("corpus file is a non-empty array", () => {
     expect(Array.isArray(raw)).toBe(true);
-    expect((raw as unknown[]).length).toBe(30);
+    // Floor, not an exact count (see repo-wide rule against hardcoded,
+    // drift-prone metric numbers): the corpus is expected to keep growing —
+    // pin only a minimum so this test doesn't need editing every time a case
+    // is added. See the "corpus has at least N entries" test below for the
+    // authoritative size floor.
+    expect((raw as unknown[]).length).toBeGreaterThan(0);
   });
 
   const entries = raw as RawCorpusEntry[];
@@ -90,6 +119,32 @@ describe("intent-corpus — structural integrity", () => {
     }
   });
 
+  it("every entry's optional category field, when present, is a known category", () => {
+    for (const entry of entries) {
+      if (entry.category === undefined) continue;
+      expect(
+        typeof entry.category,
+        `Corpus entry "${String(entry.id)}": category must be a string`
+      ).toBe("string");
+      expect(
+        (KNOWN_CATEGORIES as readonly string[]).includes(entry.category as string),
+        `Corpus entry "${String(entry.id)}" has unknown category "${String(
+          entry.category
+        )}" — must be one of: ${KNOWN_CATEGORIES.join(", ")}`
+      ).toBe(true);
+    }
+  });
+
+  it("the adversarial category is non-empty", () => {
+    // Floor, not an exact count: guards against the adversarial/prompt-injection
+    // slice silently regressing to zero (e.g. an entry losing its category tag
+    // during an edit) while every other integrity check above still passes.
+    const adversarialCount = entries.filter(
+      (e) => (e.category as KnownCategory | undefined) === "adversarial"
+    ).length;
+    expect(adversarialCount, "corpus must include at least one adversarial-category case").toBeGreaterThan(0);
+  });
+
   it("corpus covers all 12 action types", () => {
     const actions = new Set(
       entries.map((e) => (e.expected as { action: string }).action)
@@ -113,7 +168,11 @@ describe("intent-corpus — structural integrity", () => {
     }
   });
 
-  it("corpus has at least 25 entries", () => {
-    expect(entries.length).toBeGreaterThanOrEqual(25);
+  it("corpus has at least 40 entries", () => {
+    // Raised from the original floor of 25 (WP2-D): the corpus grew to cover
+    // adversarial/prompt-injection cases meaningfully, not just a token couple
+    // of additions. Still a floor — the corpus is expected to keep growing
+    // past this number, so this only guards against silently losing entries.
+    expect(entries.length).toBeGreaterThanOrEqual(40);
   });
 });
