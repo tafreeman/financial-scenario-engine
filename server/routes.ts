@@ -557,8 +557,10 @@ apiRouter.put("/config", requireAppToken, (req: Request, res: Response) => {
 
 // ---- Excel Import ----
 // requireAppToken runs BEFORE uploadSingle so an unauthenticated caller is
-// rejected with 401 before multer ever buffers the upload. These routes bulk-
-// overwrite the portfolio, so they must not be callable by an unauthenticated
-// co-located process.
+// rejected with 401 before multer ever buffers the upload. These routes are
+// preview-only today (parseWorkbookPreview() returns sheet names + a row
+// sample; no DB write occurs — see server/import/excel/shared/parseWorkbook.ts),
+// but they still accept an arbitrary uploaded file from any co-located
+// process, so the same unauthenticated-caller guard applies regardless.
 apiRouter.post("/import/excel", requireAppToken, uploadSingle("file"), handleExcelImportV1);
 apiRouter.post("/import/excel/v2", requireAppToken, uploadSingle("file"), handleExcelImportV2);

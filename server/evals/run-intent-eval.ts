@@ -218,25 +218,28 @@ async function main(): Promise<void> {
   // GITHUB_TOKEN env var (not the full getAiConfig()/isProviderConfigured()
   // precondition production uses) so a credential-less run exits with one
   // clear message instead of running the whole corpus through parseIntent()
-  // and recording a "provider_unconfigured" IntentParseFailure per case. A
-  // deployment that instead sets the DB "github_pat" config value (with no
-  // GITHUB_TOKEN env var) or that uses the "ollama" provider (no token
-  // needed) will not hit this early-exit — it falls through to the real
-  // parseIntent() calls below, which resolve their own config correctly.
+  // and recording a "provider_unconfigured" IntentParseFailure per case. The
+  // trade-off of keying on the env var alone: a deployment that sets the DB
+  // "github_pat" config value (with no GITHUB_TOKEN env var) or that uses the
+  // "ollama" provider (no token needed) ALSO exits here. Export GITHUB_TOKEN
+  // (any non-empty value in those setups) to get past this gate — the
+  // parseIntent() calls below still resolve provider/model/credentials
+  // through getAiConfig() exactly as production does.
   if (!process.env.GITHUB_TOKEN) {
     if (gated) {
       console.error(
         "eval:intent — no GITHUB_TOKEN found, but EVAL_INTENT_GATED is set.\n" +
-          "Set GITHUB_TOKEN (or configure the DB github_pat / ollama provider) so this\n" +
-          "gated run can actually exercise the model. Failing rather than silently\n" +
-          "skipping the accuracy gate."
+          "Export GITHUB_TOKEN so this gated run can exercise the model — this gate\n" +
+          "checks only the env var, even for DB github_pat / ollama-configured\n" +
+          "deployments. Failing rather than silently skipping the accuracy gate."
       );
       process.exit(1);
     }
     console.error(
-      "eval:intent — no GITHUB_TOKEN found. Set it to run against the GitHub Models API\n" +
-        "(or configure the DB github_pat / ollama provider directly).\n" +
-        "Exiting without error so ungated/local runs are not broken.\n" +
+      "eval:intent — no GITHUB_TOKEN found. Export it to run the eval; this check\n" +
+        "keys on the env var alone, even for DB github_pat / ollama-configured\n" +
+        "deployments (any non-empty value passes — provider config still resolves\n" +
+        "via getAiConfig()). Exiting without error so ungated/local runs are not broken.\n" +
         "(Set EVAL_INTENT_GATED=1 to make a missing token fail instead of skip.)"
     );
     process.exit(0);

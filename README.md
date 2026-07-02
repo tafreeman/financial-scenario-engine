@@ -5,7 +5,7 @@
 
 **▶ Live demo:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/)
 
-A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results. All project data lives in a local SQLite file; inference runs via GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
+A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results, and any structured output it returns is revalidated against a strict schema at that trust boundary before the engine ever sees it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)). All project data lives in a local SQLite file; inference runs via a multi-provider abstraction over the GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
 
 > **Development note:** Built through interactive, AI-assisted development — design,
 > architecture, and code were authored and reviewed by the maintainer with AI tooling
@@ -50,6 +50,14 @@ The LLM helps parse intent and optionally narrate results, but the calculation e
         data/finimpact.db         GitHub Models or Ollama
 ```
 
+### Reliability at the LLM boundary
+
+The LLM sits at the edge, not in the critical path, and every call across that boundary is hardened:
+
+- **Transient-failure retry policy** — bounded retries (`LLM_MAX_RETRY_ATTEMPTS = 3`) with exponential backoff + jitter, honoring a server `Retry-After` header capped at 60s so a hostile or buggy header can't stall a request for minutes (`chatRequest()`, `server/ai.ts`).
+- **Structured-output revalidation at the trust boundary** — every LLM response that becomes a `ScenarioOperation`, on both the V2 parse path and the V3 tool-call path, is revalidated against a strict Zod schema (`scenarioOperationSchema`) before the deterministic engine runs; malformed or hallucinated fields are rejected, not coerced (`server/engine/validation.ts`, `server/ai.ts`).
+- **SSRF / redirect egress guards** — the config endpoint URL is rejected if it resolves to a loopback or private-range host, including IPv4-mapped/IPv4-compatible IPv6 forms that would otherwise bypass a naive check (`server/ssrf.ts`), and outbound LLM requests set `redirect: "error"` so an allowlisted endpoint can't 3xx-redirect the request (carrying the PAT and financial context) to an attacker-controlled host (`chatRequest()`, `server/ai.ts`).
+
 ## Quick Start
 
 ### Prerequisites
@@ -85,9 +93,9 @@ npm run dev
 The app supports two AI-assisted flows:
 
 1. **V2** — LLM parses intent, the deterministic engine computes results, and the app returns template or LLM narration
-2. **V3** — agentic analysis uses the `run_scenario` tool loop to explore one or more scenarios with exact engine outputs
+2. **V3** — a ReAct-style bounded tool-calling agent (`agenticScenario()`, `server/ai.ts`) that calls the `run_scenario` tool in a loop (capped at `MAX_ITERATIONS = 8`, with a final-summary fallback if it hits the cap) to explore one or more scenarios with exact engine outputs
 
-Cloud LLM requests use an anonymized context snapshot where person names are replaced with `Staff-N`.
+Cloud LLM requests use a context-minimization step (`buildAnonymizedContextSnapshot()`, `server/db.ts`) that performs PII redaction before egress — person names are replaced with `Staff-N` before the snapshot ever leaves the machine.
 
 ### Scenario Pipeline (V2)
 
@@ -95,7 +103,8 @@ Cloud LLM requests use an anonymized context snapshot where person names are rep
 User query
    │
    ▼  (LLM — anonymized context)
-parseIntent()  →  ScenarioOperation (structured JSON)
+parseIntent()  →  ScenarioOperation (structured JSON, revalidated against
+                   scenarioOperationSchema before anything downstream trusts it)
    │
    ▼  (deterministic, no LLM)
 executeScenario()  →  ScenarioResult (numbers + deltas)
@@ -105,6 +114,8 @@ generateNarrative()  →  Markdown prose
 ```
 
 ### LLM Providers
+
+A single multi-provider abstraction (`getAiConfig()`, `server/ai.ts`) resolves model, endpoint, and credentials from the SQLite config table so the rest of the app (parsing, narration, the V3 agent loop, and the intent eval runner) never branches on provider directly:
 
 | Provider | Config key `llm_provider` | Notes |
 |----------|--------------------------|-------|
@@ -134,6 +145,7 @@ POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2`. The endpoi
 - Ollama mode keeps inference local to the machine
 - No telemetry, no analytics, and no external cloud dependency outside the selected LLM provider
 - Server binds to `127.0.0.1` by default — not accessible from other machines
+- Local shared-secret auth boundary (`requireAppToken`, `server/auth.ts`) guards every mutating route (config writes, Excel import, staffing/project CRUD) behind an `x-app-token` header, compared with `crypto.timingSafeEqual` so the rejection time can't leak how much of the token matched — a co-located process without the secret can't repoint the LLM endpoint or write data
 - For regulated environments: verify GitHub Models API data classification approval
 
 ### CORS configuration
@@ -174,6 +186,8 @@ npx vitest              # watch mode
 
 The seven core calculation modules (`labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative`) each have a dedicated unit-test file exercising the full calculation surface (EVM metrics, what-if scenarios, goal-seeking) with no network or API key. A separate AI-layer integration test covers the intent-to-tool-arg boundary.
 
+**Coverage scope:** the enforced coverage thresholds ([`vitest.config.ts`](vitest.config.ts)) apply to `server/engine/**` — the deterministic financial core — and deliberately exclude `executor.ts` and `portfolio.ts`. That's not a coverage gap: both are covered by dedicated unit tests (`executor-guards`, `evm-proxy`, `deterministic-asofdate`) plus the Playwright E2E suite below, which exercises the orchestration and portfolio-aggregation layers end-to-end. Scoping the enforced numeric floor to the pure-calculation core keeps the gate meaningful rather than diluting it with orchestration code that unit tests are the wrong tool for.
+
 ### E2E Tests (Playwright)
 
 ```bash
@@ -204,9 +218,9 @@ GITHUB_TOKEN=<pat-with-models:read> npm run eval:intent
 The runner sends each query through the same `PARSE_INTENT_PROMPT` (imported directly from `server/ai.ts`, so prompt edits flow into the eval automatically) and the same parse/fallback path that production uses — including the burn_rate_check fallback on unparseable model output. It scores exact action-type match and field-level match against the labeled expected values, and prints a per-case result table plus an aggregate accuracy summary. Both aggregate metrics (action accuracy and mean field score) use the full corpus size as denominator; transport errors score 0.
 
 Notes on the runner's environment:
-- It requires `GITHUB_TOKEN` even if your deployment is configured for Ollama — the eval always calls the GitHub Models API.
-- It always uses the default model (`openai/gpt-4.1`) and GitHub Models endpoint; it does **not** read the app's SQLite config table, so a custom model/provider configured in Settings is not reflected in eval results.
-- If `GITHUB_TOKEN` is absent the runner exits cleanly without failing CI.
+- Model, provider, and endpoint are resolved via the same `getAiConfig()` production uses (`server/ai.ts`), which reads the app's SQLite config table — a custom model/provider configured in Settings (or the seeded default, `openai/gpt-4.1` on the GitHub Models endpoint) is reflected in eval results, not hardcoded here.
+- It still requires the `GITHUB_TOKEN` env var to be set even if your deployment is configured for Ollama or a DB-stored `github_pat` — the runner's upfront skip/gate check only looks at `process.env.GITHUB_TOKEN`, before `getAiConfig()` ever runs, so it exits before reaching the provider-aware resolution described above.
+- If `GITHUB_TOKEN` is absent: an ungated local run (plain `npm run eval:intent`) exits cleanly without failing; a gated run (`EVAL_INTENT_GATED=1`, as set by `.github/workflows/real-model-eval.yml`) fails instead, so CI can't silently skip the accuracy gate.
 
 **Results artifact:** `server/evals/results/latest.json` — written on each run, excluded from git. Accuracy is reported by the runner output and the results artifact; it is not hard-coded in this README.
 
