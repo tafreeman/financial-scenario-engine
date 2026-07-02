@@ -72,6 +72,11 @@ interface CorpusEntry {
   /** Alternative acceptable operations (e.g. when the prompt rules allow more
    *  than one valid interpretation). The scorer takes the best match. */
   expectedAlternatives?: Partial<ScenarioOperation>[];
+  /** Optional corpus-entry tag (currently only "adversarial" is defined —
+   *  see server/__tests__/intent-corpus.test.ts KNOWN_CATEGORIES). Untagged
+   *  entries are grouped under the synthetic "core" bucket below so every
+   *  case lands in exactly one category for reporting purposes. */
+  category?: string;
   notes?: string;
 }
 
@@ -80,6 +85,9 @@ interface CaseResult {
   query: string;
   expected: Partial<ScenarioOperation>;
   expectedAlternatives?: Partial<ScenarioOperation>[];
+  /** Echoes CorpusEntry.category verbatim (undefined for untagged entries —
+   *  see CATEGORY_UNTAGGED for how those are bucketed in the summary). */
+  category?: string;
   actual: ScenarioOperation | null;
   actionMatch: boolean;
   /** True when the score came from an entry in expectedAlternatives rather
@@ -95,6 +103,21 @@ interface CaseResult {
   fieldScore: number;
   notes?: string;
   error?: string;
+}
+
+/** Synthetic category label for corpus entries with no explicit `category` tag. */
+const CATEGORY_UNTAGGED = "core";
+
+interface CategorySummary {
+  category: string;
+  corpusSize: number;
+  passCount: number;
+  failCount: number;
+  errorCount: number;
+  /** passCount / corpusSize, this category's own denominator — NOT the full
+   *  corpus size. This is what makes a category-specific accuracy dip visible
+   *  instead of averaging out inside the single blended actionAccuracy. */
+  actionAccuracy: number;
 }
 
 interface EvalSummary {
@@ -114,6 +137,29 @@ interface EvalSummary {
    *  (see CaseResult.parseFailureCode) rather than throwing a transport
    *  error. Distinct from errorCount, which is transport/HTTP failures only. */
   parseFailureCount: number;
+  /**
+   * Accuracy broken out per category (see CorpusEntry.category /
+   * CATEGORY_UNTAGGED), each with its OWN denominator (that category's case
+   * count, not corpusSize). Lets a reviewer see e.g. "adversarial: 8/18
+   * (44.4%)" sitting next to "core: 29/30 (96.7%)" instead of a single
+   * blended actionAccuracy number that would hide a robustness dip in the
+   * mean. Does not affect the pass/fail gate below (see
+   * actionAccuracyExcludingAdversarial for the number that would).
+   */
+  categoryBreakdown: CategorySummary[];
+  /**
+   * Action accuracy computed with the adversarial-category cases removed
+   * from BOTH numerator and denominator (i.e. its own denominator = corpusSize
+   * - adversarialCount). Reported alongside the full-corpus actionAccuracy so
+   * a threshold-calibration reviewer can see the "non-adversarial floor"
+   * distinct from a blended mean that a large or hard adversarial slice could
+   * drag down. Undefined when the corpus has zero adversarial-tagged entries
+   * (nothing to exclude). NOT used by the pass/fail gate below — the gate
+   * intentionally keeps checking the full-corpus actionAccuracy so existing
+   * CI semantics are unchanged; this field is informational, for the
+   * calibration procedure documented in eval-config.ts.
+   */
+  actionAccuracyExcludingAdversarial?: number;
   cases: CaseResult[];
 }
 
@@ -316,6 +362,7 @@ async function main(): Promise<void> {
       query: entry.query,
       expected: entry.expected,
       ...(entry.expectedAlternatives ? { expectedAlternatives: entry.expectedAlternatives } : {}),
+      ...(entry.category ? { category: entry.category } : {}),
       actual,
       actionMatch: score.actionMatch,
       matchedAlternative: score.matchedAlternative,
@@ -337,6 +384,46 @@ async function main(): Promise<void> {
   const meanFieldScore =
     corpusSize > 0 ? results.reduce((sum, r) => sum + r.fieldScore, 0) / corpusSize : 0;
 
+  // ─── Category breakdown ───────────────────────────────────────────────────
+  // Groups every case (including untagged ones, under CATEGORY_UNTAGGED) and
+  // computes accuracy PER CATEGORY with that category's own denominator. This
+  // is what surfaces a robustness dip on adversarial cases as its own visible
+  // number instead of letting it get diluted into the single blended mean
+  // above — see EvalSummary.categoryBreakdown doc comment.
+  const categoryBuckets = new Map<string, CaseResult[]>();
+  for (const r of results) {
+    const key = r.category ?? CATEGORY_UNTAGGED;
+    const bucket = categoryBuckets.get(key);
+    if (bucket) bucket.push(r);
+    else categoryBuckets.set(key, [r]);
+  }
+  const categoryBreakdown: CategorySummary[] = [...categoryBuckets.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([category, caseResults]) => {
+      const catPass = caseResults.filter((r) => r.actionMatch).length;
+      const catError = caseResults.filter((r) => r.error !== undefined).length;
+      const catFail = caseResults.length - catPass - catError;
+      return {
+        category,
+        corpusSize: caseResults.length,
+        passCount: catPass,
+        failCount: catFail,
+        errorCount: catError,
+        actionAccuracy: caseResults.length > 0 ? catPass / caseResults.length : 0,
+      };
+    });
+
+  // Accuracy with the adversarial slice excluded from both numerator and
+  // denominator — the "non-adversarial floor" a calibration reviewer can
+  // compare against the full-corpus actionAccuracy above. Undefined (rather
+  // than a misleading 0/0 -> 0) when there is no adversarial slice to exclude.
+  const adversarialResults = results.filter((r) => r.category === "adversarial");
+  const nonAdversarialResults = results.filter((r) => r.category !== "adversarial");
+  const actionAccuracyExcludingAdversarial =
+    adversarialResults.length > 0 && nonAdversarialResults.length > 0
+      ? nonAdversarialResults.filter((r) => r.actionMatch).length / nonAdversarialResults.length
+      : undefined;
+
   console.log("\n" + "─".repeat(70));
   console.log(`Action accuracy : ${passCount}/${corpusSize} = ${(actionAccuracy * 100).toFixed(1)}%  (over all cases; transport errors count as misses)`);
   console.log(`Mean field score: ${(meanFieldScore * 100).toFixed(1)}%  (same denominator: all ${corpusSize} cases)`);
@@ -344,6 +431,20 @@ async function main(): Promise<void> {
   console.log(`  Failed         : ${failCount}`);
   console.log(`  Errors         : ${errorCount}  (transport/HTTP only — scored 0)`);
   console.log(`  Parse failures : ${parseFailureCount}  (typed IntentParseFailure from production parseIntent() — scored 0, as production returns 422)`);
+  console.log("─".repeat(70));
+  console.log("Accuracy by category (own denominator per row — NOT corpusSize):");
+  for (const cat of categoryBreakdown) {
+    console.log(
+      `  ${cat.category.padEnd(14)} ${String(cat.passCount).padStart(3)}/${String(cat.corpusSize).padEnd(3)} = ${(cat.actionAccuracy * 100).toFixed(1).padStart(5)}%` +
+        `  (fail=${cat.failCount}, err=${cat.errorCount})`
+    );
+  }
+  if (actionAccuracyExcludingAdversarial !== undefined) {
+    console.log(
+      `Action accuracy excluding adversarial: ${(actionAccuracyExcludingAdversarial * 100).toFixed(1)}%` +
+        `  (${nonAdversarialResults.filter((r) => r.actionMatch).length}/${nonAdversarialResults.length} non-adversarial cases — informational only, does not affect the gate below)`
+    );
+  }
   console.log("─".repeat(70));
 
   // ─── Write results artifact ──────────────────────────────────────────────
@@ -359,6 +460,8 @@ async function main(): Promise<void> {
     failCount,
     errorCount,
     parseFailureCount,
+    categoryBreakdown,
+    ...(actionAccuracyExcludingAdversarial !== undefined ? { actionAccuracyExcludingAdversarial } : {}),
     cases: results,
   };
 
