@@ -361,7 +361,7 @@ test.describe("Staffing view", () => {
 
 test.describe("Settings panel", () => {
   const modelSelect = (page: import("@playwright/test").Page) =>
-    page.locator("label:text-is('Model')").locator("xpath=following-sibling::select[1]");
+    page.locator("label:text-is('Model') + select.input-field");
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
