@@ -19,6 +19,7 @@ import {
 } from "./db.js";
 import { parseIntent, narrateResult, agenticScenario, type IntentParseFailure } from "./ai.js";
 import { refineEndpointNoPrivate, refineOllamaEndpoint } from "./ssrf.js";
+import { getLlmTelemetrySnapshot } from "./llm-telemetry.js";
 
 /** Maximum wall-clock budget for the v3 agentic endpoint (ms). */
 const MAX_AGENTIC_TIMEOUT_MS = 90_000;
@@ -219,6 +220,22 @@ const postStaffingSchema = z.object({
 // ---- Health ----
 apiRouter.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// ---- LLM telemetry (WP3-B, read-only) ----
+// No requireAppToken: this mirrors the other unauthenticated GET routes in
+// this file (/health, /dashboard, /projects, /rates, /config) rather than the
+// mutating routes that guard, since requireAppToken's own threat model
+// (server/auth.ts) is specifically "a co-located process must not be able to
+// repoint the LLM endpoint or write data" — a concern about MUTATION, not
+// read access. This endpoint performs no mutation, holds no PAT/secrets, and
+// its aggregation logic (server/llm-telemetry.ts) only ever records call
+// counts, token counts, purposes, and typed failure codes — never prompts,
+// queries, or financial/PII content — so exposing it unauthenticated carries
+// the same read-only-telemetry risk profile as /api/dashboard, not the
+// SSRF/exfiltration risk profile PUT /api/config guards against.
+apiRouter.get("/telemetry/llm", (_req, res) => {
+  res.json(getLlmTelemetrySnapshot());
 });
 
 // ---- Dashboard summary ----

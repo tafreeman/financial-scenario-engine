@@ -1,8 +1,12 @@
+import crypto from "crypto";
+import { performance } from "perf_hooks";
 import { getConfig, buildAnonymizedContextSnapshot } from "./db.js";
 import type { ScenarioOperation, ScenarioResult } from "./engine/types.js";
 import { executeScenario } from "./engine/executor.js";
 import { loadPortfolioSnapshot } from "./loaders.js";
 import { scenarioOperationSchema } from "./engine/validation.js";
+import { logEvent } from "./logger.js";
+import { recordLlmCall } from "./llm-telemetry.js";
 
 // ─── OpenAI-compatible API response types ────────────────────────────────────
 
@@ -171,6 +175,105 @@ export interface AiResponse {
   error?: string;
 }
 
+// ─── Observability at the LLM boundary (WP3-B) ───────────────────────────────
+//
+// One structured log line (server/logger.ts) + one in-memory counter update
+// (server/llm-telemetry.ts) per LLM call, emitted from a single wrapper below
+// (instrumentedChatRequest) so parseIntent/narrateResult/agenticScenario all
+// get identical accounting without duplicating timing/logging code at each
+// call site.
+//
+// NEVER logged: prompt/query/context content, narrative text, or scenario
+// data — only sizes/counts and typed codes. This matches the app's existing
+// PII posture (buildAnonymizedContextSnapshot() redacts names before egress;
+// this boundary must not become a second leak path for what that redacts).
+
+/** Which production code path triggered the LLM call. */
+export type LlmCallPurpose = "intent" | "narration" | "agentic-step";
+
+/** Coarse outcome recorded for every LLM call, success or not. */
+export type LlmCallOutcome = "success" | "failure";
+
+/**
+ * Failure codes loggable at the transport/boundary level, distinct from
+ * IntentParseFailureCode (below) which additionally covers post-transport
+ * parse/validation failures specific to parseIntent's contract.
+ */
+export type LlmBoundaryFailureCode =
+  | "timeout"
+  | "transport_error"
+  | "http_error"
+  | IntentParseFailureCode;
+
+/**
+ * Wrap chatRequest with structured logging + aggregation. This is the ONLY
+ * place chatRequest is called from parseIntent/narrateResult/agenticScenario
+ * — every LLM call in this module goes through here so the log line and the
+ * in-memory counters can never drift out of sync with each other.
+ *
+ * Logs and records exactly once per call, whether it succeeds or throws.
+ * Re-throws on failure so callers keep their existing error handling.
+ */
+async function instrumentedChatRequest(
+  purpose: LlmCallPurpose,
+  endpoint: string,
+  pat: string,
+  payload: Record<string, unknown>
+): Promise<ChatResponse> {
+  const requestId = crypto.randomUUID();
+  const config = getAiConfig();
+  const attemptTracker = { attempts: 0 };
+  const startedAt = performance.now();
+
+  try {
+    const data = await chatRequest(endpoint, pat, payload, globalThis.fetch, defaultSleep, attemptTracker);
+    const latencyMs = Math.round(performance.now() - startedAt);
+    const retryCount = Math.max(0, attemptTracker.attempts - 1);
+    const tokensOut = data.usage?.total_tokens;
+
+    logEvent("info", "llm_call", {
+      requestId,
+      provider: config.provider,
+      model: config.model,
+      purpose,
+      latencyMs,
+      retryCount,
+      tokensOut: tokensOut ?? null,
+      outcome: "success",
+    });
+    recordLlmCall({ purpose, outcome: "success", tokensOut, retryCount });
+
+    return data;
+  } catch (err: unknown) {
+    const latencyMs = Math.round(performance.now() - startedAt);
+    const retryCount = Math.max(0, attemptTracker.attempts - 1);
+    const failureCode = classifyBoundaryFailure(err);
+
+    logEvent("error", "llm_call", {
+      requestId,
+      provider: config.provider,
+      model: config.model,
+      purpose,
+      latencyMs,
+      retryCount,
+      outcome: "failure",
+      failureCode,
+    });
+    recordLlmCall({ purpose, outcome: "failure", failureCode, retryCount });
+
+    throw err;
+  }
+}
+
+/** Map a thrown error from chatRequest into a stable, loggable failure code. */
+function classifyBoundaryFailure(err: unknown): LlmBoundaryFailureCode {
+  if (err instanceof Error) {
+    if (/timed out/i.test(err.message)) return "timeout";
+    if (/^HTTP \d+:/.test(err.message)) return "http_error";
+  }
+  return "transport_error";
+}
+
 export type IntentParseFailureCode =
   | "provider_unconfigured"
   | "invalid_json"
@@ -328,7 +431,7 @@ export async function parseIntent(
   };
 
   try {
-    const data = await chatRequest(config.endpoint, config.pat, payload);
+    const data = await instrumentedChatRequest("intent", config.endpoint, config.pat, payload);
     const content = data.choices?.[0]?.message?.content ?? "";
 
     // Strip markdown fences if the model wraps its response
@@ -432,7 +535,7 @@ export async function narrateResult(
   };
 
   try {
-    const data = await chatRequest(config.endpoint, config.pat, payload);
+    const data = await instrumentedChatRequest("narration", config.endpoint, config.pat, payload);
     const content = data.choices?.[0]?.message?.content ?? "(empty response)";
     const tokensUsed = data.usage?.total_tokens;
 
@@ -647,13 +750,21 @@ export function processToolCalls(
  *
  * @param fetchImpl - Injectable fetch implementation (defaults to globalThis.fetch).
  *   Pass a stub in tests to avoid actual network calls or real sleeping.
+ * @param attemptTracker - Optional out-param the caller can inspect after the
+ *   call resolves/rejects to learn how many attempts were made (retryCount =
+ *   attempts - 1). Purely additive: no test or production call site is
+ *   required to pass it, so this does not change chatRequest's return shape.
+ *   Used by the observability wrappers below (parseIntent/narrateResult/
+ *   agenticScenario) to log a retry count without chatRequest itself taking
+ *   on logging concerns.
  */
 export async function chatRequest(
   endpoint: string,
   pat: string,
   payload: Record<string, unknown>,
   fetchImpl: typeof fetch = globalThis.fetch,
-  sleepImpl: (ms: number) => Promise<void> = defaultSleep
+  sleepImpl: (ms: number) => Promise<void> = defaultSleep,
+  attemptTracker?: { attempts: number }
 ): Promise<ChatResponse> {
   const config = getAiConfig();
   const headers: Record<string, string> = {
@@ -669,6 +780,7 @@ export async function chatRequest(
 
   let lastError: Error | undefined;
   for (let attempt = 1; attempt <= LLM_MAX_RETRY_ATTEMPTS; attempt++) {
+    if (attemptTracker) attemptTracker.attempts = attempt;
     // Each attempt gets its own fresh timeout budget.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -756,7 +868,7 @@ export async function agenticScenario(userQuery: string): Promise<AgenticRespons
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     try {
-      const data = await chatRequest(config.endpoint, config.pat, {
+      const data = await instrumentedChatRequest("agentic-step", config.endpoint, config.pat, {
         model: config.model, max_tokens: 2000, temperature: 0.2, messages, tools: [SCENARIO_TOOL], tool_choice: "auto",
       });
       totalTokens += data.usage?.total_tokens ?? 0;
@@ -797,7 +909,7 @@ async function requestFinalSummary(
 ): Promise<AgenticResponse> {
   messages.push({ role: "user", content: "Please provide your final analysis based on the scenarios you've explored so far." });
   try {
-    const data = await chatRequest(endpoint, pat, {
+    const data = await instrumentedChatRequest("agentic-step", endpoint, pat, {
       model,
       max_tokens: 2000,
       temperature: 0.2,

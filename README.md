@@ -57,6 +57,7 @@ The LLM sits at the edge, not in the critical path, and every call across that b
 - **Transient-failure retry policy** — bounded retries (`LLM_MAX_RETRY_ATTEMPTS = 3`) with exponential backoff + jitter, honoring a server `Retry-After` header capped at 60s so a hostile or buggy header can't stall a request for minutes (`chatRequest()`, `server/ai.ts`).
 - **Structured-output revalidation at the trust boundary** — every LLM response that becomes a `ScenarioOperation`, on both the V2 parse path and the V3 tool-call path, is revalidated against a strict Zod schema (`scenarioOperationSchema`) before the deterministic engine runs; malformed or hallucinated fields are rejected, not coerced (`server/engine/validation.ts`, `server/ai.ts`).
 - **SSRF / redirect egress guards** — the config endpoint URL is rejected if it resolves to a loopback or private-range host, including IPv4-mapped/IPv4-compatible IPv6 forms that would otherwise bypass a naive check (`server/ssrf.ts`), and outbound LLM requests set `redirect: "error"` so an allowlisted endpoint can't 3xx-redirect the request (carrying the PAT and financial context) to an attacker-controlled host (`chatRequest()`, `server/ai.ts`).
+- **Boundary observability** — every LLM call emits one structured JSON log line (request id, latency, retry count, token count, typed failure code — never prompts, queries, or financial content; `server/logger.ts`, `server/ai.ts`) and updates an in-process aggregate served read-only at `GET /api/telemetry/llm` (`server/llm-telemetry.ts`). Nothing is transmitted anywhere — see Security below.
 
 ## Quick Start
 
@@ -143,7 +144,7 @@ POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2`. The endpoi
 - PAT stored in local SQLite only — never logged, never cached externally
 - PAT transmitted exclusively to `models.github.ai` over HTTPS with TLS when the GitHub provider is selected
 - Ollama mode keeps inference local to the machine
-- No telemetry, no analytics, and no external cloud dependency outside the selected LLM provider
+- No external telemetry, no analytics, and no external cloud dependency outside the selected LLM provider — the in-process LLM call metrics at `GET /api/telemetry/llm` (counts, latency, typed failure codes; never prompts or financial content) are served locally and transmitted nowhere
 - Server binds to `127.0.0.1` by default — not accessible from other machines
 - Local shared-secret auth boundary (`requireAppToken`, `server/auth.ts`) guards every mutating route (config writes, Excel import, staffing/project CRUD) behind an `x-app-token` header, compared with `crypto.timingSafeEqual` so the rejection time can't leak how much of the token matched — a co-located process without the secret can't repoint the LLM endpoint or write data
 - For regulated environments: verify GitHub Models API data classification approval
@@ -207,7 +208,7 @@ Tests live in `tests/e2e/ui/` (UI workflows) and `tests/e2e/excel/` (import endp
 
 The LLM boundary — user natural-language query → `ScenarioOperation` JSON — is covered by a separate eval corpus rather than the CI unit tests, because it requires a live model call.
 
-**Corpus:** `server/evals/intent-corpus.json` — 30 labeled cases spanning all 12 operation types (`swap`, `add`, `remove`, `rate_change`, `hours_change`, `timeline_extension`, `unexpected_cost`, `reallocation`, `burn_rate_check`, `margin_analysis`, `evm_analysis`, `what_if_composite`), plus ambiguous and out-of-scope queries with their expected fallback handling. Where the prompt rules genuinely allow more than one valid interpretation, an entry may carry an `expectedAlternatives` array — the scorer accepts the best match among the primary expected value and its alternatives.
+**Corpus:** `server/evals/intent-corpus.json` — labeled cases spanning all 12 operation types (`swap`, `add`, `remove`, `rate_change`, `hours_change`, `timeline_extension`, `unexpected_cost`, `reallocation`, `burn_rate_check`, `margin_analysis`, `evm_analysis`, `what_if_composite`), plus ambiguous/out-of-scope queries with their expected fallback handling and an `adversarial` category (prompt-injection, contradictory, and trick queries). The exact case count is not repeated here — the size floor and category coverage are enforced by the corpus-integrity tests below. Where the prompt rules genuinely allow more than one valid interpretation, an entry may carry an `expectedAlternatives` array — the scorer accepts the best match among the primary expected value and its alternatives.
 
 **Runner:**
 
@@ -224,7 +225,15 @@ Notes on the runner's environment:
 
 **Results artifact:** `server/evals/results/latest.json` — written on each run, excluded from git. Accuracy is reported by the runner output and the results artifact; it is not hard-coded in this README.
 
-**Corpus integrity (CI):** `server/__tests__/intent-corpus.test.ts` runs in the normal `npm test` suite — no network needed. It validates that every corpus entry is a structurally valid `ScenarioOperation`, all 12 action types are covered, ids are unique, and the corpus has at least 25 entries.
+**Corpus integrity (CI):** `server/__tests__/intent-corpus.test.ts` runs in the normal `npm test` suite — no network needed. It validates that every corpus entry is a structurally valid `ScenarioOperation`, all 12 action types are covered, ids are unique, the adversarial category is non-empty, and the corpus meets the size floor asserted there (the test is the authoritative number, not this README).
+
+### Narration faithfulness (advisory judge)
+
+A second, separate eval covers the outbound half of the LLM boundary: is the narrative generated for a scenario faithful to the deterministic `ScenarioResult` it describes (no invented or mismatched numbers, no direction flips, no unsupported claims)?
+
+- **Judge:** `server/evals/faithfulness-judge.ts` — LLM-as-judge with a strict Zod-validated verdict schema and typed failure codes; the model call is injectable so its unit tests never touch the network. Eval-side only — never imported by production request-handling code.
+- **Runner:** `GITHUB_TOKEN=<pat> npm run eval:faithfulness` — executes representative operations through the real `executeScenario()` → `generateNarrative()` path at a fixed reference date and judges each narrative. Results go to `server/evals/results/faithfulness-latest.json` (gitignored).
+- **ADVISORY ONLY — this judge does not gate anything.** It has not been calibrated against human-labeled data, so its verdicts have no known precision/recall. The runner exits 0 regardless of verdicts; missing `GITHUB_TOKEN` skips cleanly (or fails under `EVAL_FAITHFULNESS_GATED=1`, mirroring the intent eval). A threshold may only be introduced by a deliberate calibration PR following the procedure documented in `server/evals/eval-config.ts`.
 
 ---
 
@@ -288,6 +297,7 @@ financial-scenario-engine/
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Health check |
+| GET | `/api/telemetry/llm` | In-process LLM call metrics (counts, latency, typed failure codes — no content) |
 | GET | `/api/dashboard` | Summary stats + project list |
 | GET | `/api/projects` | Projects with burn rate calc |
 | POST | `/api/projects` | Add project |
