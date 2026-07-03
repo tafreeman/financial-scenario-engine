@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
   parseIntent,
+  narrateResult,
   processToolCalls,
   chatRequest,
   getAiConfig,
@@ -9,8 +10,9 @@ import {
   LLM_TIMEOUT_MAX_MS,
 } from "../ai.js";
 import type { ToolCall, ChatMessage } from "../ai.js";
-import type { ScenarioResult } from "../engine/types.js";
+import type { ScenarioResult, ScenarioOperation } from "../engine/types.js";
 import { getConfig, setConfig } from "../db.js";
+import { getLlmTelemetrySnapshot, __resetLlmTelemetryForTests } from "../llm-telemetry.js";
 
 // Export under test — import the private helpers via the ai module surface
 // that exports them indirectly (temperature/maxTokens clamping visible through
@@ -448,5 +450,194 @@ describe("getAiConfig temperature/maxTokens clamping (#14)", () => {
     const maxTokens = (payload2 as Record<string, unknown> | null)?.max_tokens;
     expect(typeof maxTokens).toBe("number");
     expect(Number.isFinite(maxTokens as number)).toBe(true);
+  });
+});
+
+// ─── WP3-B: observability at the LLM boundary ───────────────────────────────
+
+describe("LLM boundary observability — structured log + aggregation (WP3-B)", () => {
+  beforeEach(() => {
+    __resetLlmTelemetryForTests();
+  });
+
+  afterEach(() => {
+    __resetLlmTelemetryForTests();
+    // Restore console.log/console.error spies between tests in this block —
+    // without this, an un-restored spy from an earlier test keeps intercepting
+    // calls (stacked spies), so a later test's freshly-created spy sees stale
+    // call history from tests that ran before it.
+    vi.restoreAllMocks();
+  });
+
+  it("logs a single stable-shape JSON line and records a success in telemetry for parseIntent", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: '{"action":"burn_rate_check"}' }, finish_reason: "stop" }],
+        usage: { total_tokens: 42 },
+      }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "anonymized context");
+    expect(result.ok).toBe(true);
+
+    // Exactly one llm_call log line was written for this one LLM call.
+    const llmCallLines = logSpy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((line) => typeof line === "string" && line.includes('"event":"llm_call"'));
+    expect(llmCallLines).toHaveLength(1);
+
+    const parsed = JSON.parse(llmCallLines[0] as string);
+    // Stable shape: request id, provider/model, purpose, latency, outcome —
+    // and NEVER the query/context content (PII-redaction posture).
+    expect(parsed).toMatchObject({
+      level: "info",
+      event: "llm_call",
+      purpose: "intent",
+      outcome: "success",
+      retryCount: 0,
+      tokensOut: 42,
+    });
+    expect(typeof parsed.requestId).toBe("string");
+    expect(parsed.requestId.length).toBeGreaterThan(0);
+    expect(typeof parsed.provider).toBe("string");
+    expect(typeof parsed.model).toBe("string");
+    expect(typeof parsed.latencyMs).toBe("number");
+    expect(parsed.latencyMs).toBeGreaterThanOrEqual(0);
+    // No prompt/query/context content anywhere in the line.
+    expect(llmCallLines[0]).not.toContain("burn rate");
+    expect(llmCallLines[0]).not.toContain("anonymized context");
+
+    const snapshot = getLlmTelemetrySnapshot();
+    expect(snapshot.totals.calls).toBe(1);
+    expect(snapshot.totals.tokensOut).toBe(42);
+    expect(snapshot.totals.failures).toBe(0);
+    expect(snapshot.byPurpose.intent?.calls).toBe(1);
+  });
+
+  it("logs a failure outcome with a typed failure code and records it in telemetry on timeout", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      const err = new DOMException("The operation was aborted.", "AbortError");
+      return Promise.reject(err);
+    }));
+
+    const result = await parseIntent("Analyse burn rate", "context");
+    expect(result.ok).toBe(false);
+
+    const llmCallLines = errorSpy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((line) => typeof line === "string" && line.includes('"event":"llm_call"'));
+    expect(llmCallLines).toHaveLength(1);
+
+    const parsed = JSON.parse(llmCallLines[0] as string);
+    expect(parsed).toMatchObject({
+      level: "error",
+      event: "llm_call",
+      purpose: "intent",
+      outcome: "failure",
+      failureCode: "timeout",
+    });
+
+    const snapshot = getLlmTelemetrySnapshot();
+    // recordLlmCall() counts every call attempt (success or failure) toward
+    // totals.calls — a failed call is still a call that was made.
+    expect(snapshot.totals.calls).toBe(1);
+    expect(snapshot.totals.failures).toBe(1);
+    expect(snapshot.failuresByCode.timeout).toBe(1);
+    expect(snapshot.byPurpose.intent?.failures).toBe(1);
+  });
+
+  it("does not log or record anything when the provider is unconfigured (no LLM call was made)", async () => {
+    setConfig("llm_provider", "github");
+    setConfig("github_pat", "");
+    const originalEnvToken = process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await parseIntent("test", "context");
+    expect(result.ok).toBe(false);
+
+    const allLines = [...logSpy.mock.calls, ...errorSpy.mock.calls]
+      .map((c) => c[0] as string)
+      .filter((line) => typeof line === "string" && line.includes('"event":"llm_call"'));
+    expect(allLines).toHaveLength(0);
+
+    const snapshot = getLlmTelemetrySnapshot();
+    expect(snapshot.totals.calls).toBe(0);
+    expect(snapshot.totals.failures).toBe(0);
+
+    if (originalEnvToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = originalEnvToken;
+  });
+
+  it("records purpose:'narration' for narrateResult", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "## Impact Summary\nOK" }, finish_reason: "stop" }],
+        usage: { total_tokens: 17 },
+      }),
+    }));
+
+    const operation = { action: "burn_rate_check" } as unknown as ScenarioOperation;
+    const result = {
+      operation,
+      timestamp: new Date().toISOString(),
+      projects_involved: [],
+      current: {
+        labor: {} as ScenarioResult["current"]["labor"],
+        margin: {} as ScenarioResult["current"]["margin"],
+        budget: {} as ScenarioResult["current"]["budget"],
+      },
+      warnings: [],
+    } as unknown as ScenarioResult;
+
+    await narrateResult(operation, result);
+
+    const snapshot = getLlmTelemetrySnapshot();
+    expect(snapshot.byPurpose.narration?.calls).toBe(1);
+    expect(snapshot.byPurpose.narration?.tokensOut).toBe(17);
+    expect(snapshot.byPurpose.intent).toBeUndefined();
+  });
+
+  it("records the retry count observed by chatRequest's attemptTracker", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const tooMany = {
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: new Headers(),
+      text: async () => "rate limited",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: '{"action":"burn_rate_check"}' }, finish_reason: "stop" }],
+      }),
+    };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(tooMany)
+      .mockResolvedValueOnce(success));
+
+    // parseIntent uses the real defaultSleep internally via instrumentedChatRequest,
+    // but the 429 retry delay is bounded (LLM_RETRY_BASE_DELAY_MS ~500ms) so this
+    // stays fast enough for a unit test without needing to inject a sleep stub.
+    await parseIntent("test retry accounting", "context");
+
+    const snapshot = getLlmTelemetrySnapshot();
+    expect(snapshot.byPurpose.intent?.retries).toBe(1);
   });
 });
