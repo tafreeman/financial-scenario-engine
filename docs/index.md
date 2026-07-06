@@ -14,7 +14,7 @@ title: Financial Scenario Engine
       narrates — never in the critical path.
     </p>
     <div class="console-hero__actions">
-      <a class="console-hero__btn console-hero__btn--primary" href="/guide/getting-started">
+      <a class="console-hero__btn console-hero__btn--primary" href="/financial-scenario-engine/guide/getting-started">
         Read the docs
       </a>
       <a class="console-hero__btn console-hero__btn--secondary" href="https://github.com/tafreeman/financial-scenario-engine" target="_blank" rel="noreferrer">
