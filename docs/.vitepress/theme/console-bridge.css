@@ -1,0 +1,191 @@
+/* ============================================================
+   Console bridge — maps Console design-system tokens onto
+   VitePress's own CSS custom properties so every existing doc
+   page restyles without per-page edits.
+
+   Load order (see theme/index.ts):
+     1. console-ds/styles.css   (IBM Plex fonts + all Console tokens)
+     2. console-bridge.css     (this file — VitePress var overrides)
+     3. custom.css              (site-specific tweaks, Console-native)
+
+   Reference: CONSOLE-ADOPTION.md §6 (re-theming a docs engine).
+   Never hardcode a hex here — every value is a var() onto a
+   token defined in console-ds/tokens/*.css.
+   ============================================================ */
+
+:root,
+.dark {
+  /* ---- Surfaces ---- */
+  --vp-c-bg: var(--background);           /* #161616 canvas */
+  --vp-c-bg-alt: var(--void);              /* #000000 second surface */
+  --vp-c-bg-soft: var(--layer-01);        /* #262626 */
+  --vp-c-bg-elv: var(--layer-01);
+  --vp-c-gutter: var(--border-subtle-00);
+
+  /* ---- Text ---- */
+  --vp-c-text-1: var(--text-primary);     /* #f4f4f4 */
+  --vp-c-text-2: var(--text-secondary);   /* #e0e0e0 */
+  --vp-c-text-3: var(--text-helper);      /* #c6c6c6 */
+
+  /* ---- Brand (→ horizon cyan, the one interactive hue) ---- */
+  --vp-c-brand-1: var(--horizon-40);
+  --vp-c-brand-2: var(--horizon-50);
+  --vp-c-brand-3: var(--horizon-30);
+  --vp-c-brand-soft: rgba(51, 177, 255, 0.16);
+
+  /* Buttons / links use the same three-step brand ramp */
+  --vp-button-brand-border: var(--horizon-40);
+  --vp-button-brand-text: var(--text-on-color);
+  --vp-button-brand-bg: var(--horizon-40);
+  --vp-button-brand-hover-border: var(--horizon-40-hover);
+  --vp-button-brand-hover-text: var(--text-on-color);
+  --vp-button-brand-hover-bg: var(--horizon-40-hover);
+  --vp-button-brand-active-border: var(--horizon-50);
+  --vp-button-brand-active-text: var(--text-on-color);
+  --vp-button-brand-active-bg: var(--horizon-50);
+
+  /* ---- Borders / dividers ---- */
+  --vp-c-divider: var(--border-subtle-00);
+  --vp-c-border: var(--border-subtle-00);
+  --vp-c-gray-soft: var(--border-subtle-00);
+
+  /* ---- Default (used for soft backgrounds on tips, etc.) ---- */
+  --vp-c-default-1: var(--border-subtle-01);
+  --vp-c-default-soft: rgba(198, 198, 198, 0.12);
+
+  /* ---- Status (custom containers: tip / warning / danger) ---- */
+  --vp-c-tip-1: var(--horizon-40);
+  --vp-c-tip-2: var(--horizon-50);
+  --vp-c-tip-3: var(--horizon-30);
+  --vp-c-tip-soft: rgba(51, 177, 255, 0.14);
+
+  --vp-c-note-1: var(--text-helper);
+  --vp-c-note-2: var(--text-secondary);
+  --vp-c-note-3: var(--text-helper);
+  --vp-c-note-soft: rgba(198, 198, 198, 0.12);
+
+  --vp-c-warning-1: var(--support-warning);
+  --vp-c-warning-2: var(--yellow-30);
+  --vp-c-warning-3: var(--yellow-30);
+  --vp-c-warning-soft: rgba(241, 194, 27, 0.14);
+
+  --vp-c-danger-1: var(--support-error);
+  --vp-c-danger-2: var(--red-50);
+  --vp-c-danger-3: var(--red-40);
+  --vp-c-danger-soft: rgba(250, 77, 86, 0.14);
+
+  --vp-c-success-1: var(--support-success);
+  --vp-c-success-2: var(--green-40);
+  --vp-c-success-3: var(--green-30);
+  --vp-c-success-soft: rgba(66, 190, 101, 0.14);
+
+  /* ---- Code blocks ---- */
+  --vp-code-block-bg: var(--layer-01);
+  --vp-code-bg: var(--layer-01);
+  --vp-code-color: var(--text-accent);
+  --vp-code-link-color: var(--horizon-40);
+  --vp-code-link-hover-color: var(--horizon-30);
+  --vp-code-tab-text-color: var(--text-helper);
+  --vp-code-tab-active-text-color: var(--text-primary);
+  --vp-code-tab-hover-text-color: var(--text-primary);
+  --vp-code-tab-bg: var(--void);
+  --vp-code-tab-divider: var(--border-subtle-00);
+  --vp-code-line-highlight-color: rgba(51, 177, 255, 0.1);
+  --vp-code-line-number-color: var(--text-helper);
+  --vp-code-line-diff-add-color: rgba(66, 190, 101, 0.16);
+  --vp-code-line-diff-add-symbol-color: var(--support-success);
+  --vp-code-line-diff-remove-color: rgba(250, 77, 86, 0.16);
+  --vp-code-line-diff-remove-symbol-color: var(--support-error);
+  --vp-code-line-warning-color: rgba(241, 194, 27, 0.16);
+  --vp-code-line-error-color: rgba(250, 77, 86, 0.16);
+  --vp-code-copy-code-border-color: var(--border-subtle-00);
+  --vp-code-copy-code-bg: var(--layer-02);
+  --vp-code-copy-code-hover-bg: var(--layer-hover-02);
+  --vp-code-copy-code-active-text: var(--text-primary);
+  --vp-code-copy-code-purpose-color: var(--text-helper);
+
+  /* Shiki syntax roles → Console syntax tokens */
+  --vp-code-color: var(--text-primary);
+  --shiki-color-text: var(--text-primary);
+  --shiki-color-background: var(--layer-01);
+  --shiki-token-constant: var(--syntax-variable);
+  --shiki-token-string: var(--syntax-string);
+  --shiki-token-comment: var(--syntax-comment);
+  --shiki-token-keyword: var(--syntax-keyword);
+  --shiki-token-parameter: var(--syntax-attribute);
+  --shiki-token-function: var(--syntax-function);
+  --shiki-token-string-expression: var(--syntax-string);
+  --shiki-token-punctuation: var(--syntax-punctuation);
+  --shiki-token-link: var(--horizon-40);
+
+  /* ---- Typography ---- */
+  --vp-font-family-base: var(--font-sans);
+  --vp-font-family-mono: var(--font-mono);
+
+  /* ---- Shape: square everywhere, no default shadows ---- */
+  --vp-border-radius: 0;
+  --vp-shadow-1: none;
+  --vp-shadow-2: none;
+  --vp-shadow-3: none;
+  --vp-shadow-4: none;
+  --vp-shadow-5: none;
+
+  /* ---- Nav / sidebar chrome ---- */
+  --vp-nav-bg-color: rgba(0, 0, 0, 0.85);
+  --vp-nav-screen-bg-color: var(--background);
+  --vp-local-nav-bg-color: var(--background);
+  --vp-sidebar-bg-color: var(--void);
+  --vp-backdrop-bg-color: rgba(0, 0, 0, 0.65);
+
+  /* ---- Home hero (index.md layout: home) ---- */
+  --vp-home-hero-name-color: var(--tier-l3);
+  --vp-home-hero-name-background: transparent;
+  --vp-home-hero-image-background-image: none;
+  --vp-home-hero-image-filter: none;
+
+  /* ---- Custom block titles use mono, matching Console eyebrows ---- */
+  --vp-custom-block-font-family: var(--font-mono);
+}
+
+/* ============================================================
+   Square corners + flat surfaces everywhere in doc content.
+   Console has --radius-0: 0 as the default; VitePress ships
+   several hardcoded border-radius values that --vp-border-radius
+   does not reach. Zero them explicitly.
+   ============================================================ */
+.vp-doc div[class*='language-'],
+.vp-doc .custom-block,
+.vp-doc table,
+.vp-doc img,
+.vp-code-group,
+.vp-code-group .tabs,
+.VPButton,
+.VPCard,
+.VPFeature,
+.VPTeamMembers .container .item .profile,
+.VPNavBarSearch .DocSearch-Button,
+.VPSidebarItem .item,
+kbd {
+  border-radius: 0 !important;
+}
+
+.VPButton,
+.VPCard,
+.VPFeature {
+  box-shadow: none !important;
+}
+
+/* Force dark ("g100") appearance to read as Console regardless of
+   the toggle position — config.ts sets appearance: 'force' so the
+   light-mode variants of these vars are never generated, but this
+   belt-and-braces rule keeps hand-authored light overrides inert. */
+html:not(.dark) {
+  color-scheme: dark;
+}
+
+/* Eyebrow-style mono labels used across custom containers/badges */
+.vp-doc .custom-block .custom-block-title {
+  font: var(--type-label-01);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}

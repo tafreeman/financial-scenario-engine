@@ -1,108 +1,203 @@
 /**
- * Custom theme — Brand-matched neutral accent (steel blue / navy)
- * Matches the financial-scenario-engine's navy-800 + emerald-500 palette.
+ * Custom theme — Console design language
+ * Financial Scenario Engine is L3 · APPLIED in the Console portfolio.
+ * Every value below is a var() onto a token from console-ds/tokens/*;
+ * see console-bridge.css for the VitePress-variable mapping layer.
  */
 
-:root {
-  /* Brand colors */
-  --vp-c-brand-1: #10b981; /* emerald-500 */
-  --vp-c-brand-2: #059669; /* emerald-600 */
-  --vp-c-brand-3: #047857; /* emerald-700 */
-  --vp-c-brand-soft: rgba(16, 185, 129, 0.14);
-
-  /* Hero gradient */
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(
-    120deg,
-    #10b981 30%,
-    #1e3a5f
-  );
-
-  --vp-home-hero-image-background-image: linear-gradient(
-    -45deg,
-    #10b981 50%,
-    #1e3a5f 50%
-  );
-  --vp-home-hero-image-filter: blur(44px);
-
-  /* Sidebar */
-  --vp-c-default-soft: rgba(30, 58, 95, 0.06);
-}
-
+:root,
 .dark {
-  --vp-c-brand-1: #34d399; /* emerald-400 */
-  --vp-c-brand-2: #10b981; /* emerald-500 */
-  --vp-c-brand-3: #6ee7b7; /* emerald-300 */
-  --vp-c-brand-soft: rgba(52, 211, 153, 0.14);
-
-  --vp-home-hero-image-background-image: linear-gradient(
-    -45deg,
-    #34d399 50%,
-    #1e3a5f 50%
-  );
+  /* Hero name renders in the tier-L3 signal green, not a gradient */
+  --vp-home-hero-name-color: var(--tier-l3);
+  --vp-home-hero-name-background: transparent;
+  --vp-home-hero-image-background-image: none;
+  --vp-home-hero-image-filter: none;
 }
 
-/* Custom badge for HTTP methods in API docs */
+/* Custom badge for HTTP methods in API docs — square, mono, tokenized */
 .http-method {
   display: inline-block;
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 0.125rem 0.5rem;
-  border-radius: 0.25rem;
-  font-family: var(--vp-font-family-mono);
+  font: var(--type-label-01);
+  padding: var(--spacing-01) var(--spacing-03);
+  border-radius: 0;
+  border: 1px solid var(--border-subtle-00);
   text-transform: uppercase;
-  letter-spacing: 0.025em;
+  letter-spacing: var(--tracking-label);
 }
 
 .http-get {
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #059669;
+  background-color: rgba(51, 177, 255, 0.12);
+  color: var(--horizon-30);
+  border-color: var(--horizon-50);
 }
 
 .http-post {
-  background-color: rgba(59, 130, 246, 0.15);
-  color: #2563eb;
+  background-color: rgba(66, 190, 101, 0.12);
+  color: var(--tier-l3);
+  border-color: var(--support-success);
 }
 
-.http-put {
-  background-color: rgba(245, 158, 11, 0.15);
-  color: #d97706;
-}
-
+.http-put,
 .http-patch {
-  background-color: rgba(245, 158, 11, 0.15);
-  color: #d97706;
+  background-color: rgba(241, 194, 27, 0.12);
+  color: var(--text-highlight);
+  border-color: var(--yellow-30);
 }
 
 .http-delete {
-  background-color: rgba(239, 68, 68, 0.15);
-  color: #dc2626;
+  background-color: rgba(250, 77, 86, 0.12);
+  color: var(--red-40);
+  border-color: var(--support-error);
 }
 
-.dark .http-get {
-  color: #34d399;
-}
-
-.dark .http-post {
-  color: #60a5fa;
-}
-
-.dark .http-put,
-.dark .http-patch {
-  color: #fbbf24;
-}
-
-.dark .http-delete {
-  color: #f87171;
-}
-
-/* Feature icons — larger on home page */
+/* Feature icons — larger on home page, square frame, no drop shadow */
 .VPFeature .VPImage {
   width: 48px;
   height: 48px;
+  border-radius: 0;
 }
 
 /* Custom container styling for interface definition blocks */
 .custom-block.info {
-  border-color: var(--vp-c-brand-1);
+  border-color: var(--horizon-40);
+  border-radius: 0;
 }
+
+/* ============================================================
+   Console landing hero (docs/index.md) — cinematic image hero
+   with scrim, mono eyebrow, and CTA buttons. Scoped under
+   .console-hero so it never leaks into ordinary doc pages.
+   ============================================================ */
+.console-hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: 480px;
+  overflow: hidden;
+  margin: calc(-1 * var(--spacing-07)) calc(-1 * var(--spacing-08)) var(--spacing-11);
+  background-color: var(--void);
+}
+
+.console-hero__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 40%;
+}
+
+.console-hero__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--gradient-scrim);
+}
+
+.console-hero__content {
+  position: relative;
+  z-index: 1;
+  padding: var(--spacing-11) var(--spacing-08) var(--spacing-09);
+  max-width: 46rem;
+}
+
+.console-hero__eyebrow {
+  font: var(--type-label-01);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--tier-l3);
+  margin-bottom: var(--spacing-05);
+}
+
+.console-hero__title {
+  font: var(--type-display-01);
+  letter-spacing: var(--tracking-display);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.console-hero__blurb {
+  font: var(--type-body-02);
+  color: var(--text-secondary);
+  max-width: 56ch;
+  margin: var(--spacing-06) 0 var(--spacing-07);
+}
+
+.console-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-04);
+}
+
+.console-hero__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-03);
+  height: var(--size-lg);
+  padding: 0 var(--spacing-06);
+  font: var(--type-heading-01);
+  text-decoration: none !important;
+  border-radius: 0;
+  border: 1px solid transparent;
+  transition: background-color var(--duration-fast-02) var(--ease-productive),
+    border-color var(--duration-fast-02) var(--ease-productive),
+    color var(--duration-fast-02) var(--ease-productive);
+}
+
+.console-hero__btn--primary {
+  background: var(--horizon-40);
+  color: var(--text-on-color);
+}
+.console-hero__btn--primary:hover {
+  background: var(--horizon-40-hover);
+}
+
+.console-hero__btn--secondary {
+  background: transparent;
+  border-color: var(--border-subtle-01);
+  color: var(--text-primary);
+}
+.console-hero__btn--secondary:hover {
+  border-color: var(--text-primary);
+}
+
+.console-hero__portfolio-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-02);
+  margin-top: var(--spacing-07);
+  font: var(--type-code-01);
+  color: var(--text-helper) !important;
+  text-decoration: none !important;
+}
+.console-hero__portfolio-link:hover {
+  color: var(--horizon-30) !important;
+}
+
+/* Horizon rule — the brand's signature 1px divider, used directly
+   below the hero on the Console landing page */
+.console-horizon-rule {
+  height: 1px;
+  background: var(--gradient-horizon);
+  margin: 0 var(--spacing-08) var(--spacing-11);
+}
+
+@media (max-width: 768px) {
+  .console-hero {
+    margin: calc(-1 * var(--spacing-05)) calc(-1 * var(--spacing-05)) var(--spacing-09);
+    min-height: 380px;
+  }
+  .console-hero__content {
+    padding: var(--spacing-09) var(--spacing-05) var(--spacing-07);
+  }
+  .console-hero__title {
+    font: var(--type-heading-06);
+  }
+  .console-horizon-rule {
+    margin: 0 var(--spacing-05) var(--spacing-09);
+  }
+}
+
+/* Hero CTA <a> tags: VitePress link styling tints them cyan (invisible on the
+   primary cyan fill). Force Console contrast. */
+.console-hero__btn--primary { color: var(--text-on-color) !important; }
+.console-hero__btn--secondary { color: var(--text-primary) !important; }

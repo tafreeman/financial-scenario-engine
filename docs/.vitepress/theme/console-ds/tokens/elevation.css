@@ -1,0 +1,28 @@
+/* ============================================================
+   Console — Shape & elevation tokens
+   Corners are square (radius 0) everywhere. Depth comes from
+   layer color and hairline borders — no glows, no decorative
+   shadows; the only shadow in the system is the overlay one.
+   ============================================================ */
+
+:root {
+  --radius-0: 0;               /* the default. Console is square. */
+  --radius-full: 999px;        /* status dots and tag pills only */
+
+  --border-width-1: 1px;
+  --border-width-2: 2px;
+  --border-width-3: 3px;       /* selected-tab / active-rail marker */
+
+  /* Elevation: flat by default; shadow only for overlays */
+  --shadow-overlay: 0 2px 6px rgba(0, 0, 0, 0.8);
+
+  /* Glow is retired — kept as tokens so existing references
+     resolve, but they render nothing. Do not reintroduce. */
+  --glow-horizon: none; /* @kind shadow */
+  --glow-horizon-strong: none; /* @kind shadow */
+
+  /* Horizon rule — 1px gradient line, the brand's signature edge */
+  --gradient-horizon: linear-gradient(90deg, rgba(61, 219, 217, 0) 0%, #3ddbd9 35%, #e5f6ff 50%, #33b1ff 65%, rgba(51, 177, 255, 0) 100%); /* @kind other */
+  /* Protection gradient for text over imagery */
+  --gradient-scrim: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.72) 100%); /* @kind other */
+}
