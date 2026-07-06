@@ -1,0 +1,133 @@
+/* ============================================================
+   Console — Color tokens
+   Base palette: IBM Carbon v11 (gray / cyan / teal / support scales)
+   Theme: g100-derived dark theme with a cool "event horizon"
+   accent replacing Carbon blue as the interactive hue.
+   ============================================================ */
+
+:root {
+  /* ---- Base palette (Carbon scales, exact values) ---- */
+  --black: #000000;
+  --white: #ffffff;
+
+  --gray-10: #f4f4f4;
+  --gray-20: #e0e0e0;
+  --gray-30: #c6c6c6;
+  --gray-40: #a8a8a8;
+  --gray-50: #8d8d8d;
+  --gray-60: #6f6f6f;
+  --gray-70: #525252;
+  --gray-80: #393939;
+  --gray-90: #262626;
+  --gray-100: #161616;
+  --gray-90-hover: #333333;
+  --gray-80-hover: #474747;
+  --gray-70-hover: #636363;
+
+  /* Horizon (Carbon cyan scale) — the event-horizon accent, cool & sleek */
+  --horizon-20: #bae6ff;
+  --horizon-30: #82cfff;
+  --horizon-40: #33b1ff;
+  --horizon-50: #1192e8;
+  --horizon-60: #0072c3;
+  --horizon-70: #00539a;
+  --horizon-40-hover: #059fff;
+  --horizon-50-hover: #0f7ec8;
+
+  /* Support hues (Carbon) */
+  --red-40: #ff8389;
+  --red-50: #fa4d56;
+  --green-30: #6fdc8c;
+  --green-40: #42be65;
+  --yellow-30: #f1c21b;
+  --blue-50: #4589ff;
+  --blue-40: #78a9ff;
+  --purple-40: #be95ff;
+  --teal-30: #3ddbd9;
+  --teal-40: #08bdba;
+  --cyan-40: #33b1ff;
+
+  /* ---- Semantic: background & layers ---- */
+  --void: var(--black);                       /* cinematic hero / deep space */
+  --background: var(--gray-100);              /* app canvas */
+  --background-hover: rgba(141, 141, 141, 0.16);
+  --background-active: rgba(141, 141, 141, 0.4);
+  --background-selected: rgba(141, 141, 141, 0.24);
+  --background-inverse: var(--gray-10);
+  --background-brand: var(--horizon-50);
+
+  --layer-01: var(--gray-90);
+  --layer-02: var(--gray-80);
+  --layer-hover-01: var(--gray-90-hover);
+  --layer-hover-02: var(--gray-80-hover);
+  --layer-selected-01: var(--gray-80);
+  --layer-accent-01: var(--gray-80);
+
+  --field-01: var(--gray-90);
+  --field-hover-01: var(--gray-90-hover);
+
+  --overlay: rgba(0, 0, 0, 0.65);
+
+  /* ---- Semantic: text ---- */
+  --text-primary: var(--gray-10);
+  --text-secondary: var(--gray-20);
+  --text-helper: var(--gray-30);
+  --text-placeholder: rgba(244, 244, 244, 0.4);
+  --text-disabled: rgba(244, 244, 244, 0.25);
+  --text-inverse: var(--gray-100);
+  --text-on-color: var(--black);              /* on horizon fills */  --text-error: var(--red-40);
+  --text-accent: var(--horizon-40);
+
+  /* ---- Semantic: links & interactive ---- */
+  --link-primary: var(--horizon-40);
+  --link-primary-hover: var(--horizon-30);
+  --interactive: var(--horizon-40);
+  --interactive-hover: var(--horizon-40-hover);
+  --interactive-active: var(--horizon-50);
+
+  /* ---- Semantic: icons ---- */
+  --icon-primary: var(--gray-10);
+  --icon-secondary: var(--gray-30);
+  --icon-accent: var(--horizon-40);
+  --icon-disabled: rgba(244, 244, 244, 0.25);
+  --icon-on-color: var(--black);
+
+  /* ---- Semantic: borders ---- */
+  --border-subtle-00: var(--gray-80);
+  --border-subtle-01: var(--gray-70);
+  --border-strong-01: var(--gray-60);
+  --border-interactive: var(--horizon-40);
+  --border-inverse: var(--gray-10);
+  --border-disabled: rgba(141, 141, 141, 0.5);
+
+  /* ---- Semantic: status ---- */
+  --support-error: var(--red-50);
+  --support-success: var(--green-40);
+  --support-warning: var(--yellow-30);
+  --support-info: var(--blue-50);
+
+  /* ---- Focus ---- */
+  --focus: var(--white);
+  --focus-inset: var(--gray-100);
+
+  /* ---- Layer stack semantics (L1→L3 system tiers) ---- */
+  --tier-l1: var(--gray-30);      /* primitives — bare metal */
+  --tier-l2: var(--teal-30);      /* platform — aurora teal */
+  --tier-l3: var(--green-40);     /* applied — signal green */
+
+  /* Highlight — the small dose of yellow. Data callouts and
+     emphasis marks only; never fills, never large areas. */
+  --text-highlight: var(--yellow-30);
+
+  /* ---- Syntax (Carbon g100 syntax set, key roles) ---- */
+  --syntax-comment: var(--green-40);
+  --syntax-keyword: var(--blue-50);
+  --syntax-string: var(--gray-10);
+  --syntax-function: var(--yellow-30);
+  --syntax-variable: var(--blue-40);
+  --syntax-type: var(--teal-30);
+  --syntax-attribute: var(--cyan-40);
+  --syntax-number: #6fdc8c;
+  --syntax-punctuation: var(--gray-20);
+  --syntax-invalid: var(--red-50);
+}

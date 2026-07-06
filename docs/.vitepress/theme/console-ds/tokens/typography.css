@@ -1,0 +1,66 @@
+/* ============================================================
+   Console — Typography tokens
+   IBM Plex family (Carbon). Mono leads: labels, data, nav.
+   Sans for body & headings. Serif reserved for quotations.
+   ============================================================ */
+
+:root {
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Menlo', 'DejaVu Sans Mono', Courier, monospace;
+  --font-serif: 'IBM Plex Serif', 'Georgia', Times, serif;
+
+  --fw-light: 300; /* @kind font */
+  --fw-regular: 400; /* @kind font */
+  --fw-medium: 450; /* @kind font */
+  --fw-semibold: 600; /* @kind font */
+
+  /* Carbon type scale (px values as rem) */
+  --ts-12: 0.75rem;
+  --ts-14: 0.875rem;
+  --ts-16: 1rem;
+  --ts-18: 1.125rem;
+  --ts-20: 1.25rem;
+  --ts-24: 1.5rem;
+  --ts-28: 1.75rem;
+  --ts-32: 2rem;
+  --ts-36: 2.25rem;
+  --ts-42: 2.625rem;
+  --ts-54: 3.375rem;
+  --ts-68: 4.25rem;
+  --ts-92: 5.75rem;
+
+  /* ---- Composite styles (family / size / weight / line-height / tracking) ---- */
+  /* code-01: mono 12/1.33 +0.32px — inline code, token values */
+  --type-code-01: var(--fw-regular) 0.75rem/1.33333 var(--font-mono);
+  /* code-02: mono 14/1.43 +0.32px — code blocks, terminals */
+  --type-code-02: var(--fw-regular) 0.875rem/1.42857 var(--font-mono);
+  /* label-01: mono in Console (Carbon uses sans) 12/1.33 — eyebrows, field labels */
+  --type-label-01: var(--fw-regular) 0.75rem/1.33333 var(--font-mono);
+  /* body-01: sans 14/1.43 +0.16px — default body */
+  --type-body-01: var(--fw-regular) 0.875rem/1.42857 var(--font-sans);
+  /* body-02: sans 16/1.5 — long-form body */
+  --type-body-02: var(--fw-regular) 1rem/1.5 var(--font-sans);
+  /* heading-01: sans semibold 14/1.43 — dense UI headings */
+  --type-heading-01: var(--fw-semibold) 0.875rem/1.42857 var(--font-sans);
+  /* heading-02: sans semibold 16/1.5 */
+  --type-heading-02: var(--fw-semibold) 1rem/1.5 var(--font-sans);
+  /* heading-03: sans regular 20/1.4 */
+  --type-heading-03: var(--fw-regular) 1.25rem/1.4 var(--font-sans);
+  /* heading-04: sans regular 28/1.29 */
+  --type-heading-04: var(--fw-regular) 1.75rem/1.28572 var(--font-sans);
+  /* heading-05: sans regular 32/1.25 */
+  --type-heading-05: var(--fw-regular) 2rem/1.25 var(--font-sans);
+  /* heading-06: sans light 42/1.2 — page titles */
+  --type-heading-06: var(--fw-light) 2.625rem/1.199 var(--font-sans);
+  /* display-01: sans light 68/1.13 — hero display */
+  --type-display-01: var(--fw-light) 4.25rem/1.13 var(--font-sans);
+  /* display-02: sans light 92/1.11 — full-bleed hero */
+  --type-display-02: var(--fw-light) 5.75rem/1.11 var(--font-sans);
+  /* quotation: serif light italic 24/1.3 */
+  --type-quotation: italic var(--fw-light) 1.5rem/1.3 var(--font-serif);
+
+  --tracking-caption: 0.32px;
+  --tracking-body: 0.16px;
+  --tracking-label: 0.64px;   /* Console twist: wide-tracked mono eyebrows */
+  --tracking-display: -0.96px;
+}

@@ -1,0 +1,35 @@
+/* ============================================================
+   Console — base element styles
+   Minimal reset + brand defaults so specimens and kits
+   inherit the right ground.
+   ============================================================ */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text-primary);
+  font: var(--type-body-01);
+  letter-spacing: var(--tracking-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--horizon-40);
+  color: var(--black);
+}
+
+a {
+  color: var(--link-primary);
+  text-decoration: none;
+  transition: color var(--duration-fast-02) var(--ease-productive);
+}
+a:hover { color: var(--link-primary-hover); text-decoration: underline; }
+
+code, pre, kbd { font: var(--type-code-02); }
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
