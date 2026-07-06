@@ -196,3 +196,8 @@
     margin: 0 var(--spacing-05) var(--spacing-09);
   }
 }
+
+/* Hero CTA <a> tags: VitePress link styling tints them cyan (invisible on the
+   primary cyan fill). Force Console contrast. */
+.console-hero__btn--primary { color: var(--text-on-color) !important; }
+.console-hero__btn--secondary { color: var(--text-primary) !important; }
