@@ -24,6 +24,12 @@ export default defineConfig({
       PORT: "3100",
       // Stable token for e2e; matches tests/e2e/auth-state.json localStorage seed.
       APP_API_TOKEN: "e2e-app-token",
+      // Disable the gh-CLI token fallback so the "no token" UI state is
+      // deterministic in e2e — otherwise a machine with `gh` authenticated
+      // (local dev, or a runner with gh logged in) would resolve a token and
+      // change the Settings copy the tests assert on. With no github_pat and no
+      // GITHUB_TOKEN, this pins github_token_source to "none".
+      FSE_DISABLE_GH_TOKEN: "1",
     },
     url: "http://127.0.0.1:3100/api/health",
     reuseExistingServer: false,

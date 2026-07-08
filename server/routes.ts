@@ -17,7 +17,8 @@ import {
   buildAnonymizedContextSnapshot,
   saveScenario,
 } from "./db.js";
-import { parseIntent, narrateResult, agenticScenario, type IntentParseFailure } from "./ai.js";
+import { parseIntent, narrateResult, agenticScenario, getGitHubTokenSource, type IntentParseFailure } from "./ai.js";
+import { listModels } from "./models-catalog.js";
 import { refineEndpointNoPrivate, refineOllamaEndpoint } from "./ssrf.js";
 import { getLlmTelemetrySnapshot } from "./llm-telemetry.js";
 
@@ -364,6 +365,21 @@ apiRouter.get("/rates", (_req, res) => {
   res.json(getLaborCategories());
 });
 
+// ---- Model catalog (live GitHub Models discovery) ----
+// Unauthenticated read, same posture as the other GET routes (/health,
+// /dashboard, /telemetry/llm): it performs no mutation and returns only public
+// model ids + names — never the token or any secret. It triggers an outbound
+// catalog fetch (and, at most once per process, the gh-token fallback behind
+// resolveGitHubToken), but the result is cached in-process (see
+// models-catalog.ts) and the URL is fixed, so there is no SSRF surface and no
+// way to hammer the network past the cache + readRouteLimiter. This lets the
+// Settings model picker track the live catalog instead of a hardcoded list that
+// drifts as GitHub adds/removes models. listModels never throws — it degrades to
+// a curated fallback — so no try/catch is needed here.
+apiRouter.get("/models", async (_req, res) => {
+  res.json(await listModels());
+});
+
 // ---- AI Scenario ----
 // V1 removed — it sent raw financial data to LLM and let it hallucinate numbers.
 // Use V2 (deterministic engine + optional narration) or V3 (agentic tool-calling) instead.
@@ -552,6 +568,10 @@ apiRouter.get("/config", (_req, res) => {
       : "****";
     delete config.github_pat;
   }
+  // Tell the UI where the effective GitHub token comes from (pat / env / gh /
+  // none) WITHOUT exposing the token itself, so it can show "using your gh
+  // login" instead of a misleading "no PAT configured" when gh auth covers it.
+  config.github_token_source = getGitHubTokenSource();
   res.json(config);
 });
 

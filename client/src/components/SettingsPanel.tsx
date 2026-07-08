@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { Save, CheckCircle, XCircle, Key, Cpu, Link, Shield, Server } from "lucide-react";
-import { api } from "../api";
+import { api, type ModelInfo } from "../api";
+
+/** Default model highlighted in the picker. Matches the DB seed in server/db.ts. */
+const RECOMMENDED_MODEL = "openai/gpt-4.1";
 
 export default function SettingsPanel() {
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -12,6 +15,8 @@ export default function SettingsPanel() {
   const [llmProvider, setLlmProvider] = useState("github");
   const [model, setModel] = useState("openai/gpt-4.1");
   const [endpoint, setEndpoint] = useState("https://models.github.ai/inference/chat/completions");
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelSource, setModelSource] = useState<"catalog" | "fallback" | "">("");
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
   const [ollamaEndpoint, setOllamaEndpoint] = useState("http://localhost:11434/v1/chat/completions");
   const [temperature, setTemperature] = useState("0.2");
@@ -32,6 +37,16 @@ export default function SettingsPanel() {
       setTemperature(c.temperature || "0.2");
       setMaxTokens(c.max_tokens || "2000");
     });
+    // Populate the model picker from the live GitHub Models catalog (server
+    // degrades to a curated fallback when the catalog is unreachable, so this
+    // resolves to a usable list even offline / before a token is configured).
+    api
+      .getModels()
+      .then((r) => {
+        setModels(r.models);
+        setModelSource(r.source);
+      })
+      .catch(() => setModelSource("fallback"));
   }, []);
 
   const handleSave = async () => {
@@ -147,11 +162,29 @@ export default function SettingsPanel() {
               <CheckCircle size={10} /> PAT configured ({config.github_pat_masked})
             </p>
           )}
-          {!config.github_pat_masked && !pat && (
-            <p className="text-[10px] text-amber-600 mt-1.5">
-              No PAT configured. Also checks GITHUB_TOKEN environment variable.
+          {/* No stored PAT: surface where the effective token actually comes from
+              (env var or the local gh login) so the user isn't told "no PAT" when
+              the GitHub provider will in fact work. github_token_source is set by
+              GET /api/config and never contains the token itself. */}
+          {!config.github_pat_masked && !pat && config.github_token_source === "env" && (
+            <p className="text-[10px] text-emerald-600 mt-1.5 flex items-center gap-1">
+              <CheckCircle size={10} /> Using GITHUB_TOKEN from the environment
             </p>
           )}
+          {!config.github_pat_masked && !pat && config.github_token_source === "gh" && (
+            <p className="text-[10px] text-emerald-600 mt-1.5 flex items-center gap-1">
+              <CheckCircle size={10} /> Using your GitHub CLI login (gh auth token) — paste a PAT above to override
+            </p>
+          )}
+          {!config.github_pat_masked &&
+            !pat &&
+            config.github_token_source !== "env" &&
+            config.github_token_source !== "gh" && (
+              <p className="text-[10px] text-amber-600 mt-1.5">
+                No GitHub token found. Paste a PAT above, set GITHUB_TOKEN, or run{" "}
+                <code className="text-[10px] bg-steel-50 px-1 py-0.5 rounded">gh auth login</code>.
+              </p>
+            )}
         </div>
       )}
 
@@ -198,12 +231,24 @@ export default function SettingsPanel() {
               <div>
                 <label className="text-xs font-medium text-steel-500 block mb-1">Model</label>
                 <select className="input-field" value={model} onChange={(e) => setModel(e.target.value)}>
-                  <option value="openai/gpt-4.1">openai/gpt-4.1 (recommended)</option>
-                  <option value="openai/gpt-4o">openai/gpt-4o</option>
-                  <option value="openai/gpt-4.1-mini">openai/gpt-4.1-mini (faster, cheaper)</option>
-                  <option value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct</option>
-                  <option value="deepseek/deepseek-r1">deepseek/deepseek-r1</option>
+                  {/* Keep the current value selectable even if the live catalog
+                      omits it (a custom entry, or a model GitHub has since removed). */}
+                  {model && !models.some((m) => m.id === model) && (
+                    <option value={model}>{model} (current)</option>
+                  )}
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id === RECOMMENDED_MODEL ? `${m.id} (recommended)` : m.id}
+                    </option>
+                  ))}
                 </select>
+                <p className="text-[10px] text-steel-500 mt-1">
+                  {modelSource === "catalog"
+                    ? `${models.length} models from the live GitHub Models catalog`
+                    : modelSource === "fallback"
+                      ? "Built-in fallback list — live catalog unavailable (check token/network)"
+                      : "Loading models…"}
+                </p>
               </div>
               <div>
                 <label className="text-xs font-medium text-steel-500 block mb-1">Endpoint</label>

@@ -6,6 +6,10 @@ import {
   chatRequest,
   getAiConfig,
   parseTimeoutMs,
+  readGhCliToken,
+  resolveGitHubToken,
+  getGitHubTokenSource,
+  _resetGhTokenCache,
   DEFAULT_LLM_TIMEOUT_MS,
   LLM_TIMEOUT_MAX_MS,
 } from "../ai.js";
@@ -639,5 +643,64 @@ describe("LLM boundary observability — structured log + aggregation (WP3-B)", 
 
     const snapshot = getLlmTelemetrySnapshot();
     expect(snapshot.byPurpose.intent?.retries).toBe(1);
+  });
+});
+
+// ─── GitHub token resolution: DB PAT → GITHUB_TOKEN → gh CLI (zero-config) ────
+
+describe("GitHub token resolution", () => {
+  let savedPat: string;
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    savedPat = getConfig("github_pat");
+    savedEnv = process.env.GITHUB_TOKEN;
+    _resetGhTokenCache();
+  });
+
+  afterEach(() => {
+    setConfig("github_pat", savedPat);
+    if (savedEnv === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = savedEnv;
+    _resetGhTokenCache();
+  });
+
+  it("prefers the DB github_pat over the env var", () => {
+    setConfig("github_pat", "db-pat-123");
+    process.env.GITHUB_TOKEN = "env-token";
+    expect(resolveGitHubToken()).toBe("db-pat-123");
+    expect(getGitHubTokenSource()).toBe("pat");
+  });
+
+  it("falls back to GITHUB_TOKEN when the DB pat is empty", () => {
+    setConfig("github_pat", "");
+    process.env.GITHUB_TOKEN = "env-token-xyz";
+    expect(resolveGitHubToken()).toBe("env-token-xyz");
+    expect(getGitHubTokenSource()).toBe("env");
+  });
+
+  it("reports 'none' and resolves to '' when nothing is set (gh disabled under test)", () => {
+    setConfig("github_pat", "");
+    delete process.env.GITHUB_TOKEN;
+    // The gh subprocess fallback is disabled under vitest, so no token is found.
+    expect(resolveGitHubToken()).toBe("");
+    expect(getGitHubTokenSource()).toBe("none");
+  });
+
+  it("trims surrounding whitespace on a stored pat", () => {
+    setConfig("github_pat", "  padded-pat  ");
+    expect(resolveGitHubToken()).toBe("padded-pat");
+  });
+
+  it("readGhCliToken trims the CLI output on success", () => {
+    const fakeExec = (() => "gho_faketoken\n") as unknown as Parameters<typeof readGhCliToken>[0];
+    expect(readGhCliToken(fakeExec)).toBe("gho_faketoken");
+  });
+
+  it("readGhCliToken returns '' when the CLI throws (missing / unauthenticated)", () => {
+    const throwingExec = (() => {
+      throw new Error("gh: command not found");
+    }) as unknown as Parameters<typeof readGhCliToken>[0];
+    expect(readGhCliToken(throwingExec)).toBe("");
   });
 });

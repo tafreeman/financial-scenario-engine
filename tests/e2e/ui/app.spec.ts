@@ -377,8 +377,9 @@ test.describe("Settings panel", () => {
     const endpointInput = page.locator("input.input-field[value*='models.github.ai']");
     await expect(endpointInput).toBeVisible();
 
-    // When no PAT is set, the app shows a warning message
-    await expect(page.getByText("No PAT configured")).toBeVisible();
+    // When no token is resolvable (no PAT, no GITHUB_TOKEN, gh fallback disabled
+    // in e2e), the app shows a warning message pointing at the ways to add one.
+    await expect(page.getByText("No GitHub token found")).toBeVisible();
   });
 
   test("saves model configuration and persists across page reload", async ({ page }) => {
