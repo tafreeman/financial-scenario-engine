@@ -3,7 +3,7 @@
 [![CI / Deploy](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**▶ Live demo:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/)
+**📖 Live docs:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/)
 
 A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results, and any structured output it returns is revalidated against a strict schema at that trust boundary before the engine ever sees it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)). All project data lives in a local SQLite file; inference runs via a multi-provider abstraction over the GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
 
