@@ -101,9 +101,29 @@ const XLSX_MIME_TYPES = new Set([
 const SCENARIOS_DEFAULT_LIMIT = 50;
 const SCENARIOS_MAX_LIMIT = 500;
 
+/**
+ * Upload limits for the Excel import routes.
+ *
+ * GHSA-72gw-mp4g-v24j remediation is upgrade AND configure limits: multer
+ * leaves `fields`/`fieldNestingDepth` at Infinity unless explicitly set, even
+ * on 2.2.0. Every caller of these routes (the client UI never calls them;
+ * e2e + integration tests do) posts exactly one file part named "file" and
+ * zero text fields, and the handlers never read req.body — so both caps are
+ * pure headroom over real usage.
+ *
+ * `fieldNestingDepth` is enforced at runtime by multer 2.2.0
+ * (lib/make-middleware.js) but @types/multer 1.4.x predates the option, so
+ * the limits type is widened locally until DefinitelyTyped catches up.
+ */
+const UPLOAD_LIMITS: NonNullable<multer.Options["limits"]> & { fieldNestingDepth?: number } = {
+  fileSize: 10 * 1024 * 1024, // 10 MB — prevents OOM from arbitrarily large uploads
+  fields: 10,
+  fieldNestingDepth: 1, // depth = "[" count in the field name; a[b][c] → rejected
+};
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB — prevents OOM from arbitrarily large uploads
+  limits: UPLOAD_LIMITS,
   fileFilter(_req, file, cb) {
     if (XLSX_MIME_TYPES.has(file.mimetype)) {
       cb(null, true);

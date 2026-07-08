@@ -1,9 +1,14 @@
 /**
- * Tests for Fix #4 — multer fileSize limit and fileFilter on Excel import routes.
+ * Tests for Fix #4 — multer fileSize limit and fileFilter on Excel import routes —
+ * plus the GHSA-72gw-mp4g-v24j field limits (fields / fieldNestingDepth).
  *
  * Done-when criteria:
  *  - A file exceeding 10 MB is rejected with 413 before exceljs processes it.
  *  - A file with Content-Type text/plain (or any non-XLSX MIME) is rejected with 400.
+ *  - A deeply nested field name (e.g. a[b][c][d]) is rejected with 400
+ *    (LIMIT_FIELD_NESTING) rather than parsed — multer leaves fieldNestingDepth
+ *    at Infinity unless explicitly configured, so this asserts the opt-in cap.
+ *  - More text fields than the `fields` cap is rejected with 400 (LIMIT_FIELD_COUNT).
  *
  * We spin up a minimal Express instance using the same multer configuration
  * as routes.ts, avoiding the need to mock the real database or LLM dependencies.
@@ -20,9 +25,17 @@ const XLSX_MIME_TYPES = new Set([
   "application/vnd.ms-excel",
 ]);
 
+// @types/multer 1.4.x predates multer 2.2.0's fieldNestingDepth option — widen
+// the limits type locally, exactly as routes.ts does.
+const testUploadLimits: NonNullable<multer.Options["limits"]> & { fieldNestingDepth?: number } = {
+  fileSize: 10 * 1024 * 1024,
+  fields: 10,
+  fieldNestingDepth: 1,
+};
+
 const testUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: testUploadLimits,
   fileFilter(_req, file, cb) {
     if (XLSX_MIME_TYPES.has(file.mimetype)) {
       cb(null, true);
@@ -87,6 +100,52 @@ function makeMultipartRequest(
       buffer,
       Buffer.from(footer),
     ]);
+
+    const addr = server.address() as { port: number };
+    const options: http.RequestOptions = {
+      hostname: "127.0.0.1",
+      port: addr.port,
+      path: "/upload",
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": body.length,
+      },
+    };
+
+    const req = http.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        resolve({ statusCode: res.statusCode ?? 0, body: data });
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Like makeMultipartRequest, but posts plain text fields (no file part) so we
+ * can exercise the `fields` / `fieldNestingDepth` limits added for
+ * GHSA-72gw-mp4g-v24j.
+ */
+function makeFieldsRequest(
+  server: http.Server,
+  fields: Array<{ name: string; value: string }>
+): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const boundary = "----TestBoundary" + Date.now();
+    const parts = fields
+      .map(
+        (f) =>
+          `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="${f.name}"\r\n\r\n` +
+          `${f.value}\r\n`
+      )
+      .join("");
+    const body = Buffer.from(parts + `--${boundary}--\r\n`);
 
     const addr = server.address() as { port: number };
     const options: http.RequestOptions = {
@@ -207,6 +266,65 @@ describe("multer upload — fileFilter MIME-type check", () => {
         "legacy.xls"
       );
       expect(result.statusCode).toBe(200);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+describe("multer upload — field limits (GHSA-72gw-mp4g-v24j)", () => {
+  it("rejects a deeply nested field name (beyond fieldNestingDepth: 1) with 400", async () => {
+    const app = buildTestApp();
+    const server = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+
+    try {
+      // Depth = number of "[" in the name: a[b][c][d] → 3, over the cap of 1.
+      const result = await makeFieldsRequest(server, [
+        { name: "a[b][c][d]", value: "x" },
+      ]);
+      expect(result.statusCode).toBe(400);
+      const body = JSON.parse(result.body);
+      expect(body.error).toContain("Field name nesting too deep");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("accepts a plain (non-nested) field name with 200", async () => {
+    // Companion to the rejection test above: proves the 400 comes from the
+    // nesting cap specifically, not from text fields being rejected wholesale.
+    const app = buildTestApp();
+    const server = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+
+    try {
+      const result = await makeFieldsRequest(server, [
+        { name: "note", value: "plain field, depth 0" },
+      ]);
+      expect(result.statusCode).toBe(200);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("rejects more text fields than the fields cap (10) with 400", async () => {
+    const app = buildTestApp();
+    const server = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+
+    try {
+      const eleven = Array.from({ length: 11 }, (_, i) => ({
+        name: `field${i}`,
+        value: "v",
+      }));
+      const result = await makeFieldsRequest(server, eleven);
+      expect(result.statusCode).toBe(400);
+      const body = JSON.parse(result.body);
+      expect(body.error).toContain("Too many fields");
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
