@@ -25,9 +25,8 @@ const XLSX_MIME_TYPES = new Set([
   "application/vnd.ms-excel",
 ]);
 
-// @types/multer 1.4.x predates multer 2.2.0's fieldNestingDepth option — widen
-// the limits type locally, exactly as routes.ts does.
-const testUploadLimits: NonNullable<multer.Options["limits"]> & { fieldNestingDepth?: number } = {
+// Mirrors routes.ts. @types/multer 2.x declares fieldNestingDepth natively.
+const testUploadLimits: NonNullable<multer.Options["limits"]> = {
   fileSize: 10 * 1024 * 1024,
   fields: 10,
   fieldNestingDepth: 1,

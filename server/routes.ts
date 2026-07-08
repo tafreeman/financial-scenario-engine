@@ -112,10 +112,9 @@ const SCENARIOS_MAX_LIMIT = 500;
  * pure headroom over real usage.
  *
  * `fieldNestingDepth` is enforced at runtime by multer 2.2.0
- * (lib/make-middleware.js) but @types/multer 1.4.x predates the option, so
- * the limits type is widened locally until DefinitelyTyped catches up.
+ * (lib/make-middleware.js) and declared by @types/multer 2.x.
  */
-const UPLOAD_LIMITS: NonNullable<multer.Options["limits"]> & { fieldNestingDepth?: number } = {
+const UPLOAD_LIMITS: NonNullable<multer.Options["limits"]> = {
   fileSize: 10 * 1024 * 1024, // 10 MB — prevents OOM from arbitrarily large uploads
   fields: 10,
   fieldNestingDepth: 1, // depth = "[" count in the field name; a[b][c] → rejected
