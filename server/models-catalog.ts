@@ -41,8 +41,15 @@ export const CATALOG_URL = "https://models.github.ai/catalog/models";
 /** Wall-clock cap for the catalog request (ms). */
 const CATALOG_TIMEOUT_MS = 8_000;
 
-/** In-process cache TTL for the resolved model list (ms). */
+/** In-process cache TTL for a successful (live catalog) result (ms). */
 const CATALOG_CACHE_TTL_MS = 5 * 60_000;
+
+/**
+ * Shorter cache TTL for a fallback/failure result (ms). A transient network blip
+ * shouldn't lock the picker onto the static list for the full catalog TTL, so
+ * failures are retried much sooner.
+ */
+const CATALOG_FALLBACK_CACHE_TTL_MS = 30_000;
 
 /**
  * Curated fallback list — a stable subset of chat-capable GitHub Models, used
@@ -98,38 +105,41 @@ export function parseCatalog(raw: unknown): ModelInfo[] {
   return models;
 }
 
-let cache: { at: number; result: ModelListResult } | null = null;
+// Cache + in-flight de-dup are keyed on the resolved token so a token change
+// (e.g. the user pastes a PAT in Settings) immediately bypasses a stale entry
+// instead of waiting out the TTL. `activePromise` collapses concurrent requests
+// for the same token onto a single outbound fetch (no cache stampede).
+let cache: { at: number; token: string; result: ModelListResult } | null = null;
+let activePromise: { token: string; promise: Promise<ModelListResult> } | null = null;
 
-/** Test seam: clear the in-process catalog cache. */
+/** Test seam: clear the in-process catalog cache and any in-flight request. */
 export function _resetModelCache(): void {
   cache = null;
+  activePromise = null;
 }
 
 function fallbackResult(): ModelListResult {
   return { models: FALLBACK_MODELS, source: "fallback" };
 }
 
+/** TTL for a cached result — shorter for fallbacks so failures retry sooner. */
+function ttlFor(result: ModelListResult): number {
+  return result.source === "fallback"
+    ? CATALOG_FALLBACK_CACHE_TTL_MS
+    : CATALOG_CACHE_TTL_MS;
+}
+
 /**
- * Resolve the model list for the Settings dropdown: the live GitHub catalog when
- * reachable, else the curated fallback. `fetchImpl`/`now` are injectable so the
- * tests stay hermetic.
- *
- * Never throws — every failure path degrades to the fallback list so a dropdown
- * fetch can rely on a well-formed result.
+ * Fetch + parse the live catalog for a token, updating the cache. Always
+ * resolves (never rejects): any failure degrades to the curated fallback.
+ * Extracted from listModels so the in-flight-slot cleanup can reference the
+ * promise from a separate statement (avoids a use-before-assign on the const).
  */
-export async function listModels(
-  fetchImpl: typeof fetch = globalThis.fetch,
-  now: () => number = Date.now,
+async function fetchCatalog(
+  fetchImpl: typeof fetch,
+  token: string,
+  at: number,
 ): Promise<ModelListResult> {
-  const ts = now();
-  if (cache && ts - cache.at < CATALOG_CACHE_TTL_MS) return cache.result;
-
-  const token = resolveGitHubToken();
-  // No token → return the fallback WITHOUT caching, so a freshly-added PAT (or a
-  // fresh `gh auth login`) takes effect on the very next call rather than after
-  // the cache TTL.
-  if (!token) return fallbackResult();
-
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CATALOG_TIMEOUT_MS);
@@ -151,13 +161,54 @@ export async function listModels(
     if (models.length === 0) throw new Error("catalog returned no usable models");
 
     const result: ModelListResult = { models, source: "catalog" };
-    cache = { at: ts, result };
+    cache = { at, token, result };
     return result;
   } catch {
-    // Any failure (network, timeout, non-200, parse) → curated fallback. Cache it
-    // so a persistently-down endpoint isn't hammered on every dropdown load.
+    // Any failure (network, timeout, non-200, parse) → curated fallback, cached
+    // briefly (CATALOG_FALLBACK_CACHE_TTL_MS) so a transient blip doesn't lock
+    // the picker onto the static list.
     const result = fallbackResult();
-    cache = { at: ts, result };
+    cache = { at, token, result };
     return result;
   }
+}
+
+/**
+ * Resolve the model list for the Settings dropdown: the live GitHub catalog when
+ * reachable, else the curated fallback. `fetchImpl`/`now` are injectable so the
+ * tests stay hermetic.
+ *
+ * Never throws — every failure path degrades to the fallback list so a dropdown
+ * fetch can rely on a well-formed result.
+ */
+export async function listModels(
+  fetchImpl: typeof fetch = globalThis.fetch,
+  now: () => number = Date.now,
+): Promise<ModelListResult> {
+  const ts = now();
+  const token = resolveGitHubToken();
+
+  // Fresh cache for the SAME token → serve it (TTL depends on catalog vs fallback).
+  if (cache && cache.token === token && ts - cache.at < ttlFor(cache.result)) {
+    return cache.result;
+  }
+
+  // A request for the same token is already in flight → join it (no stampede).
+  if (activePromise && activePromise.token === token) {
+    return activePromise.promise;
+  }
+
+  // No token → return the fallback WITHOUT caching, so a freshly-added PAT (or a
+  // fresh `gh auth login`) takes effect on the very next call rather than after
+  // the cache TTL.
+  if (!token) return fallbackResult();
+
+  const promise = fetchCatalog(fetchImpl, token, ts);
+  activePromise = { token, promise };
+  // Release the in-flight slot once settled — but only if a newer, different-token
+  // request hasn't already replaced it in the meantime.
+  void promise.finally(() => {
+    if (activePromise?.promise === promise) activePromise = null;
+  });
+  return promise;
 }

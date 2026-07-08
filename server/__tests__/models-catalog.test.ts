@@ -120,3 +120,55 @@ describe("listModels — live catalog with fallback", () => {
     expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("listModels — cache keying, TTL, and de-dup", () => {
+  const okCatalog = () => ({
+    ok: true,
+    json: async () => [
+      { id: "openai/gpt-4.1", name: "OpenAI GPT-4.1", publisher: "OpenAI", supported_output_modalities: ["text"] },
+    ],
+  });
+
+  it("busts the cache when the resolved token changes", async () => {
+    const fetchStub = vi.fn().mockResolvedValue(okCatalog());
+
+    setConfig("github_pat", "token-A");
+    await listModels(fetchStub as unknown as typeof fetch, () => 1_000);
+    // Same instant, but a different token → the prior cache entry must not be reused.
+    setConfig("github_pat", "token-B");
+    await listModels(fetchStub as unknown as typeof fetch, () => 1_000);
+
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a fallback result after the shorter fallback TTL, not the full catalog TTL", async () => {
+    setConfig("github_pat", "pat-present");
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) }) // 1st: fails → fallback
+      .mockResolvedValueOnce(okCatalog()); // 2nd: succeeds
+
+    const first = await listModels(fetchStub as unknown as typeof fetch, () => 1_000);
+    expect(first.source).toBe("fallback");
+
+    // +31s is past the 30s fallback TTL (but well under the 5min catalog TTL),
+    // so the stale fallback must be re-fetched rather than served from cache.
+    const second = await listModels(fetchStub as unknown as typeof fetch, () => 32_000);
+    expect(second.source).toBe("catalog");
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("collapses concurrent same-token requests onto a single fetch", async () => {
+    setConfig("github_pat", "pat-present");
+    const fetchStub = vi.fn().mockResolvedValue(okCatalog());
+
+    // Fire two without awaiting: the second must join the first's in-flight request.
+    const p1 = listModels(fetchStub as unknown as typeof fetch, () => 1_000);
+    const p2 = listModels(fetchStub as unknown as typeof fetch, () => 1_000);
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(r1).toEqual(r2);
+    expect(r1.source).toBe("catalog");
+  });
+});
