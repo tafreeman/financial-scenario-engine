@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { execFileSync } from "child_process";
 import { performance } from "perf_hooks";
 import { getConfig, buildAnonymizedContextSnapshot } from "./db.js";
 import type { ScenarioOperation, ScenarioResult } from "./engine/types.js";
@@ -128,6 +129,90 @@ export function parseTimeoutMs(raw: string): number {
   return Math.min(v, LLM_TIMEOUT_MAX_MS);
 }
 
+// ─── GitHub token resolution (DB PAT → GITHUB_TOKEN → gh CLI) ─────────────────
+//
+// The app historically required a fine-grained PAT pasted into Settings (or an
+// exported GITHUB_TOKEN). But most contributors already have the GitHub CLI
+// authenticated locally, and its token works against the Models API — validated
+// against both the catalog and inference endpoints. So when no PAT/env token is
+// present we fall back to `gh auth token`, making the GitHub provider work with
+// zero extra configuration.
+//
+// The gh subprocess is a LAST resort: it runs only when both higher-precedence
+// sources are empty, its result is cached for the process lifetime, and it is
+// disabled entirely under test (see ghFallbackEnabled) so the unit suite stays
+// hermetic and never shells out.
+
+/** Wall-clock cap for the `gh auth token` fallback subprocess (ms). */
+const GH_CLI_TIMEOUT_MS = 3_000;
+
+/** Which source supplied the effective GitHub token (for UI display only). */
+export type GitHubTokenSource = "pat" | "env" | "gh" | "none";
+
+/**
+ * Read a token from the local GitHub CLI (`gh auth token`), or "" when the CLI
+ * is missing, unauthenticated, or slow. `exec` is injectable so tests exercise
+ * both the success and failure paths without spawning a real process.
+ */
+export function readGhCliToken(exec: typeof execFileSync = execFileSync): string {
+  try {
+    const out = exec("gh", ["auth", "token"], {
+      timeout: GH_CLI_TIMEOUT_MS,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    return typeof out === "string" ? out.trim() : "";
+  } catch {
+    // gh not installed / not logged in / timed out — no token available.
+    return "";
+  }
+}
+
+/** gh fallback is disabled under test so the unit suite never shells out. */
+function ghFallbackEnabled(): boolean {
+  if (process.env.FSE_DISABLE_GH_TOKEN === "1") return false;
+  if (process.env.VITEST) return false;
+  if (process.env.NODE_ENV === "test") return false;
+  return true;
+}
+
+let ghTokenCache: string | null = null;
+
+/** Cached gh-CLI token ("" when unavailable/disabled). Spawns gh at most once. */
+function cachedGhToken(): string {
+  if (!ghFallbackEnabled()) return "";
+  if (ghTokenCache === null) ghTokenCache = readGhCliToken();
+  return ghTokenCache;
+}
+
+/** Test seam: forget the cached gh token so the next resolve re-reads it. */
+export function _resetGhTokenCache(): void {
+  ghTokenCache = null;
+}
+
+/**
+ * Resolve the effective GitHub token in precedence order:
+ *   1. DB `github_pat` (set via the Settings UI)
+ *   2. `GITHUB_TOKEN` environment variable
+ *   3. Local `gh auth token` (zero-config fallback; disabled under test)
+ * Returns "" when none is available.
+ */
+export function resolveGitHubToken(): string {
+  const dbPat = (getConfig("github_pat") || "").trim();
+  if (dbPat) return dbPat;
+  const envToken = (process.env.GITHUB_TOKEN || "").trim();
+  if (envToken) return envToken;
+  return cachedGhToken();
+}
+
+/** Report where the effective token comes from — never the token itself. */
+export function getGitHubTokenSource(): GitHubTokenSource {
+  if ((getConfig("github_pat") || "").trim()) return "pat";
+  if ((process.env.GITHUB_TOKEN || "").trim()) return "env";
+  if (cachedGhToken()) return "gh";
+  return "none";
+}
+
 /** Centralized AI config with defaults applied */
 export function getAiConfig() {
   const provider = (getConfig("llm_provider") || "github") as LlmProvider;
@@ -146,7 +231,7 @@ export function getAiConfig() {
 
   return {
     provider: "github" as const,
-    pat: getConfig("github_pat") || process.env.GITHUB_TOKEN || "",
+    pat: resolveGitHubToken(),
     model: getConfig("model") || "openai/gpt-4.1",
     endpoint: getConfig("endpoint") || "https://models.github.ai/inference/chat/completions",
     temperature: parseTemperature(getConfig("temperature") || "0.2"),
@@ -163,7 +248,11 @@ function isProviderConfigured(): { ok: boolean; error?: string } {
     return { ok: true };
   }
   if (!config.pat) {
-    return { ok: false, error: "No GitHub PAT configured. Go to Settings to add one, or switch to Ollama for fully local operation." };
+    return {
+      ok: false,
+      error:
+        "No GitHub token available. Add a PAT in Settings, set GITHUB_TOKEN, or run `gh auth login` — or switch to Ollama for fully local operation.",
+    };
   }
   return { ok: true };
 }
@@ -772,9 +861,13 @@ export async function chatRequest(
   };
 
   if (config.provider === "github") {
-    headers["Accept"] = "application/vnd.github+json";
+    // GitHub Models is an OpenAI-compatible inference endpoint: it only needs a
+    // Bearer token (a GitHub token with models:read) plus the JSON content type
+    // set above. The REST-API headers this used to send
+    // (Accept: application/vnd.github+json, X-GitHub-Api-Version) target
+    // api.github.com, not the inference host — tolerated but semantically wrong,
+    // so they're dropped to match the validated connection method.
     headers["Authorization"] = `Bearer ${pat}`;
-    headers["X-GitHub-Api-Version"] = "2022-11-28";
   }
   // Ollama's OpenAI-compatible endpoint needs no auth headers
 

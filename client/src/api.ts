@@ -76,6 +76,19 @@ export interface ScenarioHistoryEntry {
   created_at: string;
 }
 
+/** A selectable GitHub model, as returned by GET /api/models. */
+export interface ModelInfo {
+  id: string;
+  name: string;
+  publisher: string;
+}
+
+export interface ModelListResult {
+  models: ModelInfo[];
+  /** "catalog" = live GitHub list; "fallback" = curated static list. */
+  source: "catalog" | "fallback";
+}
+
 /**
  * Read the shared API token from localStorage (key: "app_api_token").
  * The token is printed to the server console at startup and must be copied
@@ -122,6 +135,7 @@ export const api = {
     request<StaffingAssignment[]>(`/staffing${projectId ? `?project_id=${projectId}` : ""}`),
   getRates: () => request<LaborCategoryRate[]>("/rates"),
   getConfig: () => request<Record<string, string>>("/config"),
+  getModels: () => request<ModelListResult>("/models"),
   getScenarios: (limit?: number) =>
     request<ScenarioHistoryEntry[]>(`/scenarios${limit ? `?limit=${limit}` : ""}`),
 
