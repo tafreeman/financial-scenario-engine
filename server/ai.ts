@@ -33,7 +33,13 @@ interface ChatChoice {
 
 interface ChatResponse {
   choices: ChatChoice[];
-  usage?: { total_tokens: number };
+  // OpenAI-compatible chat completion usage block (GitHub Models API and
+  // Ollama's OpenAI-compat endpoint both populate all three). prompt_tokens
+  // and completion_tokens are the honest "in"/"out" split; total_tokens is
+  // their sum, used only where a single cost/consumption number is wanted
+  // (AiResponse.tokensUsed, AgenticResponse.tokensUsed below) — never as a
+  // stand-in for either half. See instrumentedChatRequest().
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
 
 // ─── AI Config ───────────────────────────────────────────────────────────────
@@ -318,7 +324,16 @@ async function instrumentedChatRequest(
     const data = await chatRequest(endpoint, pat, payload, globalThis.fetch, defaultSleep, attemptTracker);
     const latencyMs = Math.round(performance.now() - startedAt);
     const retryCount = Math.max(0, attemptTracker.attempts - 1);
-    const tokensOut = data.usage?.total_tokens;
+    // Honest in/out split: prompt_tokens is what was sent, completion_tokens
+    // is what came back. Previously this read total_tokens (prompt +
+    // completion combined) into a variable called tokensOut and never
+    // populated tokensIn at all — every GET /api/telemetry/llm consumer saw
+    // tokensIn stuck at 0 and tokensOut silently holding the COMBINED count,
+    // not the output-only count its name promised. total_tokens is still
+    // used elsewhere (AiResponse.tokensUsed, AgenticResponse.tokensUsed) for
+    // whole-call cost accounting, where "total" is the honest label.
+    const tokensIn = data.usage?.prompt_tokens;
+    const tokensOut = data.usage?.completion_tokens;
 
     logEvent("info", "llm_call", {
       requestId,
@@ -327,10 +342,11 @@ async function instrumentedChatRequest(
       purpose,
       latencyMs,
       retryCount,
+      tokensIn: tokensIn ?? null,
       tokensOut: tokensOut ?? null,
       outcome: "success",
     });
-    recordLlmCall({ purpose, outcome: "success", tokensOut, retryCount });
+    recordLlmCall({ purpose, outcome: "success", tokensIn, tokensOut, retryCount });
 
     return data;
   } catch (err: unknown) {

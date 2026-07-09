@@ -2,7 +2,6 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  globalSetup: "./tests/e2e/global-setup.ts",
   timeout: 30_000,
   fullyParallel: false,
   workers: 1,
@@ -19,7 +18,12 @@ export default defineConfig({
     extraHTTPHeaders: { "x-app-token": "e2e-app-token" },
   },
   webServer: {
-    command: "npm run build && npm run start",
+    // e2e:reset-db MUST finish before build/start — it deletes
+    // data/finimpact.db so the server seeds fresh, and the server opens
+    // that file as soon as it starts. Chaining with && (not Playwright's
+    // globalSetup) guarantees that ordering — see tests/e2e/reset-e2e-db.ts
+    // for why globalSetup was the wrong tool here.
+    command: "npm run e2e:reset-db && npm run build && npm run start",
     env: {
       PORT: "3100",
       // Stable token for e2e; matches tests/e2e/auth-state.json localStorage seed.

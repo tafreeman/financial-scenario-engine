@@ -159,6 +159,18 @@ Also exports `ROLE_ABBREVIATIONS` dictionary for common aliases.
 
 ---
 
+### `validation.ts` — LLM trust-boundary schema
+
+Zod schema that revalidates every LLM-produced operation before the engine ever sees it (see [ADR-001](../../docs/decisions/001-llm-engine-separation.md) and the README's "Reliability at the LLM boundary" section).
+
+| Export | Description |
+|--------|-------------|
+| `scenarioOperationSchema` | Strict Zod schema for `ScenarioOperation` — rejects malformed or hallucinated fields rather than coercing them |
+
+Used by `server/ai.ts` on both the V2 parse path and the V3 tool-call path, before `executeScenario()` is ever invoked.
+
+---
+
 ### `executor.ts` — Scenario orchestration
 
 Entry point for running a complete scenario. Calls the pure calculation functions and assembles the `ScenarioResult` envelope. Has no database access — callers are responsible for loading the portfolio via `loadPortfolioSnapshot()` from `server/loaders.ts` before invoking the engine.
@@ -201,7 +213,7 @@ import { calcProjectLabor, calcBudgetMetrics, executeScenario } from "./engine/i
 ```bash
 # From repo root
 npm install
-npx vitest run        # run all 101 engine tests once
+npx vitest run        # run the engine test suite once
 npx vitest            # watch mode
 ```
 
@@ -213,9 +225,16 @@ Test files:
 | `__tests__/budget.test.ts` | `budget.ts` functions |
 | `__tests__/margin.test.ts` | `margin.ts` functions |
 | `__tests__/evm.test.ts` | `evm.ts` functions |
+| `__tests__/utilization.test.ts` | `utilization.ts` functions |
 | `__tests__/scenarios.test.ts` | `scenarios.ts` mutations + impact |
-| `__tests__/goal-seeking.test.ts` | Goal-seeking / what-if scenarios |
 | `__tests__/narrative.test.ts` | `narrative.ts` output |
+| `__tests__/validation.test.ts` | `validation.ts` — `scenarioOperationSchema` |
+| `__tests__/executor-guards.test.ts` | `executor.ts` guard paths — transitively exercises `matching.ts` and `portfolio.ts` |
+| `__tests__/evm-proxy.test.ts` | `executor.ts` — EVM proxy/spend-ratio wiring |
+| `__tests__/deterministic-asofdate.test.ts` | `executor.ts` — deterministic date handling |
+| `__tests__/goal-seeking.test.ts` | Not a per-module file — composes `labor`/`margin`/`budget`/`scenarios` to check goal-seeking-style what-if composability |
+
+Run a single file with `npx vitest run server/engine/__tests__/<file>`. The current pass/fail count is whatever that command reports — it isn't maintained as a static number here.
 
 ---
 

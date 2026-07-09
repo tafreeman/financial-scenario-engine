@@ -7,9 +7,7 @@
 
 A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results, and any structured output it returns is revalidated against a strict schema at that trust boundary before the engine ever sees it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)). All project data lives in a local SQLite file; inference runs via a multi-provider abstraction over the GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
 
-> **Development note:** Built through interactive, AI-assisted development — design,
-> architecture, and code were authored and reviewed by the maintainer with AI tooling
-> used as a pair-programming aid. Some commits carry AI co-author trailers reflecting that assistance.
+> **Development note:** Built with AI-assisted development; see [`CONTRIBUTORS.md`](CONTRIBUTORS.md) for tooling and attribution details.
 
 ## What It Does
 
@@ -57,7 +55,7 @@ The LLM sits at the edge, not in the critical path, and every call across that b
 - **Transient-failure retry policy** — bounded retries (`LLM_MAX_RETRY_ATTEMPTS = 3`) with exponential backoff + jitter, honoring a server `Retry-After` header capped at 60s so a hostile or buggy header can't stall a request for minutes (`chatRequest()`, `server/ai.ts`).
 - **Structured-output revalidation at the trust boundary** — every LLM response that becomes a `ScenarioOperation`, on both the V2 parse path and the V3 tool-call path, is revalidated against a strict Zod schema (`scenarioOperationSchema`) before the deterministic engine runs; malformed or hallucinated fields are rejected, not coerced (`server/engine/validation.ts`, `server/ai.ts`).
 - **SSRF / redirect egress guards** — the config endpoint URL is rejected if it resolves to a loopback or private-range host, including IPv4-mapped/IPv4-compatible IPv6 forms that would otherwise bypass a naive check (`server/ssrf.ts`), and outbound LLM requests set `redirect: "error"` so an allowlisted endpoint can't 3xx-redirect the request (carrying the PAT and financial context) to an attacker-controlled host (`chatRequest()`, `server/ai.ts`).
-- **Boundary observability** — every LLM call emits one structured JSON log line (request id, latency, retry count, token count, typed failure code — never prompts, queries, or financial content; `server/logger.ts`, `server/ai.ts`) and updates an in-process aggregate served read-only at `GET /api/telemetry/llm` (`server/llm-telemetry.ts`). Nothing is transmitted anywhere — see Security below.
+- **Boundary observability** — every LLM call emits one structured JSON log line (request id, latency, retry count, prompt/completion token counts, typed failure code — never prompts, queries, or financial content; `server/logger.ts`, `server/ai.ts`) and updates an in-process aggregate served read-only at `GET /api/telemetry/llm` (`server/llm-telemetry.ts`). Nothing is transmitted anywhere — see Security below.
 
 ## Quick Start
 
@@ -185,9 +183,9 @@ npx vitest run          # run once
 npx vitest              # watch mode
 ```
 
-The seven core calculation modules (`labor`, `budget`, `margin`, `evm`, `scenarios`, `goal-seeking`, `narrative`) each have a dedicated unit-test file exercising the full calculation surface (EVM metrics, what-if scenarios, goal-seeking) with no network or API key. A separate AI-layer integration test covers the intent-to-tool-arg boundary.
+The core calculation modules — `labor`, `budget`, `margin`, `evm`, `utilization`, `scenarios`, and `narrative` — each have a dedicated unit-test file exercising the full calculation surface (EVM metrics, utilization, what-if scenarios) with no network or API key. `matching.ts` (fuzzy project/role resolution) and `portfolio.ts` (portfolio aggregation) have no standalone test file of their own — they're exercised transitively wherever `executor.ts` resolves a project/role or aggregates a multi-project result (`executor-guards.test.ts`, `deterministic-asofdate.test.ts`, `evm-proxy.test.ts`, `scenarios.test.ts`). `validation.ts`'s Zod schema is covered by `validation.test.ts`. `goal-seeking.test.ts` is not a dedicated module's test file — there is no `goal-seeking.ts` module — it's a composability check that chains the `labor`/`margin`/`budget`/`scenarios` primitives the way the V3 agentic loop does to answer goal-seeking-style queries (e.g. "how do I extend the timeline and stay in budget?"). A separate AI-layer integration test covers the intent-to-tool-arg boundary.
 
-**Coverage scope:** the enforced coverage thresholds ([`vitest.config.ts`](vitest.config.ts)) apply to `server/engine/**` — the deterministic financial core — and deliberately exclude `executor.ts` and `portfolio.ts`. That's not a coverage gap: both are covered by dedicated unit tests (`executor-guards`, `evm-proxy`, `deterministic-asofdate`) plus the Playwright E2E suite below, which exercises the orchestration and portfolio-aggregation layers end-to-end. Scoping the enforced numeric floor to the pure-calculation core keeps the gate meaningful rather than diluting it with orchestration code that unit tests are the wrong tool for.
+**Coverage scope:** the enforced coverage thresholds ([`vitest.config.ts`](vitest.config.ts)) apply to `server/engine/**` — the deterministic financial core — and deliberately exclude `executor.ts`, `portfolio.ts`, and the barrel `index.ts`. That's not a coverage gap: `executor.ts`, and transitively `portfolio.ts`'s `calcPortfolioMetrics()` for portfolio-wide actions, is exercised directly by `executor-guards.test.ts`, `evm-proxy.test.ts`, and `deterministic-asofdate.test.ts`, which call `executeScenario()` the same way production does. **The Playwright E2E suite below does not additionally exercise this path** — the only E2E spec that reaches the AI-scenario endpoints (`ai-workflow.spec.ts`) intercepts the request at the browser network boundary (`page.route("**/api/scenario/v3", ...)`) and fulfills it with a scripted response, so `executeScenario()`/`calcPortfolioMetrics()` never run during that test; the e2e environment also has no LLM provider configured, so a live call isn't available as an alternative. The E2E suite's real (unmocked) coverage of `server/engine/` comes from the Dashboard tests in `app.spec.ts`, which hit the live `/api/dashboard` handler — though that handler computes its summary with its own arithmetic in `server/routes.ts` rather than calling `portfolio.ts`. Scoping the enforced numeric floor to the pure-calculation core keeps the gate meaningful rather than diluting it with orchestration code that unit tests are the better tool for.
 
 ### E2E Tests (Playwright)
 
@@ -203,6 +201,8 @@ npx playwright install --with-deps chromium
 ```
 
 Tests live in `tests/e2e/ui/` (UI workflows) and `tests/e2e/excel/` (import endpoint).
+
+`app.spec.ts` and `tests/e2e/excel/*.spec.ts` hit the real server and real (freshly-seeded) SQLite DB — no mocking. `ai-workflow.spec.ts` (the AI Analyst query/response flow) is different: it uses Playwright's `page.route()` to intercept `/api/scenario/v3` in the browser and return a scripted JSON response, so it verifies the *frontend's* handling of a given API shape (loading state, rendering, error states) — it does not exercise the real intent-parsing, engine, or narration code on the server. That's intentional: the e2e environment runs with no LLM provider configured (see `FSE_DISABLE_GH_TOKEN` in `playwright.config.ts`), so there's no live model to call. Server-side AI-boundary behavior is covered instead by the Vitest suite above (`ai.test.ts`, `executor-guards.test.ts`, etc.) and the separate intent-parsing eval below.
 
 ### Intent-parsing evals
 
@@ -260,6 +260,7 @@ financial-scenario-engine/
 │   │   ├── portfolio.ts        # Portfolio-level aggregation
 │   │   ├── matching.ts         # Fuzzy role-name matching
 │   │   ├── narrative.ts        # Template-based markdown narrative renderer
+│   │   ├── validation.ts       # scenarioOperationSchema — Zod revalidation at the LLM trust boundary
 │   │   ├── executor.ts         # Scenario orchestration (calc → impact; snapshot passed in)
 │   │   ├── index.ts            # Barrel export
 │   │   └── __tests__/          # Vitest engine unit tests (one file per module)
