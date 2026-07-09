@@ -482,7 +482,11 @@ describe("LLM boundary observability — structured log + aggregation (WP3-B)", 
       headers: new Headers(),
       json: async () => ({
         choices: [{ message: { role: "assistant", content: '{"action":"burn_rate_check"}' }, finish_reason: "stop" }],
-        usage: { total_tokens: 42 },
+        // prompt_tokens + completion_tokens = total_tokens, matching the real
+        // OpenAI-compatible shape GitHub Models/Ollama return. Deliberately
+        // distinct values so a test that read total_tokens into either field
+        // (the bug this test guards against) would fail loudly.
+        usage: { prompt_tokens: 30, completion_tokens: 12, total_tokens: 42 },
       }),
     }));
 
@@ -498,13 +502,16 @@ describe("LLM boundary observability — structured log + aggregation (WP3-B)", 
     const parsed = JSON.parse(llmCallLines[0] as string);
     // Stable shape: request id, provider/model, purpose, latency, outcome —
     // and NEVER the query/context content (PII-redaction posture).
+    // tokensIn/tokensOut must reflect prompt_tokens/completion_tokens
+    // respectively, NOT total_tokens (42) collapsed into one field.
     expect(parsed).toMatchObject({
       level: "info",
       event: "llm_call",
       purpose: "intent",
       outcome: "success",
       retryCount: 0,
-      tokensOut: 42,
+      tokensIn: 30,
+      tokensOut: 12,
     });
     expect(typeof parsed.requestId).toBe("string");
     expect(parsed.requestId.length).toBeGreaterThan(0);
@@ -518,7 +525,8 @@ describe("LLM boundary observability — structured log + aggregation (WP3-B)", 
 
     const snapshot = getLlmTelemetrySnapshot();
     expect(snapshot.totals.calls).toBe(1);
-    expect(snapshot.totals.tokensOut).toBe(42);
+    expect(snapshot.totals.tokensIn).toBe(30);
+    expect(snapshot.totals.tokensOut).toBe(12);
     expect(snapshot.totals.failures).toBe(0);
     expect(snapshot.byPurpose.intent?.calls).toBe(1);
   });
@@ -589,7 +597,7 @@ describe("LLM boundary observability — structured log + aggregation (WP3-B)", 
       headers: new Headers(),
       json: async () => ({
         choices: [{ message: { role: "assistant", content: "## Impact Summary\nOK" }, finish_reason: "stop" }],
-        usage: { total_tokens: 17 },
+        usage: { prompt_tokens: 11, completion_tokens: 6, total_tokens: 17 },
       }),
     }));
 
@@ -610,7 +618,8 @@ describe("LLM boundary observability — structured log + aggregation (WP3-B)", 
 
     const snapshot = getLlmTelemetrySnapshot();
     expect(snapshot.byPurpose.narration?.calls).toBe(1);
-    expect(snapshot.byPurpose.narration?.tokensOut).toBe(17);
+    expect(snapshot.byPurpose.narration?.tokensIn).toBe(11);
+    expect(snapshot.byPurpose.narration?.tokensOut).toBe(6);
     expect(snapshot.byPurpose.intent).toBeUndefined();
   });
 

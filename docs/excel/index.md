@@ -45,13 +45,13 @@ file: <binary .xlsx>
 ```
 server/import/excel/
 ├── index.ts              Barrel: exports handlers + shared types
+│                            handleExcelImportV1 is re-exported a second time
+│                            as handleExcelImportV2 — no separate v2 file
 ├── shared/
 │   ├── types.ts          ExcelImportPreviewResponse, ExcelPreview, ExcelPreviewRow
 │   └── parseWorkbook.ts  Core SheetJS parser (shared by V1 and V2)
-├── v1/
-│   └── handler.ts        handleExcelImportV1
-└── v2/
-    └── handler.ts        handleExcelImportV2 (currently identical to V1)
+└── v1/
+    └── handler.ts        handleExcelImportV1
 ```
 
 ## Implementation Notes
@@ -59,7 +59,7 @@ server/import/excel/
 - Uses **SheetJS** (`xlsx` package) to parse workbooks from an in-memory buffer
 - `sheet_to_json({ header: 1 })` returns rows as arrays of raw cell values
 - No disk writes — everything parsed in memory
-- V2 is a placeholder for future mapping / full-import functionality
+- **There is no `v2/handler.ts` file.** `POST /api/import/excel/v2` is real and live, but `index.ts` serves it by re-exporting `handleExcelImportV1` under the name `handleExcelImportV2` — the route is a placeholder for future mapping/full-import functionality, not the file that implements it today
 
 ## Current Limitations (Phase 1)
 

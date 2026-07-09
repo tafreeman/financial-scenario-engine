@@ -15,6 +15,7 @@ graph TD
     T --> Po[portfolio.ts]
     T --> Mt[matching.ts]
     T --> Na[narrative.ts]
+    T --> Va[validation.ts]
 
     L --> X[executor.ts]
     Ma --> X
@@ -26,6 +27,7 @@ graph TD
     Mt --> X
 
     X --> |ScenarioResult| Na
+    Va --> |scenarioOperationSchema| X
 
     DB[(db.ts)] --> X
 ```
@@ -49,15 +51,17 @@ graph TD
 | [`margin.ts`](./margin) | Profitability | `calcProjectMargin()` |
 | [`budget.ts`](./budget) | Burn rate + exhaustion | `calcBudgetMetrics()` |
 | [`evm.ts`](./evm) | Earned Value Management | `calcEvm()` |
+| `utilization.ts` | Resource utilization | `calcUtilization()` |
 | [`scenarios.ts`](./scenarios) | Staffing mutations | `applySwap()`, `calcScenarioImpact()` |
 | [`portfolio.ts`](./portfolio) | Portfolio aggregation | `calcPortfolioMetrics()` |
 | [`matching.ts`](./matching) | Fuzzy role matching | `fuzzyMatch()` |
 | [`narrative.ts`](./narrative) | Template narratives | `generateNarrative()` |
+| `validation.ts` | LLM trust-boundary schema | `scenarioOperationSchema` |
 | [`executor.ts`](./executor) | Orchestration | `executeScenario()` |
 
-## Tests
+> `utilization.ts` and `validation.ts` don't have a dedicated page in this guide yet (unlike the other modules above, which are linked) — see their doc comments in `server/engine/README.md` for now.
 
-101 unit tests across 7 test files covering all modules:
+## Tests
 
 ```bash
 # Run all engine tests
@@ -67,12 +71,19 @@ npx vitest run
 npx vitest
 ```
 
+The current pass/fail and test-file count are whatever `npx vitest run` reports — not maintained as a static number here (it drifts every time a test is added).
+
 | Test file | Covers |
 |-----------|--------|
 | `labor.test.ts` | `labor.ts` functions |
 | `budget.test.ts` | `budget.ts` functions |
 | `margin.test.ts` | `margin.ts` functions |
 | `evm.test.ts` | `evm.ts` functions |
+| `utilization.test.ts` | `utilization.ts` functions |
 | `scenarios.test.ts` | `scenarios.ts` mutations + impact |
-| `goal-seeking.test.ts` | Goal-seeking / what-if scenarios |
 | `narrative.test.ts` | `narrative.ts` output |
+| `validation.test.ts` | `validation.ts` — `scenarioOperationSchema` |
+| `executor-guards.test.ts` | `executor.ts` guard paths — transitively exercises `matching.ts` and `portfolio.ts` |
+| `evm-proxy.test.ts` | `executor.ts` — EVM proxy/spend-ratio wiring |
+| `deterministic-asofdate.test.ts` | `executor.ts` — deterministic date handling |
+| `goal-seeking.test.ts` | Not a per-module file — composes `labor`/`margin`/`budget`/`scenarios` to check goal-seeking-style what-if composability |

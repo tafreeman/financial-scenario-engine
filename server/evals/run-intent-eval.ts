@@ -118,6 +118,16 @@ interface CategorySummary {
    *  corpus size. This is what makes a category-specific accuracy dip visible
    *  instead of averaging out inside the single blended actionAccuracy. */
   actionAccuracy: number;
+  /**
+   * Typed IntentParseFailureCode counts within this category's cases only
+   * (see tallyFailuresByCode()). Already included in failCount — this is a
+   * breakdown of WHY those cases missed, not an additional denominator.
+   * Lets a reviewer see, e.g., whether "adversarial" cases fail mostly via
+   * provider_error (the provider itself refusing/erroring — possibly a
+   * content-policy trip on prompt-injection-style inputs) versus
+   * invalid_json/invalid_operation (a genuine parsing miss).
+   */
+  parseFailuresByCode: Record<string, number>;
 }
 
 interface EvalSummary {
@@ -137,6 +147,39 @@ interface EvalSummary {
    *  (see CaseResult.parseFailureCode) rather than throwing a transport
    *  error. Distinct from errorCount, which is transport/HTTP failures only. */
   parseFailureCount: number;
+  /**
+   * parseFailureCount broken out by IntentParseFailureCode, summed across
+   * the whole corpus (see tallyFailuresByCode() and CategorySummary's
+   * per-category version of the same breakdown). Every count here is
+   * already included in parseFailureCount / failCount / the
+   * actionAccuracy denominator (corpusSize) — this NEVER removes a case
+   * from a denominator, it only labels why a subset of the misses
+   * happened.
+   *
+   * Rationale for tracking this separately: "provider_error" (the
+   * upstream model/provider itself erroring — a rate limit, a malformed
+   * response, or a content-policy refusal) is a different failure mode
+   * than "invalid_json"/"invalid_operation" (the model responded, but its
+   * output didn't parse or validate against scenarioOperationSchema) or
+   * "provider_unconfigured" (a setup problem, not reachable in a normal
+   * gated run). A spike concentrated in provider_error — especially
+   * inside the "adversarial" category (see categoryBreakdown) — points at
+   * the provider's own content-policy filter tripping on
+   * prompt-injection-style test inputs, which calls for a different fix
+   * (rephrase or drop that corpus entry, or accept the refusal as correct
+   * behavior) than a genuine PARSE_INTENT_PROMPT quality regression does.
+   *
+   * This breakdown is informational only and does NOT change the
+   * pass/fail gate below or introduce a second threshold: a
+   * provider_error is still an inability to produce a usable
+   * ScenarioOperation for the user's query, so the gate keeps scoring it
+   * as a miss exactly like any other typed failure. Excluding
+   * provider_error from the gate would let a real reliability regression
+   * (e.g. the provider starting to refuse a class of legitimate queries)
+   * pass silently — see the "do NOT hide failures by dropping them from
+   * the denominator" acceptance rule this was built to satisfy.
+   */
+  parseFailuresByCode: Record<string, number>;
   /**
    * Accuracy broken out per category (see CorpusEntry.category /
    * CATEGORY_UNTAGGED), each with its OWN denominator (that category's case
@@ -188,6 +231,29 @@ RATE CARD:
   QA Engineer: Bill=$165/hr, Cost=$115/hr, Margin=30.3%
   Project Manager: Bill=$225/hr, Cost=$165/hr, Margin=26.7%
   Scrum Master: Bill=$195/hr, Cost=$145/hr, Margin=25.6%`;
+
+// ─── Failure-code stratification ─────────────────────────────────────────────
+
+/**
+ * Tally typed parse-failure codes (IntentParseFailureCode; see
+ * CaseResult.parseFailureCode) across a set of cases. Cases with no
+ * parseFailureCode (parseIntent() succeeded, whether the action matched or
+ * not) are excluded from the tally entirely — this never changes a
+ * denominator, it only labels why the cases that already count as misses
+ * missed. See EvalSummary.parseFailuresByCode for the rationale.
+ *
+ * Exported (and kept pure — no I/O) so it's unit-testable without a live
+ * model call; main() itself requires network access and isn't unit-testable
+ * (see the module comment above isGatedRun()).
+ */
+export function tallyFailuresByCode(cases: Pick<CaseResult, "parseFailureCode">[]): Record<string, number> {
+  const byCode: Record<string, number> = {};
+  for (const c of cases) {
+    if (!c.parseFailureCode) continue;
+    byCode[c.parseFailureCode] = (byCode[c.parseFailureCode] ?? 0) + 1;
+  }
+  return byCode;
+}
 
 // ─── Scoring helpers ──────────────────────────────────────────────────────────
 
@@ -410,8 +476,12 @@ async function main(): Promise<void> {
         failCount: catFail,
         errorCount: catError,
         actionAccuracy: caseResults.length > 0 ? catPass / caseResults.length : 0,
+        parseFailuresByCode: tallyFailuresByCode(caseResults),
       };
     });
+
+  // Full-corpus version of the same breakdown — see EvalSummary.parseFailuresByCode.
+  const parseFailuresByCode = tallyFailuresByCode(results);
 
   // Accuracy with the adversarial slice excluded from both numerator and
   // denominator — the "non-adversarial floor" a calibration reviewer can
@@ -431,12 +501,27 @@ async function main(): Promise<void> {
   console.log(`  Failed         : ${failCount}`);
   console.log(`  Errors         : ${errorCount}  (transport/HTTP only — scored 0)`);
   console.log(`  Parse failures : ${parseFailureCount}  (typed IntentParseFailure from production parseIntent() — scored 0, as production returns 422)`);
+  if (Object.keys(parseFailuresByCode).length > 0) {
+    const breakdown = Object.entries(parseFailuresByCode)
+      .sort(([, a], [, b]) => b - a)
+      .map(([code, count]) => `${code}=${count}`)
+      .join(", ");
+    // Stratifies WITHIN parseFailureCount — does not add to or shrink any
+    // denominator. See EvalSummary.parseFailuresByCode for the rationale
+    // (why provider_error is worth distinguishing from a genuine parsing
+    // miss, and why it still counts as a miss for the gate below).
+    console.log(`    by code      : ${breakdown}  (stratifies parseFailureCount above — informational, does not change the gate)`);
+  }
   console.log("─".repeat(70));
   console.log("Accuracy by category (own denominator per row — NOT corpusSize):");
   for (const cat of categoryBreakdown) {
+    const catBreakdown = Object.entries(cat.parseFailuresByCode)
+      .sort(([, a], [, b]) => b - a)
+      .map(([code, count]) => `${code}=${count}`)
+      .join(",");
     console.log(
       `  ${cat.category.padEnd(14)} ${String(cat.passCount).padStart(3)}/${String(cat.corpusSize).padEnd(3)} = ${(cat.actionAccuracy * 100).toFixed(1).padStart(5)}%` +
-        `  (fail=${cat.failCount}, err=${cat.errorCount})`
+        `  (fail=${cat.failCount}, err=${cat.errorCount}${catBreakdown ? `, parse-fail: ${catBreakdown}` : ""})`
     );
   }
   if (actionAccuracyExcludingAdversarial !== undefined) {
@@ -460,6 +545,7 @@ async function main(): Promise<void> {
     failCount,
     errorCount,
     parseFailureCount,
+    parseFailuresByCode,
     categoryBreakdown,
     ...(actionAccuracyExcludingAdversarial !== undefined ? { actionAccuracyExcludingAdversarial } : {}),
     cases: results,
