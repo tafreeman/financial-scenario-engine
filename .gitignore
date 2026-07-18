@@ -23,3 +23,7 @@ docs/node_modules/
 _analysis/
 coverage/
 server/evals/results/
+# Secret-adjacent defensive patterns (none tracked today; belt-and-braces)
+*.pem
+*.key
+id_rsa*

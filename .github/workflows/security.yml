@@ -39,6 +39,19 @@ jobs:
       - uses: github/codeql-action/autobuild@v4
       - uses: github/codeql-action/analyze@v4
 
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   npm-audit:
     name: npm audit
     runs-on: ubuntu-latest
