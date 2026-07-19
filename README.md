@@ -146,7 +146,7 @@ POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2`. The endpoi
 
 ### CORS configuration
 
-The server defaults to allowing requests only from `http://127.0.0.1:3000` (the local dev origin). When deploying behind a reverse proxy or to a hosted environment, set the `CORS_ORIGIN` environment variable to your application's actual origin:
+The server defaults to allowing requests only from the Vite dev-client origins `http://localhost:5173` and `http://127.0.0.1:5173`. When deploying behind a reverse proxy or to a hosted environment, set the `CORS_ORIGIN` environment variable to your application's actual origin:
 
 ```bash
 CORS_ORIGIN=https://your-app.example.com npm start

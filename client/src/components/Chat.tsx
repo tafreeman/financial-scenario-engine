@@ -41,13 +41,17 @@ export default function Chat() {
   useEffect(() => {
     // Only refetch history when a new response arrives (not when cleared to null)
     if (agenticResponse) {
-      api.getScenarios(20).then(setHistory).catch(() => {});
+      api.getScenarios(20).then(setHistory).catch((e) => {
+        console.warn("Failed to refresh scenario history:", e);
+      });
     }
   }, [agenticResponse]);
 
   // Initial history load
   useEffect(() => {
-    api.getScenarios(20).then(setHistory).catch(() => {});
+    api.getScenarios(20).then(setHistory).catch((e) => {
+      console.warn("Failed to load scenario history:", e);
+    });
   }, []);
 
   const runQuery = async (q?: string) => {

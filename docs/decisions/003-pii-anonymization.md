@@ -75,7 +75,7 @@ The constraint that tokens are not persistent across snapshots (re-indexed on ea
 ### Constraints Imposed
 - `buildAnonymizedContextSnapshot()` must remain the only function used to construct LLM context strings. It must not be bypassed, inlined, or replaced with a raw database query in any route handler or AI utility function.
 - No future code change may add `person_name` (or any field derived from it) to the string returned by `buildAnonymizedContextSnapshot()`.
-- `AGENTS.md` documents this constraint for AI coding assistants working in the repository.
+- This constraint is enforced structurally rather than by convention: all LLM context strings originate from the single `buildAnonymizedContextSnapshot()` function in `server/db.ts`, so there is exactly one code path to review and no un-anonymized snapshot builder to accidentally call.
 - Any new LLM integration point (additional routes, batch jobs, background summarizers) must route through `buildAnonymizedContextSnapshot()` or its designated successor and must be reviewed against this decision.
 
 ## Airgap Deployment Path

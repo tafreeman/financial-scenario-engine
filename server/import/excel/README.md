@@ -54,15 +54,15 @@ server/import/excel/
 │                          #   handler file (see Implementation Notes below)
 ├── shared/
 │   ├── types.ts          # ExcelImportPreviewResponse, ExcelPreview, ExcelPreviewRow
-│   └── parseWorkbook.ts  # Core SheetJS parser (shared by V1 and V2)
+│   └── parseWorkbook.ts  # Core ExcelJS parser (shared by V1 and V2)
 └── v1/
     └── handler.ts        # handleExcelImportV1 — validates file, calls parseWorkbook
 ```
 
 ## Implementation Notes
 
-- Uses **SheetJS** (`xlsx` package) to parse workbooks from an in-memory buffer (no disk writes)
-- `sheet_to_json({ header: 1 })` returns rows as arrays of raw cell values
+- Uses **ExcelJS** (`exceljs` package) to parse workbooks from an in-memory buffer via `workbook.xlsx.load(buffer)` (no disk writes)
+- Iterates `workbook.worksheets` and reads each sheet with `ws.eachRow({ includeEmpty: true }, ...)`, returning rows as arrays of raw cell values (ExcelJS `row.values` is 1-indexed, so the leading empty slot is dropped)
 - **There is no `v2/handler.ts`.** `POST /api/import/excel/v2` is wired (`server/routes.ts`) to `handleExcelImportV2`, which `index.ts` defines as a re-export of `handleExcelImportV1` (`export { handleExcelImportV1 as handleExcelImportV2 } from "./v1/handler.js"`). A previous standalone `v2/handler.ts` placeholder was dead code — nothing imported it, the barrel re-export above is what actually serves the route — and was removed. The route stays live and documented; only the unreferenced file was deleted.
 - V2 is a placeholder **route** for future mapping / full-import functionality — differentiating it means adding a real `v2/handler.ts` and pointing the barrel export at it, not resurrecting the deleted placeholder file
 

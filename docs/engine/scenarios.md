@@ -53,9 +53,12 @@ const updated = applySwap(
 
 ---
 
-### `applyRateChange(staffing, rate_changes[])`
+### `applyRateChange(staffing, rate_changes[], warnings?)`
 
-Change bill and/or cost rates for a role.
+Change bill and/or cost rates for a role. All entries matching a record are
+folded in order (later entries override earlier ones per field); when more
+than one entry matches a single record, a note is pushed to the optional
+`warnings` array.
 
 ```typescript
 const updated = applyRateChange(staffing, [
@@ -65,9 +68,10 @@ const updated = applyRateChange(staffing, [
 
 ---
 
-### `applyHoursChange(staffing, hours_changes[])`
+### `applyHoursChange(staffing, hours_changes[], warnings?)`
 
-Change weekly hours for a named person.
+Change weekly hours for a named person. Matching entries fold the same way
+as `applyRateChange`, with the same optional multi-match warning.
 
 ```typescript
 const updated = applyHoursChange(staffing, [

@@ -287,37 +287,6 @@ export function getLaborCategories() {
   `).all();
 }
 
-export function buildContextSnapshot(): string {
-  const projects = getProjectsWithBurn();
-  const staffing = getStaffingByProject();
-  const categories = getLaborCategories();
-
-  let ctx = "CURRENT PROJECTS:\n";
-  for (const p of projects) {
-    ctx += `  ${p.name}: Budget=$${p.total_budget.toLocaleString()}, `;
-    ctx += `Spent=$${p.spent_to_date.toLocaleString()}, `;
-    ctx += `Remaining=$${Math.round(p.remaining).toLocaleString()}, `;
-    ctx += `Monthly Burn=$${Math.round(p.monthly_burn).toLocaleString()}, `;
-    ctx += `Months Left=${p.months_left.toFixed(1)}, `;
-    ctx += `Status=${p.status}\n`;
-  }
-
-  ctx += "\nCURRENT STAFFING:\n";
-  for (const s of staffing as StaffingQueryRow[]) {
-    ctx += `  ${s.project_name} | ${s.labor_category} | ${s.person_name || "TBD"} | `;
-    ctx += `${s.hours_per_week}hrs/wk | Cost=$${Math.round(s.monthly_cost)}/mo | `;
-    ctx += `Revenue=$${Math.round(s.monthly_revenue)}/mo | Margin=${(s.margin * 100).toFixed(1)}%\n`;
-  }
-
-  ctx += "\nRATE CARD:\n";
-  for (const c of categories as LaborCategoryRow[]) {
-    ctx += `  ${c.name}: Bill=$${c.bill_rate}/hr, Cost=$${c.cost_rate}/hr, `;
-    ctx += `Margin=${(c.margin * 100).toFixed(1)}%\n`;
-  }
-
-  return ctx;
-}
-
 /**
  * Build an anonymized context snapshot that strips person names (PII)
  * while preserving project names and role names (needed for LLM intent mapping).
