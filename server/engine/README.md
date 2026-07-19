@@ -128,8 +128,8 @@ Immutable staffing mutation functions and before/after delta calculation.
 | `applyRemove(staffing, remove[])` | Remove N people of a role |
 | `applyAdd(staffing, add[], categories)` | Add N people of a role |
 | `applySwap(staffing, remove[], add[], categories)` | Swap roles |
-| `applyRateChange(staffing, rate_changes[])` | Change bill/cost rates |
-| `applyHoursChange(staffing, hours_changes[])` | Change hours/week |
+| `applyRateChange(staffing, rate_changes[], warnings?)` | Change bill/cost rates (folds all matching entries) |
+| `applyHoursChange(staffing, hours_changes[], warnings?)` | Change hours/week (folds all matching entries) |
 | `calcScenarioImpact(current, projected)` | `ScenarioImpact` delta |
 | `calcTimelineExtensionImpact(project, months)` | Budget impact of extension |
 | `calcUnexpectedCostImpact(project, costs[])` | Impact of ad-hoc cost items |

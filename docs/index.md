@@ -37,7 +37,8 @@ title: Financial Scenario Engine
 burn rates, EVM, and staffing scenarios.
 
 - **Deterministic core** — same inputs, same outputs, every time; covered by
-  29 test files under `tests/` and `server/`.
+  a dedicated Vitest suite per calculation module under `server/` plus
+  Playwright end-to-end specs under `tests/`.
 - **LLM at the boundary, not in it** — parses intent and narrates results
   only; structured output is revalidated against a Zod schema
   (`scenarioOperationSchema`) before the engine runs.

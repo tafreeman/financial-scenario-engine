@@ -89,41 +89,59 @@ export function applySwap(
   return applyAdd(afterRemove, categories, add, projectId, projectName);
 }
 
-/** Apply rate changes to matching staffing records */
+/** Apply rate changes to matching staffing records.
+ *
+ *  All entries whose role substring-matches a record are folded into that
+ *  record in order; later entries override earlier ones for the same field
+ *  (a broad "Developer" bill-rate change and a narrow "Senior Developer"
+ *  cost-rate change on the same record both take effect). */
 export function applyRateChange(
   staffing: StaffingRecord[],
-  rateChanges: ScenarioOperation["rate_changes"]
+  rateChanges: ScenarioOperation["rate_changes"],
+  warnings?: string[]
 ): StaffingRecord[] {
   if (!rateChanges || rateChanges.length === 0) return [...staffing];
 
   return staffing.map(s => {
-    for (const change of rateChanges) {
-      if (s.labor_category.toLowerCase().includes(change.role.toLowerCase())) {
-        return {
-          ...s,
-          bill_rate: change.new_bill_rate ?? s.bill_rate,
-          cost_rate: change.new_cost_rate ?? s.cost_rate,
-        };
-      }
+    const matches = rateChanges.filter(change =>
+      s.labor_category.toLowerCase().includes(change.role.toLowerCase())
+    );
+    if (matches.length > 1 && warnings) {
+      warnings.push(`Multiple rate changes matched "${s.labor_category}"; applied in order (later entries override earlier ones per field).`);
     }
-    return { ...s };
+    return matches.reduce<StaffingRecord>(
+      (acc, change) => ({
+        ...acc,
+        bill_rate: change.new_bill_rate ?? acc.bill_rate,
+        cost_rate: change.new_cost_rate ?? acc.cost_rate,
+      }),
+      { ...s }
+    );
   });
 }
 
-/** Apply hours changes to matching staffing records by person name */
+/** Apply hours changes to matching staffing records by person name.
+ *
+ *  All entries whose person_name substring-matches a record are folded into
+ *  that record in order; the last matching entry wins. */
 export function applyHoursChange(
   staffing: StaffingRecord[],
-  hoursChanges: ScenarioOperation["hours_changes"]
+  hoursChanges: ScenarioOperation["hours_changes"],
+  warnings?: string[]
 ): StaffingRecord[] {
   if (!hoursChanges || hoursChanges.length === 0) return [...staffing];
 
   return staffing.map(s => {
-    for (const change of hoursChanges) {
-      if ((s.person_name ?? "").toLowerCase().includes(change.person_name.toLowerCase())) {
-        return { ...s, hours_per_week: change.new_hours_per_week };
-      }
+    const matches = hoursChanges.filter(change =>
+      (s.person_name ?? "").toLowerCase().includes(change.person_name.toLowerCase())
+    );
+    if (matches.length > 1 && warnings) {
+      warnings.push(`Multiple hours changes matched "${s.person_name ?? ""}"; applied in order (last entry wins).`);
     }
-    return { ...s };
+    return matches.reduce<StaffingRecord>(
+      (acc, change) => ({ ...acc, hours_per_week: change.new_hours_per_week }),
+      { ...s }
+    );
   });
 }
 

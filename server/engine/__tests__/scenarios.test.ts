@@ -129,6 +129,29 @@ describe("applyRateChange", () => {
     applyRateChange(alphaStaffing, [{ role: "Senior Developer", new_bill_rate: 999 }]);
     expect(alphaStaffing[0]?.bill_rate).toBe(245); // original unchanged
   });
+
+  it("folds all overlapping matches so both a broad bill change and a narrow cost change apply", () => {
+    const result = applyRateChange(alphaStaffing, [
+      { role: "Developer", new_bill_rate: 300 },
+      { role: "Senior Developer", new_cost_rate: 150 },
+    ]);
+    const senior = result.find(s => s.labor_category === "Senior Developer");
+    expect(senior!.bill_rate).toBe(300); // from the broad "Developer" entry
+    expect(senior!.cost_rate).toBe(150); // from the narrow "Senior Developer" entry — not dropped
+  });
+
+  it("warns when more than one entry matches the same record", () => {
+    const warnings: string[] = [];
+    applyRateChange(
+      alphaStaffing,
+      [
+        { role: "Developer", new_bill_rate: 300 },
+        { role: "Senior Developer", new_cost_rate: 150 },
+      ],
+      warnings
+    );
+    expect(warnings.some(w => w.includes("Senior Developer"))).toBe(true);
+  });
 });
 
 describe("applyHoursChange", () => {

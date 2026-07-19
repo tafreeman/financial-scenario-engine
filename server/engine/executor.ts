@@ -371,10 +371,10 @@ function handleStaffingChange(
       afterStaffing = applyRemove(beforeStaffing, operation.remove);
       break;
     case "rate_change":
-      afterStaffing = applyRateChange(beforeStaffing, operation.rate_changes);
+      afterStaffing = applyRateChange(beforeStaffing, operation.rate_changes, warnings);
       break;
     case "hours_change":
-      afterStaffing = applyHoursChange(beforeStaffing, operation.hours_changes);
+      afterStaffing = applyHoursChange(beforeStaffing, operation.hours_changes, warnings);
       break;
     default:
       afterStaffing = beforeStaffing;
