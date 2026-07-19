@@ -33,18 +33,13 @@ title: Financial Scenario Engine
 
 ## What it is
 
-Every financial number comes from a pure, fully-tested TypeScript calculation
-engine in `server/engine/` — labor costs, margins, burn rates, EVM, staffing
-scenarios. Same inputs, same outputs, every time. The optional LLM layer sits
-at the interface boundary: it parses natural-language queries into structured
-operations on the way in, and can narrate results in prose on the way out —
-it never computes a financial figure itself, and every structured response it
-returns is revalidated against a strict schema before the engine trusts it.
+`server/engine/` is a pure TypeScript engine computing labor costs, margins,
+burn rates, EVM, and staffing scenarios.
 
-- **Deterministic core** — the engine in `server/engine/` produces every
-  number; covered by 29 test files under `tests/` and `server/`.
-- **LLM at the boundary, not in it** — intent parsing and narration only;
-  structured LLM output is revalidated against a Zod schema
+- **Deterministic core** — same inputs, same outputs, every time; covered by
+  29 test files under `tests/` and `server/`.
+- **LLM at the boundary, not in it** — parses intent and narrates results
+  only; structured output is revalidated against a Zod schema
   (`scenarioOperationSchema`) before the engine runs.
 - **Local-first** — all project data lives in a single local SQLite file
   (`data/finimpact.db`); no telemetry, no analytics.

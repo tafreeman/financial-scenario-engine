@@ -22,9 +22,6 @@ PMs can ask natural-language questions and get structured financial analysis bac
 
 ![AI Analyst tab — natural-language scenario query interface](docs/assets/ai-analyst-tab.png)
 
-The app uses the local SQLite database for project, staffing, rate-card, and history data.
-The LLM helps parse intent and optionally narrate results, but the calculation engine produces the financial numbers.
-
 ## Architecture
 
 ```
@@ -155,7 +152,7 @@ The server defaults to allowing requests only from `http://127.0.0.1:3000` (the 
 CORS_ORIGIN=https://your-app.example.com npm start
 ```
 
-Leaving `CORS_ORIGIN` unset in production will cause cross-origin requests from the production domain to be rejected by browsers. The explicit origin requirement prevents arbitrary pages in a user's browser from reading API data (including `/api/config`).
+Leaving `CORS_ORIGIN` unset in production causes browsers to reject cross-origin requests from the production domain. The explicit origin requirement stops arbitrary pages in a user's browser from reading API data (including `/api/config`).
 
 ## Tech Stack
 
@@ -334,9 +331,7 @@ Edit the prompt constants in `server/ai.ts`:
 These control parsing, narrative output, and agentic scenario behavior.
 
 ### Connecting to Real Data
-Replace the seed data in `server/db.ts` → `seedSampleData()` with actual
-
-project/staffing data, or build an import pipeline from your pricing reference workbook.
+Replace the seed data in `server/db.ts` → `seedSampleData()` with actual project/staffing data, or build an import pipeline from your pricing reference workbook.
 
 ---
 
