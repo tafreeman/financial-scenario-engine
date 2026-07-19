@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Deterministic financial scenario engine with optional LLM intent parsing — GitHub Models API or Ollama, local SQLite",
+  "description": "Deterministic financial scenario engine with optional LLM intent parsing \u00e2\u20ac\u201d GitHub Models API or Ollama, local SQLite",
   "scripts": {
     "install:all": "npm install && cd client && npm install",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
@@ -55,6 +55,7 @@
   "overrides": {
     "uuid": ">=11.1.1",
     "tmp": ">=0.2.6",
-    "shell-quote": ">=1.8.4"
+    "shell-quote": ">=1.8.4",
+    "esbuild": ">=0.28.1"
   }
 }
