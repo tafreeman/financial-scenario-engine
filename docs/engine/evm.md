@@ -65,8 +65,6 @@ EV = BAC × (spent_to_date / total_budget)
 
 This treats the fraction of budget consumed as if it equals the fraction of work completed — a simplifying assumption that holds reasonably for cost-type contracts where spending closely tracks deliverable progress, but can diverge significantly for fixed-price or milestone-based contracts.
 
-### Complete EVM
-
 ### `calcEvm(project)`
 
 Compute all EVM metrics for a project in a single call.
