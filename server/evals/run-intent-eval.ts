@@ -16,17 +16,23 @@
  * burn_rate_check success.
  *
  * Usage:
- *   npm run eval:intent                       # local/dev — missing token skips (exit 0)
- *   EVAL_INTENT_GATED=1 npm run eval:intent    # CI/gated — missing token is FATAL (exit 1)
+ *   npm run eval:intent                       # local/dev — unconfigured provider skips (exit 0)
+ *   EVAL_INTENT_GATED=1 npm run eval:intent    # CI/gated — unconfigured provider is FATAL (exit 1)
  *
- * Requires: GITHUB_TOKEN env var (same one the server uses for the GitHub
- * Models API — see server/ai.ts getAiConfig(), which prefers the SQLite
- * "github_pat" config value and falls back to this env var). The model and
- * endpoint used are whatever getAiConfig() resolves — the DB's seeded
- * defaults (model "openai/gpt-4.1", endpoint the GitHub Models chat
- * completions URL, provider "github") unless a deployment has explicitly
- * reconfigured them via /api/config, in which case this eval now faithfully
- * reflects that deployment instead of silently ignoring it.
+ * Requires: a configured LLM provider — checked via the SAME
+ * isProviderConfigured() production uses (server/ai.ts), so this gate is
+ * provider-aware rather than hardcoded to one provider's credential (a prior
+ * version of this check looked only at process.env.GITHUB_TOKEN, which broke
+ * the moment a deployment or CI job configured a different provider — see
+ * server/ai.ts getAiConfig()/isProviderConfigured() for the "github" |
+ * "ollama" | "openrouter" resolution). The model and endpoint used are
+ * whatever getAiConfig() resolves — the DB's seeded defaults (model
+ * "openai/gpt-4.1" on the GitHub Models endpoint, provider "github") unless a
+ * deployment or CI step has explicitly reconfigured them (see
+ * server/evals/configure-openrouter-eval.ts, run by
+ * .github/workflows/real-model-eval.yml before this script, since GitHub
+ * Models is fully retired 2026-07-30), in which case this eval faithfully
+ * reflects that configuration instead of silently ignoring it.
  *
  * Prints per-case results and an aggregate accuracy summary, then writes JSON
  * results to server/evals/results/latest.json.
@@ -36,16 +42,23 @@
  * Falling below it fails the run (see exit codes) — this is what lets a real
  * intent-parsing regression fail CI instead of being silently absorbed.
  *
+ * Request pacing: when the resolved provider is "openrouter", corpus cases
+ * are paced (OPENROUTER_EVAL_PACING_MS below) to stay under OpenRouter's
+ * free-tier (":free" model-id suffix) rate limit of 20 requests/minute
+ * (https://openrouter.ai/docs/api-reference/limits) — the corpus is large
+ * enough to exceed that cap if run back-to-back. This has no effect for
+ * github/ollama runs.
+ *
  * Exit codes:
- *   0 — accuracy >= threshold, or API key absent AND not running gated
- *   1 — accuracy < threshold, API key absent while EVAL_INTENT_GATED=1/true,
+ *   0 — accuracy >= threshold, or provider unconfigured AND not running gated
+ *   1 — accuracy < threshold, provider unconfigured while EVAL_INTENT_GATED=1/true,
  *       or a fatal error (corpus unreadable, etc.)
  */
 
 import { readFileSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { parseIntent, getAiConfig } from "../ai.js";
+import { parseIntent, getAiConfig, isProviderConfigured, OPENROUTER_RATE_LIMIT_FLOOR_MS } from "../ai.js";
 import type { ScenarioOperation } from "../engine/types.js";
 import { INTENT_CORPUS_ACCURACY_THRESHOLD } from "./eval-config.js";
 
@@ -53,10 +66,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /**
- * "Gated" runs (CI, or anyone opting in locally) treat a missing GITHUB_TOKEN
- * as a FATAL error rather than a silent skip — otherwise a credential-less CI
- * job would report green without ever exercising the model. Recognizes "1"
- * and "true" (case-insensitive) so either style of CI env-var convention works.
+ * "Gated" runs (CI, or anyone opting in locally) treat an unconfigured
+ * provider (see isProviderConfigured(), server/ai.ts) as a FATAL error rather
+ * than a silent skip — otherwise a credential-less CI job would report green
+ * without ever exercising the model. Recognizes "1" and "true"
+ * (case-insensitive) so either style of CI env-var convention works.
  */
 export function isGatedRun(): boolean {
   const flag = (process.env.EVAL_INTENT_GATED ?? "").trim().toLowerCase();
@@ -99,6 +113,18 @@ interface CaseResult {
    *  succeeded. Scored as a miss (fieldScore 0), exactly like production
    *  surfaces it as a 422 rather than a disguised burn_rate_check. */
   parseFailureCode?: string;
+  /**
+   * Numeric HTTP status from the upstream call, echoed from
+   * IntentParseFailure.httpStatus (server/ai.ts) when parseFailureCode is
+   * "provider_error" and the failure was a non-2xx response. Undefined for
+   * every other case (success, or a failure that never reached transport).
+   * Before this field existed, the results artifact only ever recorded the
+   * generic "provider_error" code — a run failing with 429 (rate limited),
+   * 401 (bad credentials), and 502 (upstream down) were indistinguishable
+   * without re-running against a live model. This is what makes a failure
+   * diagnosable from server/evals/results/latest.json alone.
+   */
+  httpStatus?: number;
   fieldMatches: Record<string, boolean>;
   fieldScore: number;
   notes?: string;
@@ -321,38 +347,57 @@ function scoreAgainstCandidates(entry: CorpusEntry, actual: ScenarioOperation): 
   return best;
 }
 
+// ─── OpenRouter free-tier request pacing ─────────────────────────────────────
+
+/**
+ * Minimum delay (ms) between corpus cases when the resolved provider is
+ * "openrouter". OpenRouter's free-tier (":free" model-id suffix) models are
+ * capped at 20 requests/minute per account regardless of purchased credits
+ * (https://openrouter.ai/docs/api-reference/limits), and bursts close to that
+ * ceiling can trip a Cloudflare-level block even below the nominal cap. The
+ * corpus (server/evals/intent-corpus.json) is large enough to exceed 20/min
+ * if run back-to-back. This has no effect for github/ollama runs (see the
+ * call site below).
+ *
+ * Reuses OPENROUTER_RATE_LIMIT_FLOOR_MS (server/ai.ts) — the SAME constant
+ * that floors a 429 retry delay for this provider inside chatRequest() — so
+ * the pre-request pacing here and the post-429-retry floor there can't drift
+ * out of sync with each other.
+ */
+const OPENROUTER_EVAL_PACING_MS = OPENROUTER_RATE_LIMIT_FLOOR_MS;
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const gated = isGatedRun();
 
-  // Fast upfront skip/gate check. This intentionally checks only the
-  // GITHUB_TOKEN env var (not the full getAiConfig()/isProviderConfigured()
-  // precondition production uses) so a credential-less run exits with one
-  // clear message instead of running the whole corpus through parseIntent()
-  // and recording a "provider_unconfigured" IntentParseFailure per case. The
-  // trade-off of keying on the env var alone: a deployment that sets the DB
-  // "github_pat" config value (with no GITHUB_TOKEN env var) or that uses the
-  // "ollama" provider (no token needed) ALSO exits here. Export GITHUB_TOKEN
-  // (any non-empty value in those setups) to get past this gate — the
-  // parseIntent() calls below still resolve provider/model/credentials
-  // through getAiConfig() exactly as production does.
-  if (!process.env.GITHUB_TOKEN) {
+  // Fast upfront skip/gate check — provider-aware via the SAME
+  // isProviderConfigured() production uses (server/ai.ts), so it correctly
+  // reflects whichever provider is actually configured (github/ollama/
+  // openrouter) rather than hardcoding one provider's credential env var.
+  // (A prior version of this check looked only at process.env.GITHUB_TOKEN,
+  // which meant a CI job or deployment configured for a different provider
+  // either had to also export a dummy GITHUB_TOKEN to get past this gate, or
+  // — for a gated run — failed here even though its actual provider WAS
+  // configured. See server/evals/configure-openrouter-eval.ts, which sets
+  // the DB config this check now reads, before this script runs.)
+  const providerCheck = isProviderConfigured();
+  if (!providerCheck.ok) {
     if (gated) {
       console.error(
-        "eval:intent — no GITHUB_TOKEN found, but EVAL_INTENT_GATED is set.\n" +
-          "Export GITHUB_TOKEN so this gated run can exercise the model — this gate\n" +
-          "checks only the env var, even for DB github_pat / ollama-configured\n" +
-          "deployments. Failing rather than silently skipping the accuracy gate."
+        `eval:intent — provider not configured (${providerCheck.error ?? "unknown reason"}), but EVAL_INTENT_GATED is set.\n` +
+          "Configure a provider (DB config or the corresponding credential env var —\n" +
+          "see server/ai.ts getAiConfig()/isProviderConfigured()) so this gated run can\n" +
+          "exercise the model. Failing rather than silently skipping the accuracy gate."
       );
       process.exit(1);
     }
     console.error(
-      "eval:intent — no GITHUB_TOKEN found. Export it to run the eval; this check\n" +
-        "keys on the env var alone, even for DB github_pat / ollama-configured\n" +
-        "deployments (any non-empty value passes — provider config still resolves\n" +
-        "via getAiConfig()). Exiting without error so ungated/local runs are not broken.\n" +
-        "(Set EVAL_INTENT_GATED=1 to make a missing token fail instead of skip.)"
+      `eval:intent — provider not configured (${providerCheck.error ?? "unknown reason"}). Configure one to run the eval.\n` +
+        "Exiting without error so ungated/local runs are not broken.\n" +
+        "(Set EVAL_INTENT_GATED=1 to make this failure fatal instead of a skip.)"
     );
     process.exit(0);
   }
@@ -380,11 +425,20 @@ async function main(): Promise<void> {
   let errorCount = 0;
   let parseFailureCount = 0;
 
-  for (const entry of corpus) {
+  for (const [index, entry] of corpus.entries()) {
+    // Pace requests against OpenRouter's free-tier rate limit (see
+    // OPENROUTER_EVAL_PACING_MS above) — skip before the FIRST case so a
+    // clean run isn't penalized with a wasted leading delay. No-op for any
+    // other provider.
+    if (index > 0 && resolvedConfig.provider === "openrouter") {
+      await sleep(OPENROUTER_EVAL_PACING_MS);
+    }
+
     process.stdout.write(`  ${entry.id.padEnd(26)}`);
 
     let actual: ScenarioOperation | null = null;
     let parseFailureCode: string | undefined;
+    let httpStatus: number | undefined;
     let caseError: string | undefined;
 
     try {
@@ -397,6 +451,7 @@ async function main(): Promise<void> {
         // below via the null `actual`, exactly as production returns a 422
         // rather than a disguised burn_rate_check success.
         parseFailureCode = result.code;
+        httpStatus = result.httpStatus;
         parseFailureCount++;
       }
     } catch (err: unknown) {
@@ -410,7 +465,11 @@ async function main(): Promise<void> {
 
     const statusIcon = caseError ? "ERR" : score.actionMatch ? " OK" : "FAI";
     const fieldPct = `${Math.round(Math.max(score.fieldScore, 0) * 100)}%`.padStart(4);
-    const flags = [parseFailureCode ? `parse:${parseFailureCode}` : "", score.matchedAlternative ? "alt" : ""]
+    const flags = [
+      parseFailureCode ? `parse:${parseFailureCode}` : "",
+      httpStatus !== undefined ? `http:${httpStatus}` : "",
+      score.matchedAlternative ? "alt" : "",
+    ]
       .filter(Boolean)
       .join(",");
     console.log(`[${statusIcon}] action=${actual?.action ?? "n/a"} fields=${fieldPct}${flags ? ` (${flags})` : ""}`);
@@ -433,6 +492,7 @@ async function main(): Promise<void> {
       actionMatch: score.actionMatch,
       matchedAlternative: score.matchedAlternative,
       ...(parseFailureCode ? { parseFailureCode } : {}),
+      ...(httpStatus !== undefined ? { httpStatus } : {}),
       fieldMatches: score.fieldMatches,
       fieldScore: caseError ? 0 : Math.max(score.fieldScore, 0),
       notes: entry.notes,

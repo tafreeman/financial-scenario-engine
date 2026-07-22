@@ -23,6 +23,7 @@
     "e2e:reset-db": "tsx tests/e2e/reset-e2e-db.ts",
     "test:e2e": "playwright test",
     "eval:intent": "tsx server/evals/run-intent-eval.ts",
+    "eval:configure-openrouter": "tsx server/evals/configure-openrouter-eval.ts",
     "eval:faithfulness": "tsx server/evals/run-faithfulness-eval.ts"
   },
   "dependencies": {

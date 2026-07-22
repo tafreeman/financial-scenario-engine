@@ -10,6 +10,14 @@
 4. Paste your PAT and click **Save**
 5. Click **Test Connection** to verify
 
+### OpenRouter (Cloud)
+
+GitHub Models is fully retired 2026-07-30 — OpenRouter is the recommended cloud replacement. The Settings tab does not have a provider picker for it yet, so configure it via the config API directly:
+
+1. Create an API key at [openrouter.ai](https://openrouter.ai/)
+2. `PUT /api/config` with `{"llm_provider": "openrouter", "openrouter_api_key": "<your key>"}` (requires the `x-app-token` header — see `server/auth.ts`), or set the `OPENROUTER_API_KEY` environment variable and `llm_provider=openrouter` in the config table directly
+3. The default model is a `:free` (no-charge) model — browse the current free catalog at `GET https://openrouter.ai/api/v1/models`
+
 ### Ollama (Local)
 
 1. Install [Ollama](https://ollama.ai/)
@@ -24,6 +32,7 @@
 | Provider | Default model |
 |----------|--------------|
 | GitHub Models | `openai/gpt-4.1` |
+| OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` |
 | Ollama | `llama3.2` |
 
 ## Database

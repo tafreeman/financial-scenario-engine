@@ -5,7 +5,7 @@
 
 **📖 Live docs:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/)
 
-A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results, and any structured output it returns is revalidated against a strict schema at that trust boundary before the engine ever sees it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)). All project data lives in a local SQLite file; inference runs via a multi-provider abstraction over the GitHub Models API or fully offline via Ollama, with no external cloud dependency required.
+A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results, and any structured output it returns is revalidated against a strict schema at that trust boundary before the engine ever sees it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)). All project data lives in a local SQLite file; inference runs via a multi-provider abstraction over the GitHub Models API, OpenRouter, or fully offline via Ollama, with no external cloud dependency required.
 
 > **Development note:** Built with AI-assisted development; see [`CONTRIBUTORS.md`](CONTRIBUTORS.md) for tooling and attribution details.
 
@@ -42,7 +42,7 @@ PMs can ask natural-language questions and get structured financial analysis bac
                 │                       │
                 ▼                       ▼
       Local SQLite data           Optional LLM provider
-        data/finimpact.db         GitHub Models or Ollama
+        data/finimpact.db         GitHub Models, OpenRouter, or Ollama
 ```
 
 ### Reliability at the LLM boundary
@@ -59,6 +59,7 @@ The LLM sits at the edge, not in the critical path, and every call across that b
 ### Prerequisites
 - **Node.js 18+** — [download](https://nodejs.org/)
 - **Optional:** GitHub PAT with `models:read` scope for AI-powered scenario analysis — [create one](https://github.com/settings/tokens?type=beta)
+- **Optional:** an OpenRouter API key ([openrouter.ai](https://openrouter.ai/)) — free-tier (`:free` model-id suffix) or paid models
 - **Optional:** Ollama for fully local inference
 
 ### Option A: Double-click (easiest)
@@ -67,6 +68,8 @@ The LLM sits at the edge, not in the critical path, and every call across that b
 3. Browser opens to `http://127.0.0.1:3000`
 4. Go to Settings → choose GitHub Models or Ollama
 5. If using GitHub Models, paste your PAT and save
+
+> OpenRouter is supported by the server (`llm_provider: "openrouter"` via `PUT /api/config` — see "LLM Providers" below), but the Settings UI does not yet have a picker for it; configure it via the config API directly until that UI support lands.
 
 ### Option B: Manual
 ```bash
@@ -115,10 +118,13 @@ A single multi-provider abstraction (`getAiConfig()`, `server/ai.ts`) resolves m
 
 | Provider | Config key `llm_provider` | Notes |
 |----------|--------------------------|-------|
-| GitHub Models API | `github` (default) | Requires PAT with `models:read` scope |
+| GitHub Models API | `github` (default) | Requires PAT with `models:read` scope. Fully retired 2026-07-30 — see the callout below. |
+| OpenRouter | `openrouter` | Requires an API key (`openrouter_api_key` config key, or `OPENROUTER_API_KEY` env var). Default model is a `:free` (no-charge) model — the current free catalog is enumerable via `GET https://openrouter.ai/api/v1/models`. Configurable today via `PUT /api/config`; no Settings-tab picker yet (see Quick Start). |
 | Ollama (local) | `ollama` | No PAT needed; requires a running Ollama server |
 
-Switch providers via the Settings tab or by editing `llm_provider` in the config table.
+Switch providers via the Settings tab (GitHub Models / Ollama today) or by editing `llm_provider` directly in the config table / via `PUT /api/config` (all three providers, including OpenRouter).
+
+> **GitHub Models retirement (2026-07-30):** the app's own default provider is still `github` — switching that default is a separate, owner-gated product decision, not something done as part of the OpenRouter migration described here. The CI intent-eval workflow (`.github/workflows/real-model-eval.yml`) has already migrated to OpenRouter, independent of this app-wide default — see "Intent-parsing evals" below.
 
 ## Data
 
@@ -136,8 +142,9 @@ POST a `.xlsx` file to `/api/import/excel` or `/api/import/excel/v2`. The endpoi
 
 ## Security
 
-- PAT stored in local SQLite only — never logged, never cached externally
-- PAT transmitted exclusively to `models.github.ai` over HTTPS with TLS when the GitHub provider is selected
+- PAT/API key stored in local SQLite only — never logged, never cached externally; `GET /api/config` masks both `github_pat` and `openrouter_api_key` the same way (first 4 / last 4 characters only)
+- PAT transmitted exclusively to `models.github.ai` over HTTPS with TLS when the GitHub provider is selected; the OpenRouter API key is likewise transmitted only to `openrouter.ai` over HTTPS when that provider is selected
+- **OpenRouter data policy caveat:** OpenRouter's own account privacy settings distinguish paid vs. free-model data handling — verify your account's training/logging opt-outs before relying on a `:free` model for anything beyond development, since the eval/scenario context sent to it is not raw PII (person names are redacted — see `buildAnonymizedContextSnapshot()` below) but does include real project names, rate cards, and financial figures. See [OpenRouter's privacy & logging docs](https://openrouter.ai/docs/features/privacy-and-logging).
 - Ollama mode keeps inference local to the machine
 - No external telemetry, no analytics, and no external cloud dependency outside the selected LLM provider — the in-process LLM call metrics at `GET /api/telemetry/llm` (counts, latency, typed failure codes; never prompts or financial content) are served locally and transmitted nowhere
 - Server binds to `127.0.0.1` by default — not accessible from other machines
@@ -207,20 +214,31 @@ The LLM boundary — user natural-language query → `ScenarioOperation` JSON �
 
 **Corpus:** `server/evals/intent-corpus.json` — labeled cases spanning all 12 operation types (`swap`, `add`, `remove`, `rate_change`, `hours_change`, `timeline_extension`, `unexpected_cost`, `reallocation`, `burn_rate_check`, `margin_analysis`, `evm_analysis`, `what_if_composite`), plus ambiguous/out-of-scope queries with their expected fallback handling and an `adversarial` category (prompt-injection, contradictory, and trick queries). The exact case count is not repeated here — the size floor and category coverage are enforced by the corpus-integrity tests below. Where the prompt rules genuinely allow more than one valid interpretation, an entry may carry an `expectedAlternatives` array — the scorer accepts the best match among the primary expected value and its alternatives.
 
-**Runner:**
+**Runner (local, GitHub Models — the DB's seeded default):**
 
 ```bash
 GITHUB_TOKEN=<pat-with-models:read> npm run eval:intent
+```
+
+**Runner (local, OpenRouter):**
+
+```bash
+OPENROUTER_API_KEY=<key> npm run eval:configure-openrouter && npm run eval:intent
 ```
 
 The runner sends each query through the same `PARSE_INTENT_PROMPT` (imported directly from `server/ai.ts`, so prompt edits flow into the eval automatically) and the same parse/fallback path that production uses — including the burn_rate_check fallback on unparseable model output. It scores exact action-type match and field-level match against the labeled expected values, and prints a per-case result table plus an aggregate accuracy summary. Both aggregate metrics (action accuracy and mean field score) use the full corpus size as denominator; transport errors score 0.
 
 Notes on the runner's environment:
 - Model, provider, and endpoint are resolved via the same `getAiConfig()` production uses (`server/ai.ts`), which reads the app's SQLite config table — a custom model/provider configured in Settings (or the seeded default, `openai/gpt-4.1` on the GitHub Models endpoint) is reflected in eval results, not hardcoded here.
-- It still requires the `GITHUB_TOKEN` env var to be set even if your deployment is configured for Ollama or a DB-stored `github_pat` — the runner's upfront skip/gate check only looks at `process.env.GITHUB_TOKEN`, before `getAiConfig()` ever runs, so it exits before reaching the provider-aware resolution described above.
-- If `GITHUB_TOKEN` is absent: an ungated local run (plain `npm run eval:intent`) exits cleanly without failing; a gated run (`EVAL_INTENT_GATED=1`, as set by `.github/workflows/real-model-eval.yml`) fails instead, so CI can't silently skip the accuracy gate.
+- The upfront skip/gate check is provider-aware: it calls the SAME `isProviderConfigured()` production uses (`server/ai.ts`), so it correctly recognizes whichever provider is actually configured (github/ollama/openrouter) rather than keying on one provider's credential env var alone.
+- If the resolved provider is unconfigured: an ungated local run (plain `npm run eval:intent`) exits cleanly without failing; a gated run (`EVAL_INTENT_GATED=1`, as set by `.github/workflows/real-model-eval.yml`) fails instead, so CI can't silently skip the accuracy gate.
+- When the resolved provider is `openrouter`, requests are paced (`OPENROUTER_EVAL_PACING_MS` in `run-intent-eval.ts`) to stay under OpenRouter's free-tier rate limit (20 requests/minute — see the CI section below); this has no effect for github/ollama runs.
 
-**Results artifact:** `server/evals/results/latest.json` — written on each run, excluded from git. Accuracy is reported by the runner output and the results artifact; it is not hard-coded in this README.
+**CI (`.github/workflows/real-model-eval.yml`) — migrated to OpenRouter:** GitHub Models is fully retired 2026-07-30, and this scheduled/PR-triggered eval had failed 19 consecutive runs against it with `failureCode: "http_error"` before the migration. The workflow now runs `npm run eval:configure-openrouter` (writes DB config for provider `openrouter`, model `nvidia/nemotron-3-ultra-550b-a55b:free` by default) before `npm run eval:intent`, authenticating with the `OPENROUTER_API_KEY` repository secret. The model is overridable per-run via the workflow's `openrouter_model` `workflow_dispatch` input, or via an `OPENROUTER_MODEL` repository/environment variable for scheduled and labeled-PR runs — no code change needed to try a different `:free` model (browse the current free catalog at `GET https://openrouter.ai/api/v1/models`). The app's own DEFAULT provider (`server/db.ts`, still `github`) is unaffected by this CI-only migration — see the callout in "LLM Providers" above.
+
+Free-tier rate limits apply (https://openrouter.ai/docs/api-reference/limits): 20 requests/minute always, and 50 requests/day unless the OpenRouter account has purchased $10+ in credits all-time (then 1,000/day). One full eval run issues one LLM call per corpus entry (see `server/__tests__/intent-corpus.test.ts` for the enforced size floor, not repeated here as a number that could drift) — comfortably inside the per-minute cap once paced, but close enough to the 50/day cap in a single run (if the account has no purchased credits) to leave little to no headroom for the same-day schedule + a labeled-PR run + a manual dispatch. Purchasing credits (or accepting a tighter usage cadence) is an account-level decision for the repo owner, not something this workflow's code can change.
+
+**Results artifact:** `server/evals/results/latest.json` — written on each run, excluded from git. Accuracy is reported by the runner output and the results artifact; it is not hard-coded in this README. Each case now also records `httpStatus` (the numeric HTTP status from the upstream call) when the failure was a non-2xx response, alongside the existing `parseFailureCode` — a failed run used to only ever show the generic code, indistinguishable between e.g. a 429 (rate limited) and a 401 (bad credentials) without re-running against a live model.
 
 **Corpus integrity (CI):** `server/__tests__/intent-corpus.test.ts` runs in the normal `npm test` suite — no network needed. It validates that every corpus entry is a structurally valid `ScenarioOperation`, all 12 action types are covered, ids are unique, the adversarial category is non-empty, and the corpus meets the size floor asserted there (the test is the authoritative number, not this README).
 
@@ -242,7 +260,7 @@ financial-scenario-engine/
 │   ├── index.ts                # Entry point, static file serving
 │   ├── db.ts                   # SQLite schema, seed data, queries
 │   ├── loaders.ts              # DB rows → PortfolioSnapshot for the engine
-│   ├── ai.ts                   # LLM client (GitHub Models + Ollama) + prompts
+│   ├── ai.ts                   # LLM client (GitHub Models + OpenRouter + Ollama) + prompts
 │   ├── routes.ts               # REST API endpoints
 │   ├── auth.ts                 # App-token auth (requireAppToken / APP_SECRET) for mutating routes
 │   ├── ssrf.ts                 # SSRF guard helpers for config-endpoint URL refinements
