@@ -45,7 +45,18 @@ interface ChatResponse {
 // ─── AI Config ───────────────────────────────────────────────────────────────
 
 /** Supported LLM providers */
-export type LlmProvider = "github" | "ollama";
+export type LlmProvider = "github" | "ollama" | "openrouter";
+
+/**
+ * Default OpenRouter model — a ":free" model-id suffix on OpenRouter means
+ * no-charge inference (see getAiConfig()'s "openrouter" branch and
+ * server/evals/configure-openrouter-eval.ts, both of which reference this
+ * SAME constant so the app default and the CI eval default can't drift
+ * apart). The current free-model catalog is enumerable at any time via
+ * `GET https://openrouter.ai/api/v1/models` — this is not the only free
+ * model available, just the one currently selected as default.
+ */
+export const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
 
 /** Default LLM request timeout (ms). Overridable via config key "llm_timeout_ms". */
 export const DEFAULT_LLM_TIMEOUT_MS = 30_000;
@@ -219,6 +230,23 @@ export function getGitHubTokenSource(): GitHubTokenSource {
   return "none";
 }
 
+// ─── OpenRouter API key resolution (DB key → env var) ────────────────────────
+//
+// Simpler than the GitHub token chain above: OpenRouter has no local-CLI
+// equivalent to `gh auth token`, so precedence is just DB config, then env.
+
+/**
+ * Resolve the effective OpenRouter API key in precedence order:
+ *   1. DB `openrouter_api_key` (set via the Settings UI / PUT /api/config)
+ *   2. `OPENROUTER_API_KEY` environment variable
+ * Returns "" when neither is available.
+ */
+export function resolveOpenRouterKey(): string {
+  const dbKey = (getConfig("openrouter_api_key") || "").trim();
+  if (dbKey) return dbKey;
+  return (process.env.OPENROUTER_API_KEY || "").trim();
+}
+
 /** Centralized AI config with defaults applied */
 export function getAiConfig() {
   const provider = (getConfig("llm_provider") || "github") as LlmProvider;
@@ -229,6 +257,18 @@ export function getAiConfig() {
       pat: "", // not needed for Ollama
       model: getConfig("ollama_model") || "llama3.2",
       endpoint: getConfig("ollama_endpoint") || "http://localhost:11434/v1/chat/completions",
+      temperature: parseTemperature(getConfig("temperature") || "0.2"),
+      maxTokens: parseMaxTokens(getConfig("max_tokens") || "2000"),
+      timeoutMs: parseTimeoutMs(getConfig("llm_timeout_ms") || ""),
+    };
+  }
+
+  if (provider === "openrouter") {
+    return {
+      provider: "openrouter" as const,
+      pat: resolveOpenRouterKey(),
+      model: getConfig("openrouter_model") || DEFAULT_OPENROUTER_MODEL,
+      endpoint: getConfig("openrouter_endpoint") || "https://openrouter.ai/api/v1/chat/completions",
       temperature: parseTemperature(getConfig("temperature") || "0.2"),
       maxTokens: parseMaxTokens(getConfig("max_tokens") || "2000"),
       timeoutMs: parseTimeoutMs(getConfig("llm_timeout_ms") || ""),
@@ -246,11 +286,28 @@ export function getAiConfig() {
   };
 }
 
-/** Check if any LLM provider is configured and available */
-function isProviderConfigured(): { ok: boolean; error?: string } {
+/**
+ * Check if any LLM provider is configured and available.
+ *
+ * Exported so callers outside this module (e.g. server/evals/run-intent-eval.ts's
+ * upfront gate check) can ask the SAME provider-aware question production
+ * asks, instead of re-implementing a provider-specific credential check that
+ * would drift from this one as providers are added.
+ */
+export function isProviderConfigured(): { ok: boolean; error?: string } {
   const config = getAiConfig();
   if (config.provider === "ollama") {
     // Ollama doesn't need a PAT — it just needs to be running locally
+    return { ok: true };
+  }
+  if (config.provider === "openrouter") {
+    if (!config.pat) {
+      return {
+        ok: false,
+        error:
+          "No OpenRouter API key available. Add one in Settings, or set OPENROUTER_API_KEY — or switch to GitHub Models or Ollama.",
+      };
+    }
     return { ok: true };
   }
   if (!config.pat) {
@@ -353,6 +410,15 @@ async function instrumentedChatRequest(
     const latencyMs = Math.round(performance.now() - startedAt);
     const retryCount = Math.max(0, attemptTracker.attempts - 1);
     const failureCode = classifyBoundaryFailure(err);
+    // Numeric HTTP status (e.g. 429, 401, 502), when the failure was a
+    // non-2xx response — undefined for timeouts/transport errors. Threaded
+    // into the structured log line so a failure like the 19 consecutive
+    // "http_error" runs against GitHub Models (the reason this eval migrated
+    // to OpenRouter) is diagnosable from the log alone, without re-running.
+    const httpStatus = extractHttpStatus(err);
+    // Provider-specific error code (e.g. OpenRouter's metadata.provider_code),
+    // alongside the numeric http_status above — see extractProviderErrorCode().
+    const providerErrorCode = extractProviderErrorCode(err);
 
     logEvent("error", "llm_call", {
       requestId,
@@ -363,6 +429,8 @@ async function instrumentedChatRequest(
       retryCount,
       outcome: "failure",
       failureCode,
+      httpStatus: httpStatus ?? null,
+      providerErrorCode: providerErrorCode ?? null,
     });
     recordLlmCall({ purpose, outcome: "failure", failureCode, retryCount });
 
@@ -377,6 +445,37 @@ function classifyBoundaryFailure(err: unknown): LlmBoundaryFailureCode {
     if (/^HTTP \d+:/.test(err.message)) return "http_error";
   }
   return "transport_error";
+}
+
+/**
+ * Extract the numeric HTTP status chatRequest() attaches to the Error it
+ * throws on a non-2xx response (see the `!resp.ok` branch below). Returns
+ * undefined for timeouts, dropped connections, and any other failure that
+ * never got a status code — this is deliberately separate from
+ * classifyBoundaryFailure() (which only classifies into a coarse code)
+ * because logging "http_error" alone previously discarded the actual status
+ * (429 vs 401 vs 502 are very different failures to a reader of the log/eval
+ * artifact, and none of them were distinguishable before this).
+ */
+function extractHttpStatus(err: unknown): number | undefined {
+  if (err instanceof Error) {
+    const status = (err as Error & { httpStatus?: number }).httpStatus;
+    if (typeof status === "number") return status;
+  }
+  return undefined;
+}
+
+/**
+ * Extract the provider-specific error code chatRequest() best-effort-parses
+ * from an OpenRouter error body (see the `!resp.ok` branch above). Undefined
+ * for providers/failures that don't carry one.
+ */
+function extractProviderErrorCode(err: unknown): string | undefined {
+  if (err instanceof Error) {
+    const code = (err as Error & { providerErrorCode?: string }).providerErrorCode;
+    if (typeof code === "string") return code;
+  }
+  return undefined;
 }
 
 export type IntentParseFailureCode =
@@ -396,6 +495,16 @@ export interface IntentParseFailure {
   message: string;
   clarification: string;
   details?: string;
+  /**
+   * Numeric HTTP status from the upstream call, when this failure originated
+   * from a non-2xx response (see chatRequest()/extractHttpStatus() below).
+   * Undefined for failures that never reached transport (e.g.
+   * "provider_unconfigured") or that weren't HTTP-status failures (timeout,
+   * dropped connection). Threaded through so consumers — e.g. the intent-eval
+   * runner's results artifact (server/evals/run-intent-eval.ts) — can
+   * diagnose e.g. 429 vs 401 vs 502 without re-running against a live model.
+   */
+  httpStatus?: number;
 }
 
 export type IntentParseResult = IntentParseSuccess | IntentParseFailure;
@@ -407,9 +516,17 @@ function intentParseFailure(
   code: IntentParseFailureCode,
   message: string,
   details?: string,
-  clarification = PARSE_CLARIFICATION
+  clarification = PARSE_CLARIFICATION,
+  httpStatus?: number
 ): IntentParseFailure {
-  return { ok: false, code, message, clarification, ...(details ? { details } : {}) };
+  return {
+    ok: false,
+    code,
+    message,
+    clarification,
+    ...(details ? { details } : {}),
+    ...(httpStatus !== undefined ? { httpStatus } : {}),
+  };
 }
 
 // ─── V2: Structured Intent Parsing ───────────────────────────────────────────
@@ -566,13 +683,19 @@ export async function parseIntent(
     const hint = config.provider === "ollama"
       ? " Is Ollama running? Try: ollama serve"
       : "";
+    // Surfaces the numeric HTTP status (when this was a non-2xx failure) into
+    // the returned IntentParseFailure, so a consumer like the intent-eval
+    // runner (server/evals/run-intent-eval.ts) can record it in its results
+    // artifact instead of only ever seeing the generic "provider_error" code.
+    const httpStatus = extractHttpStatus(err);
     return intentParseFailure(
       "provider_error",
       "The model request failed before a scenario operation could be parsed.",
       `${err instanceof Error ? err.message : String(err)}${hint}`,
       config.provider === "ollama"
         ? "Check that Ollama is running, then try the scenario again."
-        : PARSE_CLARIFICATION
+        : PARSE_CLARIFICATION,
+      httpStatus
     );
   }
 }
@@ -847,7 +970,7 @@ export function processToolCalls(
 }
 
 /**
- * Make a chat completion request to the configured LLM provider (GitHub Models or Ollama).
+ * Make a chat completion request to the configured LLM provider (GitHub Models, OpenRouter, or Ollama).
  *
  * Uses an AbortController so a hung endpoint is cancelled after `timeoutMs`
  * (default: DEFAULT_LLM_TIMEOUT_MS = 30 s, configurable via DB key "llm_timeout_ms").
@@ -883,6 +1006,15 @@ export async function chatRequest(
     // (Accept: application/vnd.github+json, X-GitHub-Api-Version) target
     // api.github.com, not the inference host — tolerated but semantically wrong,
     // so they're dropped to match the validated connection method.
+    headers["Authorization"] = `Bearer ${pat}`;
+  } else if (config.provider === "openrouter") {
+    // OpenRouter's chat completions endpoint is OpenAI-compatible: a Bearer
+    // token plus the JSON content type set above is sufficient (verified
+    // against https://openrouter.ai/docs/quickstart). Optional attribution
+    // headers (HTTP-Referer / X-Title) exist for the OpenRouter leaderboard
+    // but are not required for inference, so — mirroring the GitHub branch's
+    // "only send what the validated connection method needs" posture — they
+    // are intentionally omitted here.
     headers["Authorization"] = `Bearer ${pat}`;
   }
   // Ollama's OpenAI-compatible endpoint needs no auth headers
@@ -936,7 +1068,26 @@ export async function chatRequest(
       const errBody = await resp.text();
       const error = new Error(
         `HTTP ${resp.status}: ${resp.statusText}\n${errBody.slice(0, 500)}`
-      );
+      ) as Error & { httpStatus?: number; providerErrorCode?: string };
+      // Carries the numeric status alongside the message so callers can
+      // recover it structurally (extractHttpStatus() below) instead of
+      // re-parsing this string — see instrumentedChatRequest()'s and
+      // parseIntent()'s catch blocks.
+      error.httpStatus = resp.status;
+      // Best-effort: OpenRouter's documented error shape is
+      // { error: { code, message, metadata: { error_type, provider_code } } }
+      // (https://openrouter.ai/docs/api-reference/errors), with the HTTP
+      // status equal to error.code. GitHub Models/Ollama don't share this
+      // exact shape, so parsing is deliberately tolerant — any mismatch or
+      // non-JSON body just leaves providerErrorCode unset rather than
+      // throwing a second error on top of the one already being handled.
+      try {
+        const parsedBody = JSON.parse(errBody) as { error?: { metadata?: { provider_code?: unknown } } };
+        const providerCode = parsedBody.error?.metadata?.provider_code;
+        if (typeof providerCode === "string") error.providerErrorCode = providerCode;
+      } catch {
+        // Not JSON, or not the expected shape.
+      }
       // Retry only transient statuses; a 4xx like 400/401/404 fails fast.
       if (RETRYABLE_STATUS.has(resp.status) && attempt < LLM_MAX_RETRY_ATTEMPTS) {
         lastError = error;

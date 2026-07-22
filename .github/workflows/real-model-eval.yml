@@ -1,9 +1,43 @@
 name: Real Model Eval
 
-# Runs the intent-parsing eval (server/evals/run-intent-eval.ts) against the
-# REAL GitHub Models API in GATED mode (EVAL_INTENT_GATED=1 — see
+# Runs the intent-parsing eval (server/evals/run-intent-eval.ts) against a
+# REAL model in GATED mode (EVAL_INTENT_GATED=1 — see
 # server/evals/run-intent-eval.ts and .env.example), so a real intent-parsing
 # accuracy regression fails the build instead of being silently absorbed.
+#
+# Provider: OpenRouter (server/evals/configure-openrouter-eval.ts configures
+# the DB for provider "openrouter" before the eval runs — see that script and
+# server/ai.ts getAiConfig()'s "openrouter" branch). Migrated 2026-07-22 off
+# GitHub Models, which is fully retired 2026-07-30 — this workflow had failed
+# 19 consecutive scheduled runs against the GitHub Models endpoint with
+# failureCode "http_error" (see README "LLM Providers" / "Intent-parsing
+# evals"). The app's own DEFAULT provider (server/db.ts initSchema(),
+# "llm_provider": "github") is UNCHANGED by this migration — switching that
+# default is a separate, owner-gated product decision, not something this
+# CI-only eval config affects.
+#
+# Model: nvidia/nemotron-3-ultra-550b-a55b:free by default (a ":free"
+# model-id suffix on OpenRouter means no-charge inference; the full current
+# free-model catalog is enumerable at any time via
+# `GET https://openrouter.ai/api/v1/models`). Overridable per-run without a
+# code change via the `openrouter_model` workflow_dispatch input (manual
+# runs) or the `OPENROUTER_MODEL` repository/environment variable (schedule
+# and labeled-PR runs) — see the "Configure eval provider" step below.
+#
+# Rate limits (free-tier, https://openrouter.ai/docs/api-reference/limits):
+#   - 20 requests/minute, regardless of purchased credits.
+#   - 50 requests/day UNLESS the account has purchased $10+ in credits
+#     all-time, in which case the cap rises to 1,000/day.
+#   One full run of this eval issues one LLM call per corpus entry in
+#   server/evals/intent-corpus.json (see server/__tests__/intent-corpus.test.ts
+#   for the enforced size floor — not repeated here as a number that could
+#   drift out of sync with the actual corpus), before any retries — see the
+#   accompanying PR/report for the current count and whether the 50/day cap
+#   is sufficient given this workflow's three triggers (schedule + labeled PR
+#   + workflow_dispatch can all fire the same day). run-intent-eval.ts paces
+#   requests to stay under the per-minute cap (OPENROUTER_EVAL_PACING_MS);
+#   the daily cap is an account-credits decision, not something code can work
+#   around.
 #
 # This calls a live, metered inference endpoint, so it intentionally does NOT
 # run on every push/PR:
@@ -12,7 +46,10 @@ name: Real Model Eval
 #     below), so a maintainer can opt a specific PR in on demand.
 #   - schedule: nightly on main, so an accuracy regression is caught even
 #     when no PR happens to carry the label that day.
-#   - workflow_dispatch: manual on-demand run from the Actions tab.
+#   - workflow_dispatch: manual on-demand run from the Actions tab — use this
+#     to verify the OpenRouter migration once OPENROUTER_API_KEY is set, and
+#     optionally to try a different free model via the `openrouter_model`
+#     input.
 #
 # On an unlabeled PR the single job below exits immediately (see the `if:`
 # guard on the job) with a neutral "skipped" conclusion rather than failing —
@@ -27,14 +64,23 @@ on:
     # every workflow scheduled for :00 competes for on GitHub-hosted runners.
     - cron: "17 6 * * *"
   workflow_dispatch:
+    inputs:
+      openrouter_model:
+        description: >-
+          OpenRouter model id for this run (must end in ":free" for a
+          no-charge run). Leave blank to use the OPENROUTER_MODEL repo/
+          environment variable if set, else the script default
+          (nvidia/nemotron-3-ultra-550b-a55b:free) — see
+          server/evals/configure-openrouter-eval.ts. Browse the current free
+          catalog at GET https://openrouter.ai/api/v1/models.
+        required: false
+        type: string
 
-# Only the Models API call itself needs credentials beyond the default
-# checkout; models: read lets the auto-provisioned secrets.GITHUB_TOKEN call
-# the GitHub Models inference endpoint (server/ai.ts / .env.example
-# GITHUB_TOKEN) without a separate long-lived PAT secret.
+# No GitHub Models auth needed now that this workflow calls OpenRouter
+# instead — the OPENROUTER_API_KEY secret is passed via `env:` on the steps
+# that need it, not through `permissions:`.
 permissions:
   contents: read
-  models: read
 
 concurrency:
   group: real-model-eval-${{ github.event_name }}-${{ github.ref }}
@@ -66,10 +112,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Configure eval provider (OpenRouter)
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Precedence: an explicit workflow_dispatch input, else a repo/
+          # environment-level variable (lets the nightly schedule/labeled-PR
+          # runs be re-pointed at a different free model without editing this
+          # file), else the script's own default.
+          OPENROUTER_MODEL: ${{ github.event.inputs.openrouter_model || vars.OPENROUTER_MODEL }}
+        run: npm run eval:configure-openrouter
+
       - name: Run intent eval (gated — real model, accuracy-gated)
         env:
           EVAL_INTENT_GATED: "1"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: npm run eval:intent
 
       - name: Upload eval results

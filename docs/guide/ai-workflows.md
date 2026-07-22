@@ -81,16 +81,18 @@ Returns the structured `ScenarioOperation` without executing the engine.
 
 | Provider | Config key | Notes |
 |----------|-----------|-------|
-| GitHub Models API | `github` (default) | Requires PAT with `models:read` scope |
+| GitHub Models API | `github` (default) | Requires PAT with `models:read` scope. Fully retired 2026-07-30. |
+| OpenRouter | `openrouter` | Requires an API key (`openrouter_api_key` config key, or `OPENROUTER_API_KEY` env var). No Settings-tab picker yet — configure via `PUT /api/config` (see [Configuration](../reference/configuration.md)). |
 | Ollama (local) | `ollama` | No PAT needed; requires running Ollama server |
 
-Switch providers via the **Settings** tab or by editing `llm_provider` in the config table.
+Switch providers via the **Settings** tab (GitHub Models / Ollama today) or by editing `llm_provider` directly in the config table / via `PUT /api/config` (all three providers).
 
 ### Default Models
 
 | Provider | Default model |
 |----------|--------------|
 | GitHub | `openai/gpt-4.1` |
+| OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` |
 | Ollama | `llama3.2` |
 
 ## Anonymization

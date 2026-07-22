@@ -46,7 +46,7 @@ const CONFIG_WRITABLE_KEYS = z.object({
     .optional(),
   temperature: z.string().optional(),
   max_tokens: z.string().optional(),
-  llm_provider: z.enum(["github", "ollama"]).optional(),
+  llm_provider: z.enum(["github", "ollama", "openrouter"]).optional(),
   ollama_model: z.string().optional(),
   ollama_endpoint: z
     .string()
@@ -56,6 +56,15 @@ const CONFIG_WRITABLE_KEYS = z.object({
     })
     .optional(),
   llm_timeout_ms: z.string().optional(),
+  openrouter_api_key: z.string().optional(),
+  openrouter_model: z.string().optional(),
+  openrouter_endpoint: z
+    .string()
+    .url()
+    .refine(refineEndpointNoPrivate, {
+      message: "openrouter_endpoint must use https and must not resolve to a loopback or private-range host",
+    })
+    .optional(),
 }).strict();
 
 // ─── Minimal Express app ──────────────────────────────────────────────────────
@@ -317,6 +326,71 @@ describe("PUT /config — SSRF guard on endpoint", () => {
     const res = await jsonRequest(
       server, "PUT", "/config",
       { endpoint: "https://[::192.168.1.1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+// ─── SSRF guard on openrouter_endpoint ────────────────────────────────────────
+// openrouter_endpoint shares the SAME refineEndpointNoPrivate refinement as
+// `endpoint` (GitHub Models) — both are cloud-only inference endpoints with
+// no legitimate loopback/private-range use, unlike ollama_endpoint.
+
+describe("PUT /config — SSRF guard on openrouter_endpoint", () => {
+  it("rejects openrouter_endpoint with loopback host (127.0.0.1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { openrouter_endpoint: "https://127.0.0.1:8080/api/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects openrouter_endpoint with 192.168.x.x private IP", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { openrouter_endpoint: "https://192.168.1.100/api/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects openrouter_endpoint that uses http (not https)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { openrouter_endpoint: "http://openrouter.ai/api/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("accepts a legitimate https openrouter_endpoint (openrouter.ai)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { openrouter_endpoint: "https://openrouter.ai/api/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+// ─── llm_provider accepts "openrouter" as a valid enum value ─────────────────
+
+describe("PUT /config — llm_provider enum includes openrouter", () => {
+  it("accepts llm_provider=openrouter", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { llm_provider: "openrouter" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("rejects an unsupported llm_provider value", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { llm_provider: "anthropic" },
       AUTH
     );
     expect(res.statusCode).toBe(400);

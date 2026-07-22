@@ -5,13 +5,16 @@ import {
   processToolCalls,
   chatRequest,
   getAiConfig,
+  isProviderConfigured,
   parseTimeoutMs,
   readGhCliToken,
   resolveGitHubToken,
   getGitHubTokenSource,
+  resolveOpenRouterKey,
   _resetGhTokenCache,
   DEFAULT_LLM_TIMEOUT_MS,
   LLM_TIMEOUT_MAX_MS,
+  DEFAULT_OPENROUTER_MODEL,
 } from "../ai.js";
 import type { ToolCall, ChatMessage } from "../ai.js";
 import type { ScenarioResult, ScenarioOperation } from "../engine/types.js";
@@ -30,6 +33,9 @@ const configKeys = [
   "temperature",
   "max_tokens",
   "llm_timeout_ms",
+  "openrouter_api_key",
+  "openrouter_model",
+  "openrouter_endpoint",
 ] as const;
 
 let originalConfig: Record<(typeof configKeys)[number], string>;
@@ -711,5 +717,238 @@ describe("GitHub token resolution", () => {
       throw new Error("gh: command not found");
     }) as unknown as Parameters<typeof readGhCliToken>[0];
     expect(readGhCliToken(throwingExec)).toBe("");
+  });
+});
+
+// ─── OpenRouter API key resolution: DB key → OPENROUTER_API_KEY env (FSE-EVAL-RED) ─
+
+describe("OpenRouter API key resolution", () => {
+  let savedKey: string;
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    savedKey = getConfig("openrouter_api_key");
+    savedEnv = process.env.OPENROUTER_API_KEY;
+  });
+
+  afterEach(() => {
+    setConfig("openrouter_api_key", savedKey);
+    if (savedEnv === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = savedEnv;
+  });
+
+  it("prefers the DB openrouter_api_key over the env var", () => {
+    setConfig("openrouter_api_key", "db-key-123");
+    process.env.OPENROUTER_API_KEY = "env-key-xyz";
+    expect(resolveOpenRouterKey()).toBe("db-key-123");
+  });
+
+  it("falls back to OPENROUTER_API_KEY when the DB key is empty", () => {
+    setConfig("openrouter_api_key", "");
+    process.env.OPENROUTER_API_KEY = "env-key-xyz";
+    expect(resolveOpenRouterKey()).toBe("env-key-xyz");
+  });
+
+  it("resolves to '' when nothing is set", () => {
+    setConfig("openrouter_api_key", "");
+    delete process.env.OPENROUTER_API_KEY;
+    expect(resolveOpenRouterKey()).toBe("");
+  });
+
+  it("trims surrounding whitespace on a stored key", () => {
+    setConfig("openrouter_api_key", "  padded-key  ");
+    expect(resolveOpenRouterKey()).toBe("padded-key");
+  });
+});
+
+// ─── getAiConfig — openrouter branch ─────────────────────────────────────────
+
+describe("getAiConfig — openrouter provider", () => {
+  it("resolves the default model/endpoint when unset in the DB", () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    setConfig("openrouter_model", "");
+    setConfig("openrouter_endpoint", "");
+
+    const config = getAiConfig();
+
+    expect(config.provider).toBe("openrouter");
+    expect(config.model).toBe(DEFAULT_OPENROUTER_MODEL);
+    expect(config.endpoint).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(config.pat).toBe("or-test-key");
+  });
+
+  it("honors a DB-configured model/endpoint override", () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_model", "openai/gpt-oss-20b:free");
+    setConfig("openrouter_endpoint", "https://openrouter.ai/api/v1/chat/completions");
+
+    const config = getAiConfig();
+
+    expect(config.model).toBe("openai/gpt-oss-20b:free");
+  });
+});
+
+// ─── isProviderConfigured / parseIntent — openrouter unconfigured hint ───────
+
+describe("Unconfigured provider — openrouter", () => {
+  it("isProviderConfigured() returns a helpful hint naming OpenRouter and OPENROUTER_API_KEY", () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "");
+    const originalEnv = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+
+    const result = isProviderConfigured();
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/OpenRouter/i);
+    expect(result.error).toMatch(/OPENROUTER_API_KEY/);
+
+    if (originalEnv === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalEnv;
+  });
+
+  it("parseIntent() returns a typed provider_unconfigured failure with the OpenRouter hint as clarification", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "");
+    const originalEnv = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a provider_unconfigured failure");
+    expect(result.code).toBe("provider_unconfigured");
+    expect(result.clarification).toMatch(/OpenRouter/i);
+
+    if (originalEnv === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalEnv;
+  });
+});
+
+// ─── chatRequest — OpenRouter header shape ───────────────────────────────────
+
+describe("chatRequest — OpenRouter header shape", () => {
+  it("sends only a Bearer Authorization header, no GitHub-specific headers", async () => {
+    setConfig("llm_provider", "openrouter");
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValue(success);
+
+    await chatRequest(
+      "https://openrouter.ai/api/v1/chat/completions",
+      "or-test-key",
+      { model: DEFAULT_OPENROUTER_MODEL },
+      fetchStub as unknown as typeof fetch,
+      async () => {}
+    );
+
+    const opts = fetchStub.mock.calls[0]?.[1] as RequestInit | undefined;
+    const headers = opts?.headers as Record<string, string>;
+
+    expect(headers["Authorization"]).toBe("Bearer or-test-key");
+    expect(headers["Content-Type"]).toBe("application/json");
+    // Exactly these two headers — no GitHub REST-API-specific headers
+    // (Accept: application/vnd.github+json, X-GitHub-Api-Version) and no
+    // OpenRouter attribution headers (HTTP-Referer / X-Title), which are
+    // optional and intentionally omitted (see server/ai.ts chatRequest()).
+    expect(Object.keys(headers).sort()).toEqual(["Authorization", "Content-Type"]);
+    expect(headers["Accept"]).toBeUndefined();
+    expect(headers["X-GitHub-Api-Version"]).toBeUndefined();
+    expect(headers["HTTP-Referer"]).toBeUndefined();
+  });
+});
+
+// ─── httpStatus threading — FSE-EVAL-RED "log half" fix ─────────────────────
+
+describe("HTTP status threading (FSE-EVAL-RED — the numeric status used to be discarded)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("parseIntent() surfaces the numeric httpStatus on a non-2xx failure (immediately-failing 401, not retried)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      headers: new Headers(),
+      text: async () => JSON.stringify({ error: { code: 401, message: "Bad credentials" } }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a provider_error failure");
+    expect(result.code).toBe("provider_error");
+    expect(result.httpStatus).toBe(401);
+  });
+
+  it("logs the numeric httpStatus (and providerErrorCode, when the body carries one) in the llm_call failure event", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      headers: new Headers(),
+      text: async () => JSON.stringify({
+        error: {
+          code: 401,
+          message: "Invalid API key",
+          metadata: { error_type: "authentication", provider_code: "invalid_api_key" },
+        },
+      }),
+    }));
+
+    await parseIntent("What's the burn rate?", "context");
+
+    const llmCallLines = errorSpy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((line) => typeof line === "string" && line.includes('"event":"llm_call"'));
+    expect(llmCallLines).toHaveLength(1);
+
+    const parsed = JSON.parse(llmCallLines[0] as string);
+    expect(parsed.failureCode).toBe("http_error");
+    expect(parsed.httpStatus).toBe(401);
+    expect(parsed.providerErrorCode).toBe("invalid_api_key");
+  });
+
+  it("tolerates a non-JSON error body without throwing — httpStatus is still logged, providerErrorCode stays null", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      headers: new Headers(),
+      text: async () => "<html>upstream is down</html>",
+    }));
+
+    const result = await parseIntent("test", "context");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a provider_error failure");
+    expect(result.httpStatus).toBe(500);
+
+    const llmCallLines = errorSpy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((line) => typeof line === "string" && line.includes('"event":"llm_call"'));
+    const parsed = JSON.parse(llmCallLines[0] as string);
+    expect(parsed.httpStatus).toBe(500);
+    expect(parsed.providerErrorCode).toBeNull();
+  });
+
+  it("does not set httpStatus on a timeout (AbortError has no HTTP status)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      const err = new DOMException("The operation was aborted.", "AbortError");
+      return Promise.reject(err);
+    }));
+
+    const result = await parseIntent("test", "context");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a provider_error failure");
+    expect(result.httpStatus).toBeUndefined();
   });
 });

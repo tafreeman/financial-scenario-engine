@@ -537,10 +537,11 @@ apiRouter.post("/scenario/v3", requireAppToken, scenarioRateLimit, async (req: R
 // injecting arbitrary config keys (closes partial mitigation from Wave-1).
 //
 // SSRF guards:
-//  - `endpoint` (GitHub Models) must use https and must NOT resolve to a private
-//    or loopback address.  The only legitimate value points at models.github.ai
-//    or another cloud endpoint; pointing it at 127.0.0.1 / 192.168.x makes no
-//    sense and would allow a co-located process to redirect PAT exfiltration.
+//  - `endpoint` (GitHub Models) and `openrouter_endpoint` (OpenRouter) must use
+//    https and must NOT resolve to a private or loopback address.  Both are
+//    cloud-only inference endpoints; pointing either at 127.0.0.1 / 192.168.x
+//    makes no sense and would allow a co-located process to redirect PAT/API-key
+//    exfiltration — so they share the SAME `refineEndpointNoPrivate` refinement.
 //  - `ollama_endpoint` MUST also use https in production, but Ollama's default
 //    local binding is plain http://localhost:11434 — that specific host is
 //    explicitly allowed so the Ollama workflow continues to work.  Private-range
@@ -563,7 +564,7 @@ const CONFIG_WRITABLE_KEYS = z.object({
     .optional(),
   temperature: z.string().optional(),
   max_tokens: z.string().optional(),
-  llm_provider: z.enum(["github", "ollama"]).optional(),
+  llm_provider: z.enum(["github", "ollama", "openrouter"]).optional(),
   ollama_model: z.string().optional(),
   ollama_endpoint: z
     .string()
@@ -574,6 +575,16 @@ const CONFIG_WRITABLE_KEYS = z.object({
     })
     .optional(),
   llm_timeout_ms: z.string().optional(),
+  openrouter_api_key: z.string().optional(),
+  openrouter_model: z.string().optional(),
+  openrouter_endpoint: z
+    .string()
+    .url()
+    .refine(refineEndpointNoPrivate, {
+      message:
+        "openrouter_endpoint must use https and must not resolve to a loopback or private-range host",
+    })
+    .optional(),
 }).strict();
 
 // ---- Config ----
@@ -586,6 +597,15 @@ apiRouter.get("/config", (_req, res) => {
       ? pat.slice(0, 4) + "****" + pat.slice(-4)
       : "****";
     delete config.github_pat;
+  }
+  // Same masking for the OpenRouter API key — never return the raw secret
+  // from this read endpoint, mirroring the github_pat handling above.
+  if (config.openrouter_api_key) {
+    const key = config.openrouter_api_key;
+    config.openrouter_api_key_masked = key.length > 8
+      ? key.slice(0, 4) + "****" + key.slice(-4)
+      : "****";
+    delete config.openrouter_api_key;
   }
   // Tell the UI where the effective GitHub token comes from (pat / env / gh /
   // none) WITHOUT exposing the token itself, so it can show "using your gh
