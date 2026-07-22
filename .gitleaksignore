@@ -1,0 +1,4 @@
+# False-positive fingerprints for gitleaks (commit:file:rule:line).
+# Synthetic test fixture "sk-or-v1-abcdef1234567890" in the config-masking
+# test — not a real credential (also annotated inline with gitleaks:allow).
+b0b2aeffdf3b551302c902541960f618c1ed3b66:server/__tests__/config-auth-ssrf.test.ts:generic-api-key:665

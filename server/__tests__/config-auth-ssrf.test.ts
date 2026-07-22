@@ -753,7 +753,7 @@ describe("GET /api/config — secret masking shape (security-review follow-up, P
       realServer, "PUT", "/api/config",
       {
         github_pat: "ghp_1234567890abcdef",
-        openrouter_api_key: "sk-or-v1-abcdef1234567890",
+        openrouter_api_key: "sk-or-v1-abcdef1234567890", // gitleaks:allow — synthetic fixture for the masking-shape test
       },
       AUTH
     );
