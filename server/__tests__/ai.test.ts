@@ -17,6 +17,7 @@ import {
   DEFAULT_OPENROUTER_MODEL,
   OPENROUTER_RATE_LIMIT_FLOOR_MS,
   LLM_RETRY_BASE_DELAY_MS,
+  stripReasoningAndFences,
 } from "../ai.js";
 import type { ToolCall, ChatMessage } from "../ai.js";
 import type { ScenarioResult, ScenarioOperation } from "../engine/types.js";
@@ -975,7 +976,113 @@ describe("chatRequest — OpenRouter 429 retry floor", () => {
     expect(sleeps[0]).toBeLessThan(OPENROUTER_RATE_LIMIT_FLOOR_MS);
   });
 
-  it("does not floor a non-429 retryable status (502) for openrouter", async () => {
+  // ─── 503 (transient capacity) floor extension ──────────────────────────────
+  // 2026-07-22: a live NVIDIA NIM eval run (provider "openrouter" pointed at
+  // NIM via OPENROUTER_ENDPOINT) scored 39/48; 5 of the 9 misses were
+  // provider_error, at least 3 with httpStatus 503 (free-tier capacity).
+  // NIM's capacity 503s typically clear within seconds — the default
+  // sub-second backoff exhausts retries before recovery, the SAME failure
+  // mode 429 flooring already fixes. Recovering those 5 transients scored
+  // 44/48 (91.7%), comfortably over the 85% gate.
+
+  it("floors a 503-without-Retry-After retry delay at OPENROUTER_RATE_LIMIT_FLOOR_MS when provider is openrouter", async () => {
+    setConfig("llm_provider", "openrouter");
+    const overCapacity = {
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      headers: new Headers(), // no retry-after
+      text: async () => "over capacity",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValueOnce(overCapacity).mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => { sleeps.push(ms); };
+
+    await chatRequest(
+      "https://integrate.api.nvidia.com/v1/chat/completions",
+      "or-test-key",
+      { model: DEFAULT_OPENROUTER_MODEL },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBeGreaterThanOrEqual(OPENROUTER_RATE_LIMIT_FLOOR_MS);
+  });
+
+  it("honors a Retry-After header smaller than the floor on a 503 (server's explicit value always wins)", async () => {
+    setConfig("llm_provider", "openrouter");
+    const overCapacity = {
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      headers: new Headers({ "retry-after": "1" }), // 1s — well below the 3.5s floor
+      text: async () => "over capacity",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValueOnce(overCapacity).mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => { sleeps.push(ms); };
+
+    await chatRequest(
+      "https://integrate.api.nvidia.com/v1/chat/completions",
+      "or-test-key",
+      { model: DEFAULT_OPENROUTER_MODEL },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(sleeps).toEqual([1000]);
+  });
+
+  it("does not floor a 503 retry delay for the github provider (byte-identical retry behavior)", async () => {
+    setConfig("llm_provider", "github");
+    const overCapacity = {
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      headers: new Headers(), // no retry-after
+      text: async () => "over capacity",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValueOnce(overCapacity).mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => { sleeps.push(ms); };
+
+    await chatRequest(
+      "https://models.github.ai/inference/chat/completions",
+      "test-pat",
+      { model: "openai/gpt-4.1" },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBeGreaterThanOrEqual(LLM_RETRY_BASE_DELAY_MS);
+    expect(sleeps[0]).toBeLessThan(LLM_RETRY_BASE_DELAY_MS * 2);
+    expect(sleeps[0]).toBeLessThan(OPENROUTER_RATE_LIMIT_FLOOR_MS);
+  });
+
+  it("still does not floor a non-429/503 retryable status (502) for openrouter", async () => {
     setConfig("llm_provider", "openrouter");
     const badGateway = {
       ok: false,
@@ -1094,5 +1201,299 @@ describe("HTTP status threading (FSE-EVAL-RED — the numeric status used to be 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Expected a provider_error failure");
     expect(result.httpStatus).toBeUndefined();
+  });
+});
+
+// ─── stripReasoningAndFences — reasoning-family model output cleanup ────────
+// (2026-07-22 real-model-eval diagnosis: 14/14 accuracy-gate misses against
+// OpenRouter's Nemotron 3 Ultra were "invalid_json" — a reasoning-family
+// model prepending a <think> block and/or wrapping its answer in markdown
+// fences before the strict JSON.parse in parseIntent().)
+
+describe("stripReasoningAndFences", () => {
+  it("returns plain JSON content unchanged (no fences, no think block)", () => {
+    const input = '{"action":"burn_rate_check"}';
+    expect(stripReasoningAndFences(input)).toBe(input);
+  });
+
+  it("strips a ```json fenced code block", () => {
+    const input = '```json\n{"action":"burn_rate_check"}\n```';
+    expect(stripReasoningAndFences(input)).toBe('{"action":"burn_rate_check"}');
+  });
+
+  it("strips a plain ``` fenced code block (no json language tag)", () => {
+    const input = '```\n{"action":"burn_rate_check"}\n```';
+    expect(stripReasoningAndFences(input)).toBe('{"action":"burn_rate_check"}');
+  });
+
+  it("strips a leading <think>...</think> reasoning block", () => {
+    const input =
+      "<think>\nThe user wants the burn rate for all projects, so I should use burn_rate_check.\n</think>\n" +
+      '{"action":"burn_rate_check"}';
+    expect(stripReasoningAndFences(input)).toBe('{"action":"burn_rate_check"}');
+  });
+
+  it("strips BOTH a leading <think> block and markdown fences together", () => {
+    const input =
+      "<think>Reasoning about the request...</think>\n" +
+      '```json\n{"action":"margin_analysis","project":"Project Alpha"}\n```';
+    expect(stripReasoningAndFences(input)).toBe(
+      '{"action":"margin_analysis","project":"Project Alpha"}'
+    );
+  });
+
+  it("handles a multiline <think> block with nested-looking angle brackets", () => {
+    const input =
+      "<think>\nStep 1: parse intent\nStep 2: <compare> against rate card\n</think>\n" +
+      '{"action":"burn_rate_check"}';
+    expect(stripReasoningAndFences(input)).toBe('{"action":"burn_rate_check"}');
+  });
+
+  // 2026-07-22 security/quality review regression: a model that wraps its
+  // ENTIRE response (reasoning AND JSON together) in ONE outer fence used to
+  // slip through unstripped, because the think-block regex is anchored to
+  // the start of the string and the fence marker — not "<think>" — occupied
+  // position 0. Traced to 4/48 misses in a live NIM eval run. Fence-first
+  // ordering (see stripReasoningAndFences's doc comment) fixes this.
+  it("strips a <think> block that is nested INSIDE a single outer fence wrapping the whole response", () => {
+    const input =
+      '```json\n<think>The user wants the burn rate across the portfolio.</think>\n{"action":"burn_rate_check"}\n```';
+    expect(stripReasoningAndFences(input)).toBe('{"action":"burn_rate_check"}');
+  });
+
+  it("strips a <think> block inside a single outer fence with no json language tag", () => {
+    const input =
+      '```\n<think>reasoning...</think>\n{"action":"margin_analysis","project":"Project Alpha"}\n```';
+    expect(stripReasoningAndFences(input)).toBe(
+      '{"action":"margin_analysis","project":"Project Alpha"}'
+    );
+  });
+
+  it("leaves reasoning-only content (no JSON at all) as non-empty garbage — still fails JSON.parse downstream", () => {
+    const input = "<think>\nI am not sure how to answer this.\n</think>\n";
+    const cleaned = stripReasoningAndFences(input);
+    expect(() => JSON.parse(cleaned)).toThrow();
+  });
+
+  it("returns an empty string for entirely-empty content", () => {
+    expect(stripReasoningAndFences("")).toBe("");
+  });
+
+  it("trims surrounding whitespace even without fences or a think block", () => {
+    const input = '   {"action":"burn_rate_check"}   ';
+    expect(stripReasoningAndFences(input)).toBe('{"action":"burn_rate_check"}');
+  });
+});
+
+// ─── parseIntent — response_format request-side fix (OpenRouter only) ───────
+
+describe("parseIntent — response_format (OpenRouter reasoning-model invalid_json fix)", () => {
+  let savedGithubPat: string;
+
+  beforeEach(() => {
+    savedGithubPat = getConfig("github_pat");
+  });
+
+  afterEach(() => {
+    setConfig("github_pat", savedGithubPat);
+  });
+
+  it("includes response_format: json_object in the payload when provider is openrouter", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    const fetchStub = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: '{"action":"burn_rate_check"}' } }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchStub);
+
+    await parseIntent("What's the burn rate?", "context");
+
+    const opts = fetchStub.mock.calls[0]?.[1] as RequestInit | undefined;
+    const body = JSON.parse(opts?.body as string) as Record<string, unknown>;
+    expect(body.response_format).toEqual({ type: "json_object" });
+  });
+
+  it("does NOT include response_format for the github provider (byte-identical payload)", async () => {
+    setConfig("llm_provider", "github");
+    setConfig("github_pat", "test-pat"); // isProviderConfigured() must pass for parseIntent to reach fetch
+    const fetchStub = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: '{"action":"burn_rate_check"}' } }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchStub);
+
+    await parseIntent("What's the burn rate?", "context");
+
+    const opts = fetchStub.mock.calls[0]?.[1] as RequestInit | undefined;
+    const body = JSON.parse(opts?.body as string) as Record<string, unknown>;
+    expect(body.response_format).toBeUndefined();
+  });
+
+  it("does NOT include response_format for the ollama provider (byte-identical payload)", async () => {
+    setConfig("llm_provider", "ollama");
+    const fetchStub = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: '{"action":"burn_rate_check"}' } }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchStub);
+
+    await parseIntent("What's the burn rate?", "context");
+
+    const opts = fetchStub.mock.calls[0]?.[1] as RequestInit | undefined;
+    const body = JSON.parse(opts?.body as string) as Record<string, unknown>;
+    expect(body.response_format).toBeUndefined();
+  });
+
+  it("parseIntent() successfully parses a fenced + <think>-prefixed OpenRouter-style response", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{
+          message: {
+            role: "assistant",
+            content:
+              "<think>The user wants the burn rate across the portfolio.</think>\n" +
+              '```json\n{"action":"burn_rate_check"}\n```',
+          },
+        }],
+      }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected a successful parse");
+    expect(result.operation.action).toBe("burn_rate_check");
+  });
+
+  it("parseIntent() successfully parses a <think> block nested INSIDE a single outer fence (2026-07-22 NIM regression)", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{
+          message: {
+            role: "assistant",
+            content:
+              '```json\n<think>The user wants the burn rate across the portfolio.</think>\n{"action":"burn_rate_check"}\n```',
+          },
+        }],
+      }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected a successful parse");
+    expect(result.operation.action).toBe("burn_rate_check");
+  });
+
+  it("parseIntent() still returns invalid_json for a reasoning-only (empty-after-strip) OpenRouter response", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{
+          message: {
+            role: "assistant",
+            content: "<think>\nI am not sure how to answer this.\n</think>\n",
+          },
+        }],
+      }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a parse failure");
+    expect(result.code).toBe("invalid_json");
+  });
+
+  // NVIDIA NIM verification (2026-07-22, same model family as the eval target,
+  // nvidia/nemotron-3-ultra-550b-a55b): with response_format: json_object set,
+  // the reasoning trace is delivered in a SEPARATE `reasoning`/`reasoning_content`
+  // message field, NOT prepended into `content` as a <think> block. Confirms
+  // parseIntent() must read message.content ONLY — it must not fall back to
+  // (or attempt to parse) a reasoning field, and empty content alongside a
+  // populated reasoning field must still be invalid_json, not a false success.
+  it("parseIntent() reads message.content only — an empty content with a separate populated reasoning field is still invalid_json", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{
+          message: {
+            role: "assistant",
+            content: "",
+            reasoning: "The user wants the portfolio-wide burn rate, so burn_rate_check applies.",
+          },
+        }],
+      }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a parse failure");
+    expect(result.code).toBe("invalid_json");
+  });
+
+  it("parseIntent() parses clean JSON content when reasoning is in a separate field (response_format: json_object shape)", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{
+          message: {
+            role: "assistant",
+            content: '{"action":"burn_rate_check"}',
+            reasoning_content: "Reasoning: the user asked about burn rate across the portfolio.",
+          },
+        }],
+      }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected a successful parse");
+    expect(result.operation.action).toBe("burn_rate_check");
   });
 });

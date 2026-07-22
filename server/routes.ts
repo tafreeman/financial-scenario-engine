@@ -19,7 +19,7 @@ import {
 } from "./db.js";
 import { parseIntent, narrateResult, agenticScenario, getGitHubTokenSource, type IntentParseFailure } from "./ai.js";
 import { listModels } from "./models-catalog.js";
-import { refineEndpointNoPrivate, refineOllamaEndpoint } from "./ssrf.js";
+import { refineEndpointNoPrivateAsync, refineOllamaEndpointAsync } from "./ssrf.js";
 import { getLlmTelemetrySnapshot } from "./llm-telemetry.js";
 
 /** Maximum wall-clock budget for the v3 agentic endpoint (ms). */
@@ -237,6 +237,30 @@ const postStaffingSchema = z.object({
   hours_per_week: z.number().positive().max(168).default(40),
 }).strict();
 
+/**
+ * POST /scenario/v2 body. FSE#6 (2026-07-21 audit): the 3 AI-scenario routes
+ * used to destructure req.body untyped and only truthy-check `query`
+ * (`if (!query) ...`), so a non-string query (e.g. an array or object) passed
+ * the guard and reached parseIntent()/agenticScenario() — burning a paid LLM
+ * call and the scenarioRateLimit budget before failing downstream. Validate
+ * at the boundary like the other mutating routes; unknown keys are rejected.
+ * max(2000) caps prompt size fed to the LLM. Only /scenario/v2 reads
+ * skip_narrative/use_llm_narrative — see scenarioQueryOnlySchema below for the
+ * other two routes, which read query only.
+ */
+const scenarioV2Schema = z.object({
+  query: z.string().min(1).max(2000),
+  skip_narrative: z.boolean().optional(),
+  use_llm_narrative: z.boolean().optional(),
+}).strict();
+
+/** POST /scenario/v2/parse-only and /scenario/v3 body — both read `query`
+ *  only (see scenarioV2Schema above for the route that also reads
+ *  skip_narrative/use_llm_narrative). */
+const scenarioQueryOnlySchema = z.object({
+  query: z.string().min(1).max(2000),
+}).strict();
+
 // ---- Health ----
 apiRouter.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -429,8 +453,12 @@ apiRouter.get("/scenarios", (req: Request, res: Response) => {
 // persist results to the database — they must not be callable by unauthenticated
 // co-located processes.
 apiRouter.post("/scenario/v2", requireAppToken, scenarioRateLimit, async (req: Request, res: Response) => {
-  const { query, skip_narrative, use_llm_narrative } = req.body;
-  if (!query) { res.status(400).json({ error: "query required" }); return; }
+  const parsed = scenarioV2Schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid fields", details: parsed.error.issues });
+    return;
+  }
+  const { query, skip_narrative, use_llm_narrative } = parsed.data;
 
   try {
     // Step 1: LLM parses intent into structured operation (anonymized context sent to LLM)
@@ -485,8 +513,12 @@ apiRouter.post("/scenario/v2", requireAppToken, scenarioRateLimit, async (req: R
 });
 
 apiRouter.post("/scenario/v2/parse-only", requireAppToken, scenarioRateLimit, async (req: Request, res: Response) => {
-  const { query } = req.body;
-  if (!query) { res.status(400).json({ error: "query required" }); return; }
+  const parsed = scenarioQueryOnlySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid fields", details: parsed.error.issues });
+    return;
+  }
+  const { query } = parsed.data;
 
   try {
     const context = buildAnonymizedContextSnapshot();
@@ -503,8 +535,12 @@ apiRouter.post("/scenario/v2/parse-only", requireAppToken, scenarioRateLimit, as
 
 // ---- AI Scenario V3 (agentic tool-calling loop) ----
 apiRouter.post("/scenario/v3", requireAppToken, scenarioRateLimit, async (req: Request, res: Response) => {
-  const { query } = req.body;
-  if (!query) { res.status(400).json({ error: "query required" }); return; }
+  const parsed = scenarioQueryOnlySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid fields", details: parsed.error.issues });
+    return;
+  }
+  const { query } = parsed.data;
 
   try {
     // Race the agentic loop against an endpoint budget to prevent runaway iteration.
@@ -541,12 +577,20 @@ apiRouter.post("/scenario/v3", requireAppToken, scenarioRateLimit, async (req: R
 //    https and must NOT resolve to a private or loopback address.  Both are
 //    cloud-only inference endpoints; pointing either at 127.0.0.1 / 192.168.x
 //    makes no sense and would allow a co-located process to redirect PAT/API-key
-//    exfiltration — so they share the SAME `refineEndpointNoPrivate` refinement.
+//    exfiltration — so they share the SAME `refineEndpointNoPrivateAsync` refinement.
 //  - `ollama_endpoint` MUST also use https in production, but Ollama's default
 //    local binding is plain http://localhost:11434 — that specific host is
 //    explicitly allowed so the Ollama workflow continues to work.  Private-range
 //    IPs (10/8, 172.16/12, 192.168/16) and link-local (169.254/16) are still
 //    blocked even for ollama_endpoint.
+//  - FSE#4 (2026-07-21 audit): the refinements below are ASYNC — a DOMAIN
+//    hostname (not a literal IP/"localhost") is additionally resolved via
+//    dns.lookup and rejected if any resolved address is loopback/private/
+//    link-local, closing the DNS-rebinding gap where a literal-IP-only check
+//    let e.g. "evil.example.com" (resolving to 127.0.0.1 or the
+//    169.254.169.254 cloud-metadata address) through. See server/ssrf.ts for
+//    the full rationale and the known validate-time-only (TOCTOU) limitation.
+//    This is why PUT /api/config below uses `safeParseAsync`, not `safeParse`.
 //
 // The host-classification + refinement helpers used below live in server/ssrf.ts
 // (imported above) so the security tests exercise the exact same implementation.
@@ -557,7 +601,7 @@ const CONFIG_WRITABLE_KEYS = z.object({
   endpoint: z
     .string()
     .url()
-    .refine(refineEndpointNoPrivate, {
+    .refine(refineEndpointNoPrivateAsync, {
       message:
         "endpoint must use https and must not resolve to a loopback or private-range host",
     })
@@ -569,7 +613,7 @@ const CONFIG_WRITABLE_KEYS = z.object({
   ollama_endpoint: z
     .string()
     .url()
-    .refine(refineOllamaEndpoint, {
+    .refine(refineOllamaEndpointAsync, {
       message:
         "ollama_endpoint must use https (or http for localhost only) and must not resolve to a private-range IP",
     })
@@ -580,7 +624,7 @@ const CONFIG_WRITABLE_KEYS = z.object({
   openrouter_endpoint: z
     .string()
     .url()
-    .refine(refineEndpointNoPrivate, {
+    .refine(refineEndpointNoPrivateAsync, {
       message:
         "openrouter_endpoint must use https and must not resolve to a loopback or private-range host",
     })
@@ -618,8 +662,12 @@ apiRouter.get("/config", (_req, res) => {
 // Without this guard, any co-located process could overwrite `endpoint` to an
 // attacker-controlled host and cause the next scenario request to exfiltrate
 // the GitHub PAT and financial data (SSRF + PAT exfiltration).
-apiRouter.put("/config", requireAppToken, (req: Request, res: Response) => {
-  const parsed = CONFIG_WRITABLE_KEYS.safeParse(req.body);
+//
+// safeParseAsync (not safeParse): the endpoint/ollama_endpoint/openrouter_endpoint
+// refinements above are async (they may perform a DNS lookup — see FSE#4 note
+// above and server/ssrf.ts), so this schema must be awaited.
+apiRouter.put("/config", requireAppToken, async (req: Request, res: Response) => {
+  const parsed = await CONFIG_WRITABLE_KEYS.safeParseAsync(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Unknown or invalid config keys", details: parsed.error.issues });
     return;

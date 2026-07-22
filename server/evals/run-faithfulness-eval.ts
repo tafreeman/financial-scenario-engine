@@ -16,21 +16,26 @@
  * (mirroring the procedure in server/evals/eval-config.ts) establishes one.
  *
  * Usage:
- *   npm run eval:faithfulness                            # missing token skips (exit 0)
- *   EVAL_FAITHFULNESS_GATED=1 npm run eval:faithfulness  # missing token is FATAL (exit 1)
+ *   npm run eval:faithfulness                            # unconfigured provider skips (exit 0)
+ *   EVAL_FAITHFULNESS_GATED=1 npm run eval:faithfulness  # unconfigured provider is FATAL (exit 1)
  *
- * Requires: GITHUB_TOKEN env var — same upfront presence check as
- * run-intent-eval.ts (the judge itself resolves provider/model/endpoint via
- * getAiConfig(), so a deployment reconfigured via /api/config is reflected
- * here too; the skip/gate check still keys on process.env.GITHUB_TOKEN alone).
+ * Requires: a configured LLM provider — checked via the SAME
+ * isProviderConfigured() production uses (server/ai.ts), mirroring
+ * run-intent-eval.ts's provider-aware gate. Migrated 2026-07-22 off a
+ * process.env.GITHUB_TOKEN-only presence check, which reported "configured"
+ * for an openrouter/ollama deployment with no working credential — the judge
+ * itself resolves provider/model/endpoint/auth via getAiConfig(), so a
+ * deployment reconfigured via /api/config (or configure-openrouter-eval.ts in
+ * CI, since GitHub Models is fully retired 2026-07-30) is now correctly
+ * reflected by this gate too, not just by the judge's own request.
  *
  * Exit codes:
  *   0 — run completed and at least one narrative was actually judged
- *       (faithful or not — advisory, no verdict gate), or token absent
- *       while ungated
- *   1 — token absent while EVAL_FAITHFULNESS_GATED=1/true, every judge call
- *       failed (nothing was judged, so the run produced no evidence), or a
- *       fatal error
+ *       (faithful or not — advisory, no verdict gate), or the provider was
+ *       unconfigured while ungated
+ *   1 — provider unconfigured while EVAL_FAITHFULNESS_GATED=1/true, every
+ *       judge call failed (nothing was judged, so the run produced no
+ *       evidence), or a fatal error
  *
  * Results artifact: server/evals/results/faithfulness-latest.json (gitignored,
  * like the intent eval's latest.json).
@@ -39,6 +44,7 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { getAiConfig, isProviderConfigured, OPENROUTER_RATE_LIMIT_FLOOR_MS } from "../ai.js";
 import { executeScenario } from "../engine/executor.js";
 import { generateNarrative } from "../engine/narrative.js";
 import type { ScenarioResult } from "../engine/types.js";
@@ -144,24 +150,45 @@ function toCaseResult(id: string, action: string, judge: JudgeResult): Faithfuln
   };
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 async function main(): Promise<number> {
-  if (!process.env.GITHUB_TOKEN) {
-    if (isGatedRun()) {
+  const gated = isGatedRun();
+
+  // Provider-aware gate — see the module doc comment above for the migration
+  // rationale (this used to key on process.env.GITHUB_TOKEN alone).
+  const providerCheck = isProviderConfigured();
+  if (!providerCheck.ok) {
+    if (gated) {
       console.error(
-        "faithfulness-eval: GATED run but GITHUB_TOKEN is not set — failing instead of silently skipping."
+        `faithfulness-eval: GATED run but no provider is configured (${providerCheck.error ?? "unknown reason"}) — failing instead of silently skipping.`
       );
       return 1;
     }
     console.log(
-      "faithfulness-eval: GITHUB_TOKEN not set; skipping (set EVAL_FAITHFULNESS_GATED=1 to fail instead)."
+      `faithfulness-eval: no provider configured (${providerCheck.error ?? "unknown reason"}); skipping (set EVAL_FAITHFULNESS_GATED=1 to fail instead).`
     );
     return 0;
   }
 
+  const resolvedConfig = getAiConfig();
+  console.log(
+    `\nfaithfulness-eval: provider=${resolvedConfig.provider} model=${resolvedConfig.model}`
+  );
+
   const snapshot = loadPortfolioSnapshot();
   const results: FaithfulnessCaseResult[] = [];
 
-  for (const { id, operation } of EVAL_OPERATIONS) {
+  for (const [index, { id, operation }] of EVAL_OPERATIONS.entries()) {
+    // Pace requests against OpenRouter's free-tier rate limit (20 req/min —
+    // see OPENROUTER_RATE_LIMIT_FLOOR_MS in server/ai.ts, which run-intent-eval.ts
+    // also reuses for its own pacing) — skip before the FIRST case so a clean
+    // run isn't penalized with a wasted leading delay. No-op for any other
+    // provider.
+    if (index > 0 && resolvedConfig.provider === "openrouter") {
+      await sleep(OPENROUTER_RATE_LIMIT_FLOOR_MS);
+    }
+
     // Validate our own fixtures the same way production validates parsed
     // intents — a fixture that drifts from the schema should fail loudly here.
     const parsed = scenarioOperationSchema.safeParse(operation);

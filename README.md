@@ -161,6 +161,18 @@ CORS_ORIGIN=https://your-app.example.com npm start
 
 Leaving `CORS_ORIGIN` unset in production causes browsers to reject cross-origin requests from the production domain. The explicit origin requirement stops arbitrary pages in a user's browser from reading API data (including `/api/config`).
 
+### Reverse-proxy mode: `TRUST_PROXY_HOPS`
+
+Behind a reverse proxy, every request's socket-level source is the PROXY's own address — without telling Express to trust it, `req.ip` (and therefore every per-IP rate limiter in `server/routes.ts`, e.g. the 300/min read-route ceiling and the 10/min scenario ceiling) resolves to the proxy's address for every request, so every distinct client behind the proxy shares ONE rate-limit bucket and one abusive client can exhaust the budget for everyone else.
+
+Set `TRUST_PROXY_HOPS` to the number of reverse proxies actually in front of this process (typically `1`):
+
+```bash
+TRUST_PROXY_HOPS=1 CORS_ORIGIN=https://your-app.example.com npm start
+```
+
+`TRUST_PROXY_HOPS` defaults to `0` (no proxy trusted — Express reads the real socket address, matching this app's out-of-the-box direct-bind deployment). **Never** set it to a value meant to "trust everything" — Express's `trust proxy: true` trusts the entire `X-Forwarded-For` chain, and that header's left-most entry is fully client-spoofable (any caller can send `X-Forwarded-For: 1.2.3.4` and dodge the per-IP ceiling). A specific hop count instead makes Express read the correct Nth-from-the-right entry — the one your own trusted proxy actually appended. See `server/trust-proxy.ts` for the full rationale.
+
 ## Tech Stack
 
 | Layer | Technology | Why |

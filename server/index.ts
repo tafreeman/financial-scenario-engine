@@ -6,6 +6,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { apiRouter } from "./routes.js";
 import { getDb } from "./db.js";
+import { resolveTrustProxyHops } from "./trust-proxy.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -13,6 +14,16 @@ const HOST = process.env.HOST || "127.0.0.1";
 const IS_DEV = process.env.NODE_ENV !== "production";
 
 const app = express();
+
+// Trust proxy (rate-limit correctness behind a reverse proxy) — FSE#5
+// (2026-07-21 audit). See server/trust-proxy.ts for the full threat model
+// and why this defaults to 0 (disabled) rather than `true`. Set
+// TRUST_PROXY_HOPS=1 when deploying behind exactly one reverse proxy (see
+// the CORS_ORIGIN reverse-proxy guidance in README.md, "CORS configuration").
+const trustProxyHops = resolveTrustProxyHops();
+if (trustProxyHops > 0) {
+  app.set("trust proxy", trustProxyHops);
+}
 
 // CORS — restrict to an explicit origin in production.
 // Set CORS_ORIGIN in the environment for any origin other than the default local dev server.

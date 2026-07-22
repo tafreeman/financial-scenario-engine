@@ -77,27 +77,46 @@ const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 const RETRY_AFTER_MAX_MS = 60_000;
 
 /**
- * Floor (ms) for a 429 retry delay against the "openrouter" provider when the
- * response carries no (usable) Retry-After header. OpenRouter's free-tier
- * (":free" model-id suffix) models are capped at 20 requests/minute
- * regardless of purchased credits (https://openrouter.ai/docs/api-reference/
- * limits) — the default exponential backoff below (LLM_RETRY_BASE_DELAY_MS-
- * based, ~500ms-1.5s) is far under the ~3s/request budget that cap implies,
- * so a single unheadered 429 could otherwise retry fast enough to trip
- * ANOTHER 429 well inside the same per-minute window, cascading into eval
- * accuracy-gate misses. 3500ms keeps a retry comfortably under the cap
- * (60_000ms / 20 = 3000ms minimum) with margin for jitter/clock drift — the
- * SAME value server/evals/run-intent-eval.ts uses to pace corpus requests
- * (OPENROUTER_EVAL_PACING_MS there imports this constant so the two can't
- * drift apart).
+ * Floor (ms) for a 429 (rate limit) OR 503 (transient capacity) retry delay
+ * against the "openrouter" provider when the response carries no (usable)
+ * Retry-After header.
  *
- * Only applied when: provider is "openrouter", status is 429, AND
- * retryDelayMs() would otherwise fall through to the backoff/jitter path
- * (no Retry-After header, or one that doesn't parse) — see the call site in
+ * 429: OpenRouter's free-tier (":free" model-id suffix) models are capped at
+ * 20 requests/minute regardless of purchased credits
+ * (https://openrouter.ai/docs/api-reference/limits) — the default
+ * exponential backoff below (LLM_RETRY_BASE_DELAY_MS-based, ~500ms-1.5s) is
+ * far under the ~3s/request budget that cap implies, so a single unheadered
+ * 429 could otherwise retry fast enough to trip ANOTHER 429 well inside the
+ * same per-minute window, cascading into eval accuracy-gate misses.
+ *
+ * 503: a live NVIDIA NIM eval run (2026-07-22, provider "openrouter" pointed
+ * at NIM via OPENROUTER_ENDPOINT — see configure-openrouter-eval.ts) scored
+ * 39/48 (81.3%); of the 9 misses, 5 were "provider_error", at least 3 with
+ * httpStatus 503 (free-tier capacity — the model is temporarily over
+ * capacity, not rate-limited per request). NIM's capacity 503s typically
+ * clear within a few seconds, but the default sub-second exponential backoff
+ * exhausts LLM_MAX_RETRY_ATTEMPTS before capacity actually recovers — the
+ * SAME failure mode as the 429 case above, just a different status code and
+ * root cause. Re-running the recorded transcript with the 5 transients
+ * recovered scored 44/48 (91.7%), comfortably over the 85% accuracy gate —
+ * this floor is plausibly the difference between a red and a green nightly
+ * run.
+ *
+ * 3500ms keeps a 429 retry comfortably under the free-tier per-minute cap
+ * (60_000ms / 20 = 3000ms minimum) with margin for jitter/clock drift, and
+ * gives a 503 several seconds of real recovery headroom instead of near-
+ * instant re-hammering — the SAME value server/evals/run-intent-eval.ts uses
+ * to pace corpus requests (OPENROUTER_EVAL_PACING_MS there imports this
+ * constant so the two can't drift apart).
+ *
+ * Only applied when: provider is "openrouter", status is 429 OR 503, AND
+ * retryDelayMs() would otherwise fall through to the backoff/jitter path (no
+ * Retry-After header, or one that doesn't parse) — see the call site in
  * chatRequest(). A present, parseable Retry-After ALWAYS wins as-is, even
  * when it is smaller than this floor: the server is the authority on how
  * long it actually needs, and this fix only covers the case where it gave no
- * guidance at all. github/ollama retry behavior is completely unaffected —
+ * guidance at all. github/ollama retry behavior is completely unaffected,
+ * and openrouter's OTHER retryable statuses (502/504) are unaffected too —
  * retryDelayMs()'s floor parameter is omitted at every other call site.
  */
 export const OPENROUTER_RATE_LIMIT_FLOOR_MS = 3_500;
@@ -657,6 +676,51 @@ Only include fields relevant to the matched operation. Omit unused fields entire
 - If the user's query doesn't clearly map to a specific operation, default to "burn_rate_check"
 - For questions about "current state" or "how are we doing", use "burn_rate_check" or "margin_analysis"`;
 
+/**
+ * Strip markdown code fences and a reasoning trace from a raw LLM completion
+ * before JSON.parse (provider-agnostic — not specific to OpenRouter, though
+ * that is where this was first observed).
+ *
+ * Reasoning-family models (e.g. OpenRouter's Nemotron 3 Ultra — see the
+ * 2026-07-22 real-model-eval run, where 14/14 accuracy-gate misses were
+ * "invalid_json") often prepend a `<think>...</think>` reasoning block before
+ * the actual JSON answer, in addition to the markdown-fence wrapping this
+ * already handled.
+ *
+ * Order matters: fences are stripped FIRST, then the (now start-anchored)
+ * `<think>` block, then the result is trimmed. Fence-first is required
+ * because the think-block regex is anchored to the start of the string
+ * (`^\s*<think>`) — a model that wraps its ENTIRE response (reasoning AND
+ * JSON together) in ONE outer fence, e.g.
+ *   ```json
+ *   <think>...</think>
+ *   {"action":"burn_rate_check"}
+ *   ```
+ * has the fence marker occupying position 0, not `<think>`, so a think-first
+ * order never matches and leaves the `<think>...</think>` block sitting in
+ * front of the JSON — a real 2026-07-22 regression this fixed (`git
+ * blame`-verified: the original think-first order shipped, then a live NIM
+ * eval run reproduced 4/48 misses traced to exactly this ordering bug).
+ * Fence-first correctly exposes the `<think>` block at the true start of the
+ * de-fenced string, where the anchored regex can then strip it.
+ *
+ * This does NOT regress the sibling case where the think block sits OUTSIDE
+ * the fence (`<think>...</think>` followed by a separately-fenced JSON
+ * block) — fence-stripping only removes the fence markers themselves
+ * (```/```json), never the `<think>` tag text, so that case still resolves
+ * identically regardless of which step runs first.
+ *
+ * Content that is ENTIRELY reasoning (no JSON at all) still fails JSON.parse
+ * after stripping — this must never silently succeed on garbage.
+ *
+ * Exported (pure, no I/O) so this is unit-testable without a live model call.
+ */
+export function stripReasoningAndFences(content: string): string {
+  const withoutFences = content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "");
+  const withoutThink = withoutFences.replace(/^\s*<think>[\s\S]*?<\/think>\s*/i, "");
+  return withoutThink.trim();
+}
+
 /** Parse user query into a structured ScenarioOperation via LLM */
 export async function parseIntent(
   userQuery: string,
@@ -682,14 +746,22 @@ export async function parseIntent(
       { role: "system", content: `${PARSE_INTENT_PROMPT}\n\nCURRENT DATA:\n${contextSnapshot}` },
       { role: "user", content: userQuery },
     ],
+    // 2026-07-22 real-model-eval diagnosis: against OpenRouter's Nemotron 3
+    // Ultra (a reasoning-family model), all 14 accuracy-gate misses were
+    // "invalid_json" — a strict-JSON purpose like intent parsing is exactly
+    // what response_format is for. OpenRouter passes response_format through
+    // to providers that support it. Scoped to "openrouter" only: github is
+    // being retired 2026-07-30 (do not touch its payload), and ollama's
+    // OpenAI-compat surface is not verified to support this field the same
+    // way, so its payload is left byte-identical too.
+    ...(config.provider === "openrouter" ? { response_format: { type: "json_object" as const } } : {}),
   };
 
   try {
     const data = await instrumentedChatRequest("intent", config.endpoint, config.pat, payload);
     const content = data.choices?.[0]?.message?.content ?? "";
 
-    // Strip markdown fences if the model wraps its response
-    const cleaned = content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
+    const cleaned = stripReasoningAndFences(content);
     let parsed: unknown;
     try {
       parsed = JSON.parse(cleaned);
@@ -1123,12 +1195,13 @@ export async function chatRequest(
       // Retry only transient statuses; a 4xx like 400/401/404 fails fast.
       if (RETRYABLE_STATUS.has(resp.status) && attempt < LLM_MAX_RETRY_ATTEMPTS) {
         lastError = error;
-        // Floor a 429's retry delay for openrouter specifically — see
-        // OPENROUTER_RATE_LIMIT_FLOOR_MS. undefined (no-op) for every other
-        // provider/status combination, so this changes nothing for
-        // github/ollama or for non-429 retryable statuses (502/503/504).
+        // Floor a 429 (rate limit) OR 503 (transient capacity) retry delay
+        // for openrouter specifically — see OPENROUTER_RATE_LIMIT_FLOOR_MS.
+        // undefined (no-op) for every other provider/status combination, so
+        // this changes nothing for github/ollama or for openrouter's other
+        // retryable statuses (502/504).
         const floorMs =
-          config.provider === "openrouter" && resp.status === 429
+          config.provider === "openrouter" && (resp.status === 429 || resp.status === 503)
             ? OPENROUTER_RATE_LIMIT_FLOOR_MS
             : undefined;
         await sleepImpl(retryDelayMs(attempt, resp.headers, floorMs));
