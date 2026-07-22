@@ -15,67 +15,102 @@
 import dns from "node:dns/promises";
 import net from "node:net";
 
+/** Strip surrounding "[" "]" brackets from an IPv6 literal in URL.hostname form. */
+function stripBrackets(hostname: string): string {
+  return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+}
+
+/** Convert two 16-bit hex groups (hi, lo) into a dotted-decimal IPv4 string. */
+function hexGroupsToIpv4(hiHex: string, loHex: string): string {
+  const hi = parseInt(hiHex, 16);
+  const lo = parseInt(loHex, 16);
+  return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff].join(".");
+}
+
 /**
- * If `hostname` is an IPv4-mapped or IPv4-compatible IPv6 address, return the
- * embedded dotted-decimal IPv4 string; otherwise return null.
+ * If `hostname` is an IPv6 address with an IPv4 address embedded in it, return
+ * the embedded dotted-decimal IPv4 string; otherwise return null. Covers three
+ * distinct embedding schemes, each with its own well-known prefix:
  *
- * Node preserves these forms verbatim in URL.hostname (with surrounding
- * brackets), so the plain dotted-decimal checks below never match them:
- *   new URL("https://[::ffff:c0a8:0101]/").hostname === "[::ffff:c0a8:101]"  // 192.168.1.1
- *   new URL("https://[::ffff:7f00:1]/").hostname     === "[::ffff:7f00:1]"   // 127.0.0.1
- *   new URL("https://[::ffff:192.168.1.1]/").hostname=== "[::ffff:c0a8:101]" // 192.168.1.1
- * Without extracting and re-checking the embedded IPv4, these slip past the
- * loopback/private filters and reopen the SSRF / PAT-exfiltration path.
+ *   - IPv4-mapped / IPv4-compatible (::ffff:<ipv4> / ::<ipv4>): the embedded
+ *     address sits in the LAST 32 bits.
+ *       new URL("https://[::ffff:c0a8:0101]/").hostname === "[::ffff:c0a8:101]"  // 192.168.1.1
+ *       new URL("https://[::ffff:7f00:1]/").hostname     === "[::ffff:7f00:1]"   // 127.0.0.1
+ *   - NAT64 (64:ff9b::<ipv4>/96, RFC 6052 well-known prefix): same "last 32
+ *     bits" embedding, different fixed prefix.
+ *       "64:ff9b::a9fe:a9fe" / "64:ff9b::169.254.169.254" -> 169.254.169.254
+ *   - 6to4 (2002:<hi>:<lo>::.../16, RFC 3056): the embedded address sits in
+ *     the FIRST 32 bits after the fixed "2002:" prefix — anything after (SLA
+ *     ID + interface ID) is irrelevant to the embedded-address check.
+ *       "2002:a9fe:a9fe::1" -> 169.254.169.254
  *
- * Handles both notations, with or without surrounding brackets:
- *   - hex embedded:    ::ffff:c0a8:0101  ->  192.168.1.1
- *   - dotted embedded: ::ffff:192.168.1.1 / ::192.168.1.1 -> 192.168.1.1
+ * Node preserves all of these forms verbatim (or in Node's own normalized hex
+ * form) in URL.hostname, so the plain dotted-decimal range checks below never
+ * match them directly. Without extracting and re-checking the embedded IPv4,
+ * each scheme slips past the loopback/private filters and reopens the SSRF /
+ * PAT-exfiltration path (2026-07-22 security review, PR #49, HIGH).
+ *
+ * Handles both notations for the "last 32 bits" schemes, with or without
+ * surrounding brackets:
+ *   - hex embedded:    ::ffff:c0a8:0101 / 64:ff9b::a9fe:a9fe -> 192.168.1.1 / 169.254.169.254
+ *   - dotted embedded: ::ffff:192.168.1.1 / ::192.168.1.1 / 64:ff9b::169.254.169.254 -> ...
  */
-export function mappedIpv4(hostname: string): string | null {
-  let h = hostname.toLowerCase();
-  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
-  // Dotted embedded form: ::ffff:192.168.1.1 (mapped) or ::192.168.1.1 (compatible)
-  const dotted = h.match(/^::(?:ffff:)?((?:\d{1,3}\.){3}\d{1,3})$/);
+export function embeddedIpv4(hostname: string): string | null {
+  const h = stripBrackets(hostname.toLowerCase());
+
+  // "Last 32 bits" schemes: IPv4-mapped/compatible (::[ffff:]) or NAT64 (64:ff9b::).
+  const dotted = h.match(/^(?:::(?:ffff:)?|64:ff9b::)((?:\d{1,3}\.){3}\d{1,3})$/);
   if (dotted?.[1]) return dotted[1];
-  // Hex embedded form: ::[ffff:]<hi16>:<lo16> — mapped (::ffff:) OR compatible
-  // (::, no ffff:). Node normalizes dotted ::127.0.0.1 / ::192.168.1.1 to this
-  // ffff-less hex form, so the ffff: group must be optional to catch them.
-  const hex = h.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hex?.[1] && hex[2]) {
-    const hi = parseInt(hex[1], 16);
-    const lo = parseInt(hex[2], 16);
-    return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff].join(".");
-  }
+
+  const hexSuffix = h.match(/^(?:::(?:ffff:)?|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hexSuffix?.[1] && hexSuffix[2]) return hexGroupsToIpv4(hexSuffix[1], hexSuffix[2]);
+
+  // 6to4: embedded address is the FIRST 32 bits after the "2002:" prefix.
+  const sixToFour = h.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/);
+  if (sixToFour?.[1] && sixToFour[2]) return hexGroupsToIpv4(sixToFour[1], sixToFour[2]);
+
   return null;
 }
 
-/** Returns true if the hostname is a loopback address. */
+/** Returns true if the hostname is a loopback (or "routes to this host") address. */
 export function isLoopback(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  // IPv4-mapped / IPv4-compatible IPv6 (e.g. [::ffff:7f00:1] -> 127.0.0.1):
-  // re-check the embedded IPv4 so mapped loopback can't bypass this filter.
-  const embedded = mappedIpv4(h);
+  const h = stripBrackets(hostname.toLowerCase());
+  // Embedded IPv4 (mapped/compatible/NAT64/6to4 — see embeddedIpv4 above):
+  // re-check the embedded address so it can't bypass this filter.
+  const embedded = embeddedIpv4(h);
   if (embedded !== null) return isLoopback(embedded);
   // IPv4 loopback (127.0.0.0/8)
   if (/^127\./.test(h)) return true;
-  // IPv6 loopback
-  if (h === "::1" || h === "[::1]") return true;
+  // IPv4 unspecified ("this host, this network") — used as a client target,
+  // most stacks route it to the local host, same threat class as loopback.
+  if (h === "0.0.0.0") return true;
+  // IPv6 loopback (::1) and unspecified (:: — routes to loopback, same
+  // rationale as 0.0.0.0 above).
+  if (h === "::1" || h === "::") return true;
   // Hostname aliases
   if (h === "localhost") return true;
   return false;
 }
 
-/** Returns true if the hostname falls within an RFC-1918 or link-local range. */
+/** Returns true if the hostname falls within an RFC-1918/RFC-4193 or link-local range. */
 export function isPrivateIp(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  // IPv4-mapped / IPv4-compatible IPv6 (e.g. [::ffff:c0a8:0101] -> 192.168.1.1):
-  // re-check the embedded IPv4 so mapped private hosts can't bypass this filter.
-  const embedded = mappedIpv4(h);
+  const h = stripBrackets(hostname.toLowerCase());
+  // Embedded IPv4 (mapped/compatible/NAT64/6to4 — see embeddedIpv4 above):
+  // re-check the embedded address so it can't bypass this filter.
+  const embedded = embeddedIpv4(h);
   if (embedded !== null) return isPrivateIp(embedded);
   if (/^10\./.test(h)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
   if (/^192\.168\./.test(h)) return true;
   if (/^169\.254\./.test(h)) return true;
+  // IPv6 unique local address (fc00::/7, RFC 4193) — the IPv6 analogue of
+  // RFC-1918 private ranges above. First hex group's first two characters
+  // are "fc" or "fd" (top 7 bits fixed at 1111110, 8th bit free).
+  if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;
+  // IPv6 link-local (fe80::/10, RFC 4291) — the IPv6 analogue of the
+  // 169.254.0.0/16 IPv4 link-local range above. First hex group matches
+  // fe80-febf (top 10 bits fixed at 1111111010).
+  if (/^fe[89ab][0-9a-f]:/.test(h)) return true;
   return false;
 }
 
@@ -99,8 +134,9 @@ export function refineEndpointNoPrivate(url: string): boolean {
  * Zod refinement for `ollama_endpoint`:
  *  - localhost (loopback) is ALLOWED because Ollama's default binding is
  *    http://localhost:11434 — blocking it would break the primary Ollama flow.
- *  - Private-range IPs (10/8, 172.16/12, 192.168/16, 169.254/16) are still
- *    rejected — they provide no legitimate use case and could host hostile servers.
+ *  - Private-range IPs (10/8, 172.16/12, 192.168/16, 169.254/16, fc00::/7,
+ *    fe80::/10) are still rejected — they provide no legitimate use case and
+ *    could host hostile servers.
  *  - https is preferred but http is accepted for localhost only (Ollama does not
  *    expose TLS by default on the local loopback).
  */
@@ -108,10 +144,11 @@ export function refineOllamaEndpoint(url: string): boolean {
   try {
     const { hostname, protocol } = new URL(url);
     if (protocol !== "https:" && protocol !== "http:") return false;
-    // IPv4-mapped/compatible IPv6 (e.g. [::ffff:7f00:1]) has no legitimate Ollama
-    // use and must never benefit from the localhost allowance below — reject it
-    // outright before the loopback check so mapped loopback can't slip through.
-    if (mappedIpv4(hostname) !== null) return false;
+    // Embedded IPv4 (mapped/compatible/NAT64/6to4) has no legitimate Ollama
+    // use and must never benefit from the localhost allowance below — reject
+    // it outright before the loopback check so an embedded loopback can't
+    // slip through.
+    if (embeddedIpv4(hostname) !== null) return false;
     // Localhost via http is permitted (Ollama default)
     if (isLoopback(hostname)) return true;
     // Any other host must use https and must not be private-range
@@ -141,7 +178,7 @@ export function refineOllamaEndpoint(url: string): boolean {
 // dns.resolve4/dns.resolve6 — and rejecting if ANY returned address (A or
 // AAAA; `{ all: true }` covers both in one call) is loopback/private/
 // link-local (reusing isLoopback/isPrivateIp above, including their
-// mapped-IPv4 unwrap).
+// embedded-IPv4 unwrap).
 //
 // KNOWN LIMITATION (deliberately out of scope): this is a validate-time check
 // only, run once when PUT /api/config writes the hostname. Between that write
@@ -166,6 +203,15 @@ export type DnsLookupAll = (
 const defaultDnsLookupAll: DnsLookupAll = (hostname, options) => dns.lookup(hostname, options);
 
 /**
+ * Wall-clock cap for a single DNS lookup during SSRF validation (ms). A
+ * black-holed or unresponsive resolver must not be able to hold PUT
+ * /api/config open indefinitely — once this elapses, the lookup is treated
+ * the same as a failed/unresolvable one and fails CLOSED (2026-07-22
+ * security review, PR #49, LOW).
+ */
+const DNS_LOOKUP_TIMEOUT_MS = 5_000;
+
+/**
  * True when `hostname` (as it appears in URL.hostname — bracketed for IPv6)
  * is a literal IP address or the "localhost" alias, i.e. a form the
  * synchronous checks above already fully classify without needing a DNS
@@ -175,24 +221,42 @@ const defaultDnsLookupAll: DnsLookupAll = (hostname, options) => dns.lookup(host
 function isLiteralHost(hostname: string): boolean {
   const h = hostname.toLowerCase();
   if (h === "localhost") return true;
-  const bare = h.startsWith("[") && h.endsWith("]") ? h.slice(1, -1) : h;
-  return net.isIP(bare) !== 0;
+  return net.isIP(stripBrackets(h)) !== 0;
 }
 
-/** Resolve `hostname` and report whether ANY returned address is loopback/private/link-local. */
+/**
+ * Resolve `hostname` (bounded by DNS_LOOKUP_TIMEOUT_MS) and report whether
+ * ANY returned address is loopback/private/link-local. Fails CLOSED (returns
+ * true = "unsafe") on both an unresolvable hostname and a lookup that exceeds
+ * the timeout — in both cases the endpoint's safety could not be verified.
+ */
 async function resolvesToPrivateOrLoopback(
   hostname: string,
   dnsLookup: DnsLookupAll
 ): Promise<boolean> {
-  const bare = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+  const bare = stripBrackets(hostname);
   let addresses: { address: string; family: number }[];
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    addresses = await dnsLookup(bare, { all: true });
+    addresses = await Promise.race([
+      dnsLookup(bare, { all: true }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(`DNS lookup for "${bare}" exceeded ${DNS_LOOKUP_TIMEOUT_MS}ms`)
+            ),
+          DNS_LOOKUP_TIMEOUT_MS
+        );
+      }),
+    ]);
   } catch {
-    // Unresolvable hostname: fail closed. We cannot verify the endpoint is
-    // safe, so treat it the same as an unsafe one rather than silently
-    // allowing it through.
+    // Unresolvable OR timed-out hostname: fail closed. We cannot verify the
+    // endpoint is safe, so treat it the same as an unsafe one rather than
+    // silently allowing it through.
     return true;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
   return addresses.some(({ address }) => isLoopback(address) || isPrivateIp(address));
 }

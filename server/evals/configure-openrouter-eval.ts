@@ -27,14 +27,21 @@
  * deprecated — without a code change.
  *
  * OPENROUTER_ENDPOINT is also optional and, when set, writes the
- * `openrouter_endpoint` DB config key (the SAME SSRF-validated key
- * PUT /api/config accepts — see server/ssrf.ts refineEndpointNoPrivateAsync;
- * this direct DB write is a trusted, operator-controlled local/CI script,
- * matching the existing precedent of the other setConfig() calls below, so it
- * is not re-validated here). Omitting it leaves getAiConfig()'s own default
- * (https://openrouter.ai/api/v1/chat/completions) unchanged. Intended use:
- * local verification runs that point the "openrouter" provider at an
- * OpenAI-compatible endpoint OTHER than OpenRouter itself (e.g. NVIDIA NIM's
+ * `openrouter_endpoint` DB config key — the SAME SSRF-validated key
+ * PUT /api/config accepts. UNLIKE the other setConfig() calls below, this one
+ * IS re-validated here (2026-07-22 security review, PR #49, MEDIUM): before
+ * this fix, an operator/CI-controlled OPENROUTER_ENDPOINT value bypassed the
+ * exact refinement PUT /api/config enforces (server/ssrf.ts
+ * refineEndpointNoPrivateAsync), so a misconfigured or compromised env var
+ * could point the "openrouter" provider's outbound requests (carrying the
+ * OpenRouter API key) at a loopback/private/link-local host. The value is now
+ * run through refineEndpointNoPrivateAsync before being written; on failure
+ * this function sets a non-zero process.exitCode and logs a clear message
+ * instead of writing the key. Omitting OPENROUTER_ENDPOINT entirely leaves
+ * getAiConfig()'s own default (https://openrouter.ai/api/v1/chat/completions)
+ * unchanged and skips validation. Intended use: local verification runs that
+ * point the "openrouter" provider at an OpenAI-compatible endpoint OTHER than
+ * OpenRouter itself (e.g. NVIDIA NIM's
  * https://integrate.api.nvidia.com/v1/chat/completions, serving the same
  * model family) to avoid burning OpenRouter's metered free-tier daily budget
  * while still exercising the exact "openrouter" provider code path.
@@ -43,10 +50,16 @@ import { fileURLToPath } from "url";
 import { resolve } from "path";
 import { setConfig } from "../db.js";
 import { DEFAULT_OPENROUTER_MODEL } from "../ai.js";
+import { refineEndpointNoPrivateAsync, type DnsLookupAll } from "../ssrf.js";
 
 const __filename = fileURLToPath(import.meta.url);
 
-export function configureOpenRouterForEval(): void {
+/**
+ * @param dnsLookup - Injectable DNS resolver forwarded to
+ *   refineEndpointNoPrivateAsync (defaults to a real `dns.lookup` — see
+ *   server/ssrf.ts). Tests pass a stub so no real DNS lookup happens.
+ */
+export async function configureOpenRouterForEval(dnsLookup?: DnsLookupAll): Promise<void> {
   const apiKey = (process.env.OPENROUTER_API_KEY || "").trim();
   const model = (process.env.OPENROUTER_MODEL || "").trim() || DEFAULT_OPENROUTER_MODEL;
   const endpoint = (process.env.OPENROUTER_ENDPOINT || "").trim();
@@ -62,15 +75,37 @@ export function configureOpenRouterForEval(): void {
     );
   }
 
+  // SSRF-validate BEFORE writing anything endpoint-related, so a rejected
+  // endpoint never partially lands in the DB. llm_provider/api_key/model are
+  // still written unconditionally below (bad endpoint or not) — the run then
+  // legitimately falls back to getAiConfig()'s own default endpoint, exactly
+  // as if OPENROUTER_ENDPOINT had been left unset.
+  if (endpoint) {
+    const endpointIsSafe = await refineEndpointNoPrivateAsync(endpoint, dnsLookup);
+    if (!endpointIsSafe) {
+      console.error(
+        `configure-openrouter-eval — OPENROUTER_ENDPOINT="${endpoint}" failed SSRF validation ` +
+          "(must be https and must not resolve to a loopback/private/link-local host — see server/ssrf.ts) " +
+          "— refusing to write it. Falling back to getAiConfig()'s default endpoint."
+      );
+      process.exitCode = 1;
+      setConfig("llm_provider", "openrouter");
+      setConfig("openrouter_api_key", apiKey);
+      setConfig("openrouter_model", model);
+      return;
+    }
+  }
+
   setConfig("llm_provider", "openrouter");
   setConfig("openrouter_api_key", apiKey);
   setConfig("openrouter_model", model);
-  // Only write openrouter_endpoint when explicitly set — leaving the DB key
-  // untouched otherwise preserves getAiConfig()'s own default endpoint
-  // (https://openrouter.ai/api/v1/chat/completions). The scheduled/labeled-PR
-  // nightly runs of real-model-eval.yml never set this (no `endpoint` input
-  // on those triggers), so their behavior is unaffected; only a manual
-  // workflow_dispatch run that selects a non-default `endpoint` choice sets it.
+  // Only write openrouter_endpoint when explicitly set AND validated above —
+  // leaving the DB key untouched otherwise preserves getAiConfig()'s own
+  // default endpoint (https://openrouter.ai/api/v1/chat/completions). The
+  // scheduled/labeled-PR nightly runs of real-model-eval.yml never set this
+  // (no `endpoint` input on those triggers), so their behavior is unaffected;
+  // only a manual workflow_dispatch run that selects a non-default `endpoint`
+  // choice sets it.
   if (endpoint) {
     setConfig("openrouter_endpoint", endpoint);
   }
@@ -88,5 +123,11 @@ export function configureOpenRouterForEval(): void {
 const isDirectExecution = process.argv[1] !== undefined && __filename === resolve(process.argv[1]);
 
 if (isDirectExecution) {
-  configureOpenRouterForEval();
+  configureOpenRouterForEval().catch((err: unknown) => {
+    console.error(
+      "configure-openrouter-eval — fatal error:",
+      err instanceof Error ? err.message : String(err)
+    );
+    process.exit(1);
+  });
 }

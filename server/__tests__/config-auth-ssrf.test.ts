@@ -53,6 +53,9 @@ const DNS_STUB_MAP: Record<string, { address: string; family: number }[]> = {
   "private-rebind.example.com": [{ address: "10.0.0.5", family: 4 }],
   "public-ollama-domain.example.com": [{ address: "198.51.100.20", family: 4 }], // RFC 5737 TEST-NET-2
   "private-ollama-domain.example.com": [{ address: "192.168.1.50", family: 4 }],
+  // 2026-07-22 security review (PR #49, HIGH): a domain resolving to an IPv6
+  // unique-local address (fc00::/7) must be rejected the same as a literal one.
+  "ula-rebind.example.com": [{ address: "fc00::1", family: 6 }],
 };
 
 const stubDnsLookup: DnsLookupAll = async (hostname) => {
@@ -462,6 +465,94 @@ describe("PUT /config — DNS-rebinding-aware SSRF guard (FSE#4)", () => {
       AUTH
     );
     expect(res.statusCode).toBe(200);
+  });
+});
+
+// ─── Extended IPv6 SSRF ranges (2026-07-22 security review, PR #49, HIGH) ────
+//
+// isPrivateIp/isLoopback previously covered IPv4 ranges + IPv4-mapped/
+// compatible IPv6 only. The forms below all PASSED refineEndpointNoPrivate
+// before this fix — each is a literal, so isLiteralHost skipped DNS entirely,
+// and a DOMAIN resolving to one of these addresses passed too (since
+// resolvesToPrivateOrLoopback reused the same incomplete checks). One test
+// per literal form, plus one DNS-path test proving the DOMAIN-resolves case
+// is ALSO now covered (not just the literal-string case).
+
+describe("PUT /config — extended IPv6 SSRF ranges (fc00::/7, fe80::/10, unspecified, NAT64, 6to4)", () => {
+  it("rejects endpoint with an IPv6 unique-local address (fc00::1, fc00::/7)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[fc00::1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with an IPv6 link-local address (fe80::1, fe80::/10)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[fe80::1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with the IPv4 unspecified address (0.0.0.0)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://0.0.0.0/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with the IPv6 unspecified address (::)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[::]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with a NAT64-embedded metadata IP (64:ff9b::169.254.169.254)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[64:ff9b::169.254.169.254]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with a NAT64-embedded metadata IP in Node's normalized hex form (64:ff9b::a9fe:a9fe)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[64:ff9b::a9fe:a9fe]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint with a 6to4-embedded metadata IP (2002:a9fe:a9fe::1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://[2002:a9fe:a9fe::1]/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  // DNS-path: a DOMAIN resolving to an IPv6 unique-local address must be
+  // rejected exactly like the literal-string case above — proves the fix
+  // covers resolvesToPrivateOrLoopback() (server/ssrf.ts), not just the
+  // synchronous isPrivateIp/isLoopback string-form checks.
+  it("rejects endpoint when the domain resolves to an IPv6 unique-local address (fc00::1, stubbed lookup)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://ula-rebind.example.com/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
   });
 });
 
