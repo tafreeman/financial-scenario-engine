@@ -76,15 +76,44 @@ const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
  */
 const RETRY_AFTER_MAX_MS = 60_000;
 
+/**
+ * Floor (ms) for a 429 retry delay against the "openrouter" provider when the
+ * response carries no (usable) Retry-After header. OpenRouter's free-tier
+ * (":free" model-id suffix) models are capped at 20 requests/minute
+ * regardless of purchased credits (https://openrouter.ai/docs/api-reference/
+ * limits) — the default exponential backoff below (LLM_RETRY_BASE_DELAY_MS-
+ * based, ~500ms-1.5s) is far under the ~3s/request budget that cap implies,
+ * so a single unheadered 429 could otherwise retry fast enough to trip
+ * ANOTHER 429 well inside the same per-minute window, cascading into eval
+ * accuracy-gate misses. 3500ms keeps a retry comfortably under the cap
+ * (60_000ms / 20 = 3000ms minimum) with margin for jitter/clock drift — the
+ * SAME value server/evals/run-intent-eval.ts uses to pace corpus requests
+ * (OPENROUTER_EVAL_PACING_MS there imports this constant so the two can't
+ * drift apart).
+ *
+ * Only applied when: provider is "openrouter", status is 429, AND
+ * retryDelayMs() would otherwise fall through to the backoff/jitter path
+ * (no Retry-After header, or one that doesn't parse) — see the call site in
+ * chatRequest(). A present, parseable Retry-After ALWAYS wins as-is, even
+ * when it is smaller than this floor: the server is the authority on how
+ * long it actually needs, and this fix only covers the case where it gave no
+ * guidance at all. github/ollama retry behavior is completely unaffected —
+ * retryDelayMs()'s floor parameter is omitted at every other call site.
+ */
+export const OPENROUTER_RATE_LIMIT_FLOOR_MS = 3_500;
+
 /** Real sleep; injectable in tests so retries don't actually wait. */
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Delay before the next retry: honor a `Retry-After` header (integer seconds)
- * when the server sends one, else exponential backoff with jitter.
+ * when the server sends one, else exponential backoff with jitter, floored at
+ * `floorMs` when the caller supplies one (see OPENROUTER_RATE_LIMIT_FLOOR_MS
+ * and its call site in chatRequest() — omitted everywhere else, so this is a
+ * no-op for every existing caller).
  */
-function retryDelayMs(attempt: number, headers?: Headers): number {
+function retryDelayMs(attempt: number, headers?: Headers, floorMs?: number): number {
   const retryAfter = headers?.get("retry-after");
   // Ignore an empty or whitespace-only Retry-After: Number("") and Number("  ")
   // are both 0 (finite and >= 0), which would otherwise force a 0ms instant
@@ -93,12 +122,15 @@ function retryDelayMs(attempt: number, headers?: Headers): number {
     const seconds = Number(retryAfter);
     if (Number.isFinite(seconds) && seconds >= 0) {
       // Cap the server-supplied delay so a huge Retry-After can't stall the
-      // request for minutes/hours.
+      // request for minutes/hours. Deliberately NOT floored by `floorMs` —
+      // a present, parseable Retry-After always wins as given, even when
+      // smaller than the floor (see OPENROUTER_RATE_LIMIT_FLOOR_MS doc).
       return Math.min(seconds * 1000, RETRY_AFTER_MAX_MS);
     }
   }
   const backoff = LLM_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
-  return backoff + Math.random() * LLM_RETRY_BASE_DELAY_MS;
+  const jittered = backoff + Math.random() * LLM_RETRY_BASE_DELAY_MS;
+  return floorMs !== undefined ? Math.max(jittered, floorMs) : jittered;
 }
 
 /**
@@ -1091,7 +1123,15 @@ export async function chatRequest(
       // Retry only transient statuses; a 4xx like 400/401/404 fails fast.
       if (RETRYABLE_STATUS.has(resp.status) && attempt < LLM_MAX_RETRY_ATTEMPTS) {
         lastError = error;
-        await sleepImpl(retryDelayMs(attempt, resp.headers));
+        // Floor a 429's retry delay for openrouter specifically — see
+        // OPENROUTER_RATE_LIMIT_FLOOR_MS. undefined (no-op) for every other
+        // provider/status combination, so this changes nothing for
+        // github/ollama or for non-429 retryable statuses (502/503/504).
+        const floorMs =
+          config.provider === "openrouter" && resp.status === 429
+            ? OPENROUTER_RATE_LIMIT_FLOOR_MS
+            : undefined;
+        await sleepImpl(retryDelayMs(attempt, resp.headers, floorMs));
         continue;
       }
       throw error;

@@ -15,6 +15,8 @@ import {
   DEFAULT_LLM_TIMEOUT_MS,
   LLM_TIMEOUT_MAX_MS,
   DEFAULT_OPENROUTER_MODEL,
+  OPENROUTER_RATE_LIMIT_FLOOR_MS,
+  LLM_RETRY_BASE_DELAY_MS,
 } from "../ai.js";
 import type { ToolCall, ChatMessage } from "../ai.js";
 import type { ScenarioResult, ScenarioOperation } from "../engine/types.js";
@@ -861,6 +863,148 @@ describe("chatRequest — OpenRouter header shape", () => {
     expect(headers["Accept"]).toBeUndefined();
     expect(headers["X-GitHub-Api-Version"]).toBeUndefined();
     expect(headers["HTTP-Referer"]).toBeUndefined();
+  });
+});
+
+// ─── chatRequest — OpenRouter 429 retry floor (post-review MEDIUM fix) ───────
+//
+// Without a Retry-After header, the default exponential backoff (~500ms-1.5s)
+// is far under OpenRouter's free-tier ~3s/request budget (20 req/min), so a
+// single 429 could retry fast enough to trip ANOTHER 429 inside the eval's
+// pacing window, cascading into accuracy-gate misses. OPENROUTER_RATE_LIMIT_FLOOR_MS
+// floors the retry delay for openrouter 429s specifically — never for
+// github/ollama, and never overriding a present Retry-After header.
+
+describe("chatRequest — OpenRouter 429 retry floor", () => {
+  it("floors a 429-without-Retry-After retry delay at OPENROUTER_RATE_LIMIT_FLOOR_MS when provider is openrouter", async () => {
+    setConfig("llm_provider", "openrouter");
+    const tooMany = {
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: new Headers(), // no retry-after
+      text: async () => "rate limited",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValueOnce(tooMany).mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => { sleeps.push(ms); };
+
+    await chatRequest(
+      "https://openrouter.ai/api/v1/chat/completions",
+      "or-test-key",
+      { model: DEFAULT_OPENROUTER_MODEL },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBeGreaterThanOrEqual(OPENROUTER_RATE_LIMIT_FLOOR_MS);
+  });
+
+  it("honors a Retry-After header smaller than the floor (server's explicit value always wins)", async () => {
+    setConfig("llm_provider", "openrouter");
+    const tooMany = {
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: new Headers({ "retry-after": "1" }), // 1s — well below the 3.5s floor
+      text: async () => "rate limited",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValueOnce(tooMany).mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => { sleeps.push(ms); };
+
+    await chatRequest(
+      "https://openrouter.ai/api/v1/chat/completions",
+      "or-test-key",
+      { model: DEFAULT_OPENROUTER_MODEL },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    // NOT floored to OPENROUTER_RATE_LIMIT_FLOOR_MS — the header's 1000ms wins.
+    expect(sleeps).toEqual([1000]);
+  });
+
+  it("does not floor a 429 retry delay for the github provider (byte-identical retry behavior)", async () => {
+    setConfig("llm_provider", "github");
+    const tooMany = {
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: new Headers(), // no retry-after
+      text: async () => "rate limited",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValueOnce(tooMany).mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => { sleeps.push(ms); };
+
+    await chatRequest(
+      "https://models.github.ai/inference/chat/completions",
+      "test-pat",
+      { model: "openai/gpt-4.1" },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(sleeps).toHaveLength(1);
+    // Unfloored exponential backoff for attempt 1: LLM_RETRY_BASE_DELAY_MS (500) + jitter [0, 500).
+    expect(sleeps[0]).toBeGreaterThanOrEqual(LLM_RETRY_BASE_DELAY_MS);
+    expect(sleeps[0]).toBeLessThan(LLM_RETRY_BASE_DELAY_MS * 2);
+    expect(sleeps[0]).toBeLessThan(OPENROUTER_RATE_LIMIT_FLOOR_MS);
+  });
+
+  it("does not floor a non-429 retryable status (502) for openrouter", async () => {
+    setConfig("llm_provider", "openrouter");
+    const badGateway = {
+      ok: false,
+      status: 502,
+      statusText: "Bad Gateway",
+      headers: new Headers(),
+      text: async () => "upstream error",
+    };
+    const success = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    };
+    const fetchStub = vi.fn().mockResolvedValueOnce(badGateway).mockResolvedValueOnce(success);
+    const sleeps: number[] = [];
+    const sleepStub = async (ms: number): Promise<void> => { sleeps.push(ms); };
+
+    await chatRequest(
+      "https://openrouter.ai/api/v1/chat/completions",
+      "or-test-key",
+      { model: DEFAULT_OPENROUTER_MODEL },
+      fetchStub as unknown as typeof fetch,
+      sleepStub
+    );
+
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBeLessThan(OPENROUTER_RATE_LIMIT_FLOOR_MS);
   });
 });
 

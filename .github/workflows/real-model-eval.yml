@@ -82,9 +82,16 @@ on:
 permissions:
   contents: read
 
+# A single static group (not keyed on event_name/ref) so a scheduled run, a
+# labeled-PR run, and a manual dispatch queue sequentially instead of running
+# concurrently — each burns real requests against OpenRouter's free-tier
+# per-day cap (see the rate-limits note above), so overlapping runs would
+# waste a meaningful fraction of that shared daily budget. cancel-in-progress
+# is false so a queued run still executes (and still counts toward/reports
+# against the accuracy gate) rather than being silently dropped.
 concurrency:
-  group: real-model-eval-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: real-model-eval
+  cancel-in-progress: false
 
 jobs:
   real-model-eval:

@@ -58,7 +58,7 @@
 import { readFileSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { parseIntent, getAiConfig, isProviderConfigured } from "../ai.js";
+import { parseIntent, getAiConfig, isProviderConfigured, OPENROUTER_RATE_LIMIT_FLOOR_MS } from "../ai.js";
 import type { ScenarioOperation } from "../engine/types.js";
 import { INTENT_CORPUS_ACCURACY_THRESHOLD } from "./eval-config.js";
 
@@ -356,11 +356,15 @@ function scoreAgainstCandidates(entry: CorpusEntry, actual: ScenarioOperation): 
  * (https://openrouter.ai/docs/api-reference/limits), and bursts close to that
  * ceiling can trip a Cloudflare-level block even below the nominal cap. The
  * corpus (server/evals/intent-corpus.json) is large enough to exceed 20/min
- * if run back-to-back. 3500ms keeps this comfortably under the cap
- * (60_000ms / 20 = 3000ms minimum) with margin for jitter/clock drift. This
- * constant has no effect for github/ollama runs (see the call site below).
+ * if run back-to-back. This has no effect for github/ollama runs (see the
+ * call site below).
+ *
+ * Reuses OPENROUTER_RATE_LIMIT_FLOOR_MS (server/ai.ts) — the SAME constant
+ * that floors a 429 retry delay for this provider inside chatRequest() — so
+ * the pre-request pacing here and the post-429-retry floor there can't drift
+ * out of sync with each other.
  */
-const OPENROUTER_EVAL_PACING_MS = 3_500;
+const OPENROUTER_EVAL_PACING_MS = OPENROUTER_RATE_LIMIT_FLOOR_MS;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
