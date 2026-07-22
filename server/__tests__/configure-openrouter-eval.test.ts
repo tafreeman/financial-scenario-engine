@@ -13,10 +13,16 @@ import { configureOpenRouterForEval } from "../evals/configure-openrouter-eval.j
 import { getConfig, setConfig } from "../db.js";
 import { DEFAULT_OPENROUTER_MODEL } from "../ai.js";
 
-const configKeys = ["llm_provider", "openrouter_api_key", "openrouter_model"] as const;
+const configKeys = [
+  "llm_provider",
+  "openrouter_api_key",
+  "openrouter_model",
+  "openrouter_endpoint",
+] as const;
 let originalConfig: Record<(typeof configKeys)[number], string>;
 let originalApiKeyEnv: string | undefined;
 let originalModelEnv: string | undefined;
+let originalEndpointEnv: string | undefined;
 
 beforeEach(() => {
   originalConfig = Object.fromEntries(
@@ -24,6 +30,7 @@ beforeEach(() => {
   ) as Record<(typeof configKeys)[number], string>;
   originalApiKeyEnv = process.env.OPENROUTER_API_KEY;
   originalModelEnv = process.env.OPENROUTER_MODEL;
+  originalEndpointEnv = process.env.OPENROUTER_ENDPOINT;
 });
 
 afterEach(() => {
@@ -34,6 +41,8 @@ afterEach(() => {
   else process.env.OPENROUTER_API_KEY = originalApiKeyEnv;
   if (originalModelEnv === undefined) delete process.env.OPENROUTER_MODEL;
   else process.env.OPENROUTER_MODEL = originalModelEnv;
+  if (originalEndpointEnv === undefined) delete process.env.OPENROUTER_ENDPOINT;
+  else process.env.OPENROUTER_ENDPOINT = originalEndpointEnv;
   vi.restoreAllMocks();
 });
 
@@ -78,5 +87,38 @@ describe("configureOpenRouterForEval()", () => {
     expect(getConfig("openrouter_api_key")).toBe("");
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0]?.[0]).toMatch(/OPENROUTER_API_KEY is empty/);
+  });
+
+  // ─── OPENROUTER_ENDPOINT (local verification runs, e.g. NVIDIA NIM) ────────
+
+  it("writes openrouter_endpoint when OPENROUTER_ENDPOINT is set", () => {
+    process.env.OPENROUTER_API_KEY = "test-or-key";
+    process.env.OPENROUTER_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions";
+
+    configureOpenRouterForEval();
+
+    expect(getConfig("openrouter_endpoint")).toBe(
+      "https://integrate.api.nvidia.com/v1/chat/completions"
+    );
+  });
+
+  it("leaves openrouter_endpoint untouched when OPENROUTER_ENDPOINT is unset (default behavior unchanged)", () => {
+    process.env.OPENROUTER_API_KEY = "test-or-key";
+    delete process.env.OPENROUTER_ENDPOINT;
+    setConfig("openrouter_endpoint", "pre-existing-value");
+
+    configureOpenRouterForEval();
+
+    expect(getConfig("openrouter_endpoint")).toBe("pre-existing-value");
+  });
+
+  it("leaves openrouter_endpoint untouched when OPENROUTER_ENDPOINT is blank/whitespace-only", () => {
+    process.env.OPENROUTER_API_KEY = "test-or-key";
+    process.env.OPENROUTER_ENDPOINT = "   ";
+    setConfig("openrouter_endpoint", "pre-existing-value");
+
+    configureOpenRouterForEval();
+
+    expect(getConfig("openrouter_endpoint")).toBe("pre-existing-value");
   });
 });

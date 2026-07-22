@@ -3,7 +3,9 @@
  *   1. PUT /api/config requires a valid x-app-token header (auth guard).
  *   2. PUT /api/config with a valid token succeeds.
  *   3. CONFIG_WRITABLE_KEYS rejects endpoint/ollama_endpoint values that
- *      resolve to private or loopback hosts (SSRF guard).
+ *      resolve to private or loopback hosts (SSRF guard) — both by literal
+ *      IP/hostname string form AND, per FSE#4 (2026-07-21 audit), by DNS
+ *      resolution of a DOMAIN hostname (DNS-rebinding-aware check).
  *
  * Done-when criteria:
  *  (a) Unauthenticated PUT /api/config → 401
@@ -12,10 +14,19 @@
  *  (d) ollama_endpoint with a private-range IP → 400
  *  (e) ollama_endpoint at localhost (http) is accepted (legitimate Ollama default)
  *  (f) endpoint using http (not https) is rejected
+ *  (g) a DOMAIN mocked to resolve to a private/loopback address → 400
+ *  (h) a DOMAIN resolving to public addresses → 200
+ *  (i) literal-IP behavior is unchanged by the DNS-aware refinement
  *
  * Pattern: spin up a minimal Express app that imports the real middleware and
  * schema from server/auth.ts and server/routes.ts, wired against the live DB.
  * This exercises the actual production code paths without mocking internals.
+ *
+ * DNS mocking: refineEndpointNoPrivateAsync/refineOllamaEndpointAsync take an
+ * injectable `dnsLookup` (mirrors the fetchImpl/exec injection pattern already
+ * used in server/ai.ts) — see server/ssrf.ts. This test app binds a stub
+ * resolver so NO real DNS lookup ever happens; literal IPs bypass the lookup
+ * entirely (see server/ssrf.ts isLiteralHost), so those tests need no fixture.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -24,15 +35,37 @@ import http from "http";
 import { z } from "zod";
 import { requireAppToken, APP_SECRET } from "../auth.js";
 import { getDb, getAllConfig, setConfig } from "../db.js";
+import { apiRouter } from "../routes.js";
 // Import the SSRF refinements from the SAME module routes.ts uses, so this test
 // exercises the production guard implementation rather than a hand-copied clone
 // that could silently drift out of sync.
-import { refineEndpointNoPrivate, refineOllamaEndpoint } from "../ssrf.js";
+import { refineEndpointNoPrivateAsync, refineOllamaEndpointAsync, type DnsLookupAll } from "../ssrf.js";
+
+// ─── Stub DNS resolver (no real DNS lookups in this test file) ──────────────
+// Keyed on hostname (lowercase). "no fixture" throws, which resolvesToPrivateOrLoopback()
+// (server/ssrf.ts) treats as fail-closed (rejected) — mirrors a real NXDOMAIN.
+const DNS_STUB_MAP: Record<string, { address: string; family: number }[]> = {
+  "models.github.ai": [{ address: "20.42.0.1", family: 4 }],
+  "openrouter.ai": [{ address: "104.18.2.2", family: 4 }],
+  "public-cloud-llm.example.com": [{ address: "203.0.113.10", family: 4 }], // RFC 5737 TEST-NET-3 — public, non-routable documentation range
+  "sneaky-rebind.example.com": [{ address: "127.0.0.1", family: 4 }],
+  "metadata-attack.example.com": [{ address: "169.254.169.254", family: 4 }],
+  "private-rebind.example.com": [{ address: "10.0.0.5", family: 4 }],
+  "public-ollama-domain.example.com": [{ address: "198.51.100.20", family: 4 }], // RFC 5737 TEST-NET-2
+  "private-ollama-domain.example.com": [{ address: "192.168.1.50", family: 4 }],
+};
+
+const stubDnsLookup: DnsLookupAll = async (hostname) => {
+  const entry = DNS_STUB_MAP[hostname.toLowerCase()];
+  if (!entry) throw new Error(`stubDnsLookup: no fixture for "${hostname}"`);
+  return entry;
+};
 
 // ─── CONFIG_WRITABLE_KEYS schema (mirrors routes.ts) ─────────────────────────
 // The schema shape is re-declared here to keep the minimal test app self-contained,
 // but the SSRF refinements are imported from server/ssrf.ts (not copied) so a real
-// regression in the guard would fail this test.
+// regression in the guard would fail this test. The stub DNS resolver above is
+// bound in so no test performs a real network lookup.
 
 const CONFIG_WRITABLE_KEYS = z.object({
   github_pat: z.string().optional(),
@@ -40,7 +73,7 @@ const CONFIG_WRITABLE_KEYS = z.object({
   endpoint: z
     .string()
     .url()
-    .refine(refineEndpointNoPrivate, {
+    .refine((url) => refineEndpointNoPrivateAsync(url, stubDnsLookup), {
       message: "endpoint must use https and must not resolve to a loopback or private-range host",
     })
     .optional(),
@@ -51,7 +84,7 @@ const CONFIG_WRITABLE_KEYS = z.object({
   ollama_endpoint: z
     .string()
     .url()
-    .refine(refineOllamaEndpoint, {
+    .refine((url) => refineOllamaEndpointAsync(url, stubDnsLookup), {
       message: "ollama_endpoint must use https (or http for localhost only) and must not resolve to a private-range IP",
     })
     .optional(),
@@ -61,7 +94,7 @@ const CONFIG_WRITABLE_KEYS = z.object({
   openrouter_endpoint: z
     .string()
     .url()
-    .refine(refineEndpointNoPrivate, {
+    .refine((url) => refineEndpointNoPrivateAsync(url, stubDnsLookup), {
       message: "openrouter_endpoint must use https and must not resolve to a loopback or private-range host",
     })
     .optional(),
@@ -79,8 +112,8 @@ function buildTestApp() {
   });
 
   // PUT /config — guarded by requireAppToken + schema validation
-  app.put("/config", requireAppToken, (req: Request, res: Response) => {
-    const parsed = CONFIG_WRITABLE_KEYS.safeParse(req.body);
+  app.put("/config", requireAppToken, async (req: Request, res: Response) => {
+    const parsed = await CONFIG_WRITABLE_KEYS.safeParseAsync(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Unknown or invalid config keys", details: parsed.error.issues });
       return;
@@ -332,10 +365,110 @@ describe("PUT /config — SSRF guard on endpoint", () => {
   });
 });
 
+// ─── (g)/(h)/(i) FSE#4: DNS-rebinding-aware SSRF guard ───────────────────────
+// A DOMAIN hostname (not a literal IP) that RESOLVES to a private/loopback
+// address must be rejected the same as if the literal IP had been supplied
+// directly — the string "sneaky-rebind.example.com" is itself neither
+// loopback nor private-range, only its (mocked) resolved address is. See
+// server/ssrf.ts refineEndpointNoPrivateAsync/refineOllamaEndpointAsync.
+
+describe("PUT /config — DNS-rebinding-aware SSRF guard (FSE#4)", () => {
+  it("rejects endpoint when the domain resolves to a loopback address (127.0.0.1)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://sneaky-rebind.example.com/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint when the domain resolves to the cloud-metadata link-local address (169.254.169.254)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://metadata-attack.example.com/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects endpoint when the domain resolves to an RFC-1918 private address (10.0.0.5)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://private-rebind.example.com/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("accepts endpoint when the domain resolves to a public address", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://public-cloud-llm.example.com/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("rejects openrouter_endpoint when the domain resolves to a private address", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { openrouter_endpoint: "https://private-rebind.example.com/api/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects an unresolvable endpoint domain (fail-closed — no fixture registered)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://this-domain-has-no-dns-fixture.example.com/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  // ── Literal-IP behavior is UNCHANGED by the async/DNS-aware refinement ────
+  // Literal IPs never reach the DNS lookup (see server/ssrf.ts isLiteralHost),
+  // so these reject/accept exactly as the pre-existing synchronous checks did.
+
+  it("still rejects a literal loopback IP without any DNS fixture registered for it (no lookup performed)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://127.0.0.1:9999/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  // Stronger proof that literal IPs skip the DNS branch entirely: 8.8.8.8 has
+  // NO entry in DNS_STUB_MAP. If a literal IP were (incorrectly) routed
+  // through resolvesToPrivateOrLoopback(), the stub would throw "no fixture"
+  // and the fail-closed catch would reject it (400) — a FALSE negative, since
+  // a literal public IP has always been accepted by the synchronous checks
+  // alone. Getting 200 here proves the literal-IP path truly bypasses DNS.
+  it("still accepts a literal public IP with no DNS fixture registered for it (proves the DNS branch is skipped)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://8.8.8.8/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("still accepts a legitimate https domain that IS registered in the DNS stub (models.github.ai)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { endpoint: "https://models.github.ai/inference/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(200);
+  });
+});
+
 // ─── SSRF guard on openrouter_endpoint ────────────────────────────────────────
-// openrouter_endpoint shares the SAME refineEndpointNoPrivate refinement as
-// `endpoint` (GitHub Models) — both are cloud-only inference endpoints with
-// no legitimate loopback/private-range use, unlike ollama_endpoint.
+// openrouter_endpoint shares the SAME refineEndpointNoPrivateAsync refinement
+// as `endpoint` (GitHub Models) — both are cloud-only inference endpoints
+// with no legitimate loopback/private-range use, unlike ollama_endpoint.
 
 describe("PUT /config — SSRF guard on openrouter_endpoint", () => {
   it("rejects openrouter_endpoint with loopback host (127.0.0.1)", async () => {
@@ -437,6 +570,27 @@ describe("PUT /config — SSRF guard on ollama_endpoint", () => {
     );
     expect(res.statusCode).toBe(400);
   });
+
+  // FSE#4: ollama_endpoint's non-localhost branch gets the same DNS-rebinding
+  // check as endpoint/openrouter_endpoint above — a remote domain resolving
+  // to a private address must still be rejected.
+  it("rejects ollama_endpoint when the remote domain resolves to a private address (192.168.1.50)", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { ollama_endpoint: "https://private-ollama-domain.example.com/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("accepts ollama_endpoint when the remote domain resolves to a public address", async () => {
+    const res = await jsonRequest(
+      server, "PUT", "/config",
+      { ollama_endpoint: "https://public-ollama-domain.example.com/v1/chat/completions" },
+      AUTH
+    );
+    expect(res.statusCode).toBe(200);
+  });
 });
 
 // ─── (e) ollama_endpoint localhost is allowed ─────────────────────────────────
@@ -467,5 +621,78 @@ describe("GET /config — unauthenticated read-only route", () => {
   it("returns 200 with no auth header", async () => {
     const res = await jsonRequest(server, "GET", "/config");
     expect(res.statusCode).toBe(200);
+  });
+});
+
+// ─── Secret masking shape (security-review follow-up, PR #48) ───────────────
+//
+// The minimal test app above re-implements GET/PUT /config against the
+// production schema/refinements, but NOT the masking logic in routes.ts
+// GET /config (github_pat_masked / openrouter_api_key_masked) — that logic
+// only exists on the REAL apiRouter. This block mounts apiRouter directly
+// (like routes-auth.integration.test.ts / scenario-parse-failure.integration.test.ts)
+// so the assertions below exercise the actual production masking behavior,
+// not a hand-copied clone of it.
+
+describe("GET /api/config — secret masking shape (security-review follow-up, PR #48)", () => {
+  let realServer: http.Server;
+  let savedGithubPat: string;
+  let savedOpenrouterKey: string;
+
+  beforeAll(async () => {
+    savedGithubPat = getAllConfig().github_pat ?? "";
+    savedOpenrouterKey = getAllConfig().openrouter_api_key ?? "";
+
+    const app = express();
+    app.use(express.json());
+    app.use("/api", apiRouter);
+    realServer = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+  });
+
+  afterAll(async () => {
+    setConfig("github_pat", savedGithubPat);
+    setConfig("openrouter_api_key", savedOpenrouterKey);
+    await new Promise<void>((resolve) => realServer.close(() => resolve()));
+  });
+
+  it("masks github_pat and openrouter_api_key with first4/last4 and never returns the raw secret", async () => {
+    const putRes = await jsonRequest(
+      realServer, "PUT", "/api/config",
+      {
+        github_pat: "ghp_1234567890abcdef",
+        openrouter_api_key: "sk-or-v1-abcdef1234567890",
+      },
+      AUTH
+    );
+    expect(putRes.statusCode).toBe(200);
+
+    const getRes = await jsonRequest(realServer, "GET", "/api/config");
+    expect(getRes.statusCode).toBe(200);
+
+    // Raw secrets are ABSENT from the response body.
+    expect(getRes.body.github_pat).toBeUndefined();
+    expect(getRes.body.openrouter_api_key).toBeUndefined();
+
+    // Masked fields are present, first4/last4 pattern (matches routes.ts:
+    // `pat.slice(0,4) + "****" + pat.slice(-4)`).
+    expect(getRes.body.github_pat_masked).toBe("ghp_****cdef");
+    expect(getRes.body.openrouter_api_key_masked).toBe("sk-o****7890");
+    expect(getRes.body.github_pat_masked).toMatch(/^.{4}\*{4}.{4}$/);
+    expect(getRes.body.openrouter_api_key_masked).toMatch(/^.{4}\*{4}.{4}$/);
+  });
+
+  it("masks a short (<=8 char) secret as a flat '****' rather than leaking any characters", async () => {
+    const putRes = await jsonRequest(
+      realServer, "PUT", "/api/config",
+      { github_pat: "short1" },
+      AUTH
+    );
+    expect(putRes.statusCode).toBe(200);
+
+    const getRes = await jsonRequest(realServer, "GET", "/api/config");
+    expect(getRes.body.github_pat).toBeUndefined();
+    expect(getRes.body.github_pat_masked).toBe("****");
   });
 });

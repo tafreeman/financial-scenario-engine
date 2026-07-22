@@ -12,6 +12,9 @@
  * GitHub PAT + financial context) to an attacker-controlled server.
  */
 
+import dns from "node:dns/promises";
+import net from "node:net";
+
 /**
  * If `hostname` is an IPv4-mapped or IPv4-compatible IPv6 address, return the
  * embedded dotted-decimal IPv4 string; otherwise return null.
@@ -118,4 +121,117 @@ export function refineOllamaEndpoint(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ─── FSE#4 (2026-07-21 grounded audit): DNS-rebinding-aware SSRF check ───────
+//
+// Everything above classifies a hostname by its STRING form only. A DOMAIN
+// name that RESOLVES to a loopback/private/link-local address (e.g. an
+// attacker-controlled DNS record pointing "evil.example.com" at 127.0.0.1, or
+// the cloud-metadata address 169.254.169.254) sails straight through every
+// check above, because the string "evil.example.com" is itself neither
+// loopback nor private-range — only its resolved address is. A domain used
+// this way, once stored via PUT /api/config, gets fetched at request time
+// with the attacker's PAT/API key attached (see server/ai.ts chatRequest()).
+//
+// The functions below close that gap by additionally resolving DOMAIN
+// hostnames (never literal IPs/"localhost" — those are already fully
+// classified synchronously above) via dns.lookup — the SAME resolution path
+// Node's fetch/undici actually uses to connect (getaddrinfo), NOT
+// dns.resolve4/dns.resolve6 — and rejecting if ANY returned address (A or
+// AAAA; `{ all: true }` covers both in one call) is loopback/private/
+// link-local (reusing isLoopback/isPrivateIp above, including their
+// mapped-IPv4 unwrap).
+//
+// KNOWN LIMITATION (deliberately out of scope): this is a validate-time check
+// only, run once when PUT /api/config writes the hostname. Between that write
+// and a later request actually connecting to it, the DNS record can change
+// (TOCTOU / "DNS rebinding") — the stronger control is pinning the resolved
+// address at request time (e.g. a custom lookup hook on the outbound
+// connection) and re-validating on every connect, not just at config-write
+// time. Request-time pinning is out of scope for this fix.
+
+/**
+ * Shape of Node's `dns.lookup(hostname, { all: true })`. Extracted as an
+ * injectable type (default implementation below performs the real lookup) so
+ * tests can supply deterministic resolved addresses instead of performing a
+ * real DNS lookup — mirrors the fetchImpl/exec injection pattern already used
+ * in server/ai.ts (chatRequest's fetchImpl, readGhCliToken's exec).
+ */
+export type DnsLookupAll = (
+  hostname: string,
+  options: { all: true }
+) => Promise<{ address: string; family: number }[]>;
+
+const defaultDnsLookupAll: DnsLookupAll = (hostname, options) => dns.lookup(hostname, options);
+
+/**
+ * True when `hostname` (as it appears in URL.hostname — bracketed for IPv6)
+ * is a literal IP address or the "localhost" alias, i.e. a form the
+ * synchronous checks above already fully classify without needing a DNS
+ * lookup. Anything else is a domain name that must be resolved before it can
+ * be classified.
+ */
+function isLiteralHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === "localhost") return true;
+  const bare = h.startsWith("[") && h.endsWith("]") ? h.slice(1, -1) : h;
+  return net.isIP(bare) !== 0;
+}
+
+/** Resolve `hostname` and report whether ANY returned address is loopback/private/link-local. */
+async function resolvesToPrivateOrLoopback(
+  hostname: string,
+  dnsLookup: DnsLookupAll
+): Promise<boolean> {
+  const bare = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+  let addresses: { address: string; family: number }[];
+  try {
+    addresses = await dnsLookup(bare, { all: true });
+  } catch {
+    // Unresolvable hostname: fail closed. We cannot verify the endpoint is
+    // safe, so treat it the same as an unsafe one rather than silently
+    // allowing it through.
+    return true;
+  }
+  return addresses.some(({ address }) => isLoopback(address) || isPrivateIp(address));
+}
+
+/**
+ * Async, DNS-aware version of {@link refineEndpointNoPrivate} for use in an
+ * async Zod refinement (see routes.ts CONFIG_WRITABLE_KEYS' `endpoint` /
+ * `openrouter_endpoint` keys, validated via `safeParseAsync`). Runs the
+ * existing synchronous checks first (protocol + literal-IP/hostname string
+ * form — UNCHANGED) and, only when the hostname is a domain name (not a
+ * literal IP or the "localhost" alias), additionally resolves it and rejects
+ * if any resolved address is loopback/private/link-local.
+ *
+ * @param dnsLookup - Injectable resolver (defaults to a real `dns.lookup`).
+ *   Tests pass a stub so no real DNS lookup happens.
+ */
+export async function refineEndpointNoPrivateAsync(
+  url: string,
+  dnsLookup: DnsLookupAll = defaultDnsLookupAll
+): Promise<boolean> {
+  if (!refineEndpointNoPrivate(url)) return false;
+  const { hostname } = new URL(url); // safe: refineEndpointNoPrivate already proved this parses
+  if (isLiteralHost(hostname)) return true; // already fully classified above — no DNS needed
+  return !(await resolvesToPrivateOrLoopback(hostname, dnsLookup));
+}
+
+/**
+ * Async, DNS-aware version of {@link refineOllamaEndpoint} — same rationale
+ * as {@link refineEndpointNoPrivateAsync} above, applied to ollama_endpoint's
+ * non-localhost branch. The `http://localhost` allowance is a literal-hostname
+ * alias, already fully covered by the synchronous check, and never reaches
+ * the DNS lookup below.
+ */
+export async function refineOllamaEndpointAsync(
+  url: string,
+  dnsLookup: DnsLookupAll = defaultDnsLookupAll
+): Promise<boolean> {
+  if (!refineOllamaEndpoint(url)) return false;
+  const { hostname } = new URL(url);
+  if (isLiteralHost(hostname)) return true;
+  return !(await resolvesToPrivateOrLoopback(hostname, dnsLookup));
 }

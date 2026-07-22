@@ -37,7 +37,7 @@
  */
 
 import { z } from "zod";
-import { getAiConfig } from "../ai.js";
+import { getAiConfig, isProviderConfigured } from "../ai.js";
 import type { ScenarioResult } from "../engine/types.js";
 
 // ─── Verdict schema ───────────────────────────────────────────────────────────
@@ -150,7 +150,18 @@ async function defaultJudgeModelCaller(
     headers["Accept"] = "application/vnd.github+json";
     headers["Authorization"] = `Bearer ${pat}`;
     headers["X-GitHub-Api-Version"] = "2022-11-28";
+  } else if (config.provider === "openrouter") {
+    // Eval-agent follow-up (2026-07-22): this caller was GitHub-Models-only —
+    // no Authorization header was ever set for "openrouter", so every judge
+    // call against that provider failed with 401. OpenRouter's chat
+    // completions endpoint is OpenAI-compatible: a Bearer token plus the JSON
+    // content type above is sufficient (mirrors server/ai.ts chatRequest()'s
+    // "openrouter" branch) — no GitHub-specific Accept/X-GitHub-Api-Version
+    // headers apply here.
+    headers["Authorization"] = `Bearer ${pat}`;
   }
+  // Ollama's OpenAI-compatible endpoint needs no auth headers (mirrors
+  // server/ai.ts chatRequest()).
   const resp = await fetch(endpoint, {
     method: "POST",
     headers,
@@ -184,11 +195,18 @@ export async function judgeNarrationFaithfulness(
 ): Promise<JudgeResult> {
   const config = getAiConfig();
 
-  if (config.provider === "github" && !config.pat) {
+  // Provider-aware gate (eval-agent follow-up, 2026-07-22): this used to
+  // check `config.provider === "github" && !config.pat` only — a GitHub-only
+  // check that reported "configured" for an openrouter deployment with no API
+  // key, or ollama with nothing configured at all. isProviderConfigured()
+  // (server/ai.ts) is the SAME provider-aware check run-intent-eval.ts and
+  // production's parseIntent()/narrateResult()/agenticScenario() already use.
+  const providerCheck = isProviderConfigured();
+  if (!providerCheck.ok) {
     return {
       ok: false,
       code: "provider_unconfigured",
-      message: "No GitHub PAT configured for the judge model call.",
+      message: providerCheck.error ?? "No LLM provider configured for the judge model call.",
     };
   }
 

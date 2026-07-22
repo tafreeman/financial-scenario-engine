@@ -25,6 +25,19 @@
  * repo-level variable for scheduled runs) so the model can be swapped — e.g.
  * to a different ":free" model if the current one is rate-limited or
  * deprecated — without a code change.
+ *
+ * OPENROUTER_ENDPOINT is also optional and, when set, writes the
+ * `openrouter_endpoint` DB config key (the SAME SSRF-validated key
+ * PUT /api/config accepts — see server/ssrf.ts refineEndpointNoPrivateAsync;
+ * this direct DB write is a trusted, operator-controlled local/CI script,
+ * matching the existing precedent of the other setConfig() calls below, so it
+ * is not re-validated here). Omitting it leaves getAiConfig()'s own default
+ * (https://openrouter.ai/api/v1/chat/completions) unchanged. Intended use:
+ * local verification runs that point the "openrouter" provider at an
+ * OpenAI-compatible endpoint OTHER than OpenRouter itself (e.g. NVIDIA NIM's
+ * https://integrate.api.nvidia.com/v1/chat/completions, serving the same
+ * model family) to avoid burning OpenRouter's metered free-tier daily budget
+ * while still exercising the exact "openrouter" provider code path.
  */
 import { fileURLToPath } from "url";
 import { resolve } from "path";
@@ -36,6 +49,7 @@ const __filename = fileURLToPath(import.meta.url);
 export function configureOpenRouterForEval(): void {
   const apiKey = (process.env.OPENROUTER_API_KEY || "").trim();
   const model = (process.env.OPENROUTER_MODEL || "").trim() || DEFAULT_OPENROUTER_MODEL;
+  const endpoint = (process.env.OPENROUTER_ENDPOINT || "").trim();
 
   if (!apiKey) {
     // Not fatal here — run-intent-eval.ts's own upfront gate
@@ -51,8 +65,20 @@ export function configureOpenRouterForEval(): void {
   setConfig("llm_provider", "openrouter");
   setConfig("openrouter_api_key", apiKey);
   setConfig("openrouter_model", model);
+  // Only write openrouter_endpoint when explicitly set — leaving the DB key
+  // untouched otherwise preserves getAiConfig()'s own default endpoint
+  // (https://openrouter.ai/api/v1/chat/completions). The scheduled/labeled-PR
+  // nightly runs of real-model-eval.yml never set this (no `endpoint` input
+  // on those triggers), so their behavior is unaffected; only a manual
+  // workflow_dispatch run that selects a non-default `endpoint` choice sets it.
+  if (endpoint) {
+    setConfig("openrouter_endpoint", endpoint);
+  }
 
-  console.log(`configure-openrouter-eval — DB configured: llm_provider=openrouter, openrouter_model=${model}`);
+  console.log(
+    `configure-openrouter-eval — DB configured: llm_provider=openrouter, openrouter_model=${model}` +
+      (endpoint ? `, openrouter_endpoint=${endpoint}` : "")
+  );
 }
 
 // Only run when executed directly (`tsx server/evals/configure-openrouter-eval.ts`

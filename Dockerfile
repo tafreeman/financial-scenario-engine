@@ -14,7 +14,9 @@
 #
 # All configuration is externalized via environment variables (no secrets are
 # baked into the image) — see .env.example for the full reference:
-#   PORT, HOST, DB_PATH, APP_API_TOKEN, GITHUB_TOKEN, CORS_ORIGIN, NODE_ENV
+#   PORT, HOST, DB_PATH, APP_API_TOKEN, GITHUB_TOKEN, CORS_ORIGIN, NODE_ENV,
+#   TRUST_PROXY_HOPS (set to 1 if this container sits behind a reverse proxy —
+#   see server/trust-proxy.ts and README.md "Reverse-proxy mode")
 #
 # SQLite storage is externalized to /app/data, which is created and chowned to
 # the non-root runtime user below and is intended to be mounted as a volume

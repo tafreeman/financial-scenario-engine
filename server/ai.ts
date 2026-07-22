@@ -657,6 +657,29 @@ Only include fields relevant to the matched operation. Omit unused fields entire
 - If the user's query doesn't clearly map to a specific operation, default to "burn_rate_check"
 - For questions about "current state" or "how are we doing", use "burn_rate_check" or "margin_analysis"`;
 
+/**
+ * Strip a leading reasoning trace and markdown code fences from a raw LLM
+ * completion before JSON.parse (provider-agnostic — not specific to
+ * OpenRouter, though that is where this was first observed).
+ *
+ * Reasoning-family models (e.g. OpenRouter's Nemotron 3 Ultra — see the
+ * 2026-07-22 real-model-eval run, where 14/14 accuracy-gate misses were
+ * "invalid_json") often prepend a `<think>...</think>` reasoning block before
+ * the actual JSON answer, in addition to the markdown-fence wrapping this
+ * already handled. Order matters: the reasoning block is stripped first (it
+ * can itself contain stray backtick sequences that would confuse fence
+ * stripping), then fences, then the result is trimmed.
+ *
+ * Content that is ENTIRELY reasoning (no JSON at all) still fails JSON.parse
+ * after stripping — this must never silently succeed on garbage.
+ *
+ * Exported (pure, no I/O) so this is unit-testable without a live model call.
+ */
+export function stripReasoningAndFences(content: string): string {
+  const withoutThink = content.replace(/^\s*<think>[\s\S]*?<\/think>\s*/i, "");
+  return withoutThink.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
+}
+
 /** Parse user query into a structured ScenarioOperation via LLM */
 export async function parseIntent(
   userQuery: string,
@@ -682,14 +705,22 @@ export async function parseIntent(
       { role: "system", content: `${PARSE_INTENT_PROMPT}\n\nCURRENT DATA:\n${contextSnapshot}` },
       { role: "user", content: userQuery },
     ],
+    // 2026-07-22 real-model-eval diagnosis: against OpenRouter's Nemotron 3
+    // Ultra (a reasoning-family model), all 14 accuracy-gate misses were
+    // "invalid_json" — a strict-JSON purpose like intent parsing is exactly
+    // what response_format is for. OpenRouter passes response_format through
+    // to providers that support it. Scoped to "openrouter" only: github is
+    // being retired 2026-07-30 (do not touch its payload), and ollama's
+    // OpenAI-compat surface is not verified to support this field the same
+    // way, so its payload is left byte-identical too.
+    ...(config.provider === "openrouter" ? { response_format: { type: "json_object" as const } } : {}),
   };
 
   try {
     const data = await instrumentedChatRequest("intent", config.endpoint, config.pat, payload);
     const content = data.choices?.[0]?.message?.content ?? "";
 
-    // Strip markdown fences if the model wraps its response
-    const cleaned = content.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim();
+    const cleaned = stripReasoningAndFences(content);
     let parsed: unknown;
     try {
       parsed = JSON.parse(cleaned);
