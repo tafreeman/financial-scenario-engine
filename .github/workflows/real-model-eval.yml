@@ -96,7 +96,7 @@ on:
           - openrouter
           - nvidia-nim
           - ollama-cloud
-        default: openrouter
+        default: ollama-cloud
       openrouter_model:
         description: >-
           Model id for this run (must end in ":free" when `endpoint` is
@@ -162,17 +162,17 @@ jobs:
           # server/ssrf.ts enforces on PUT /api/config's endpoint validation
           # (server/evals/configure-openrouter-eval.ts also now re-validates
           # this value through that SAME refinement before writing it — see
-          # that script's module doc comment). `github.event.inputs.endpoint`
-          # is undefined for schedule/labeled-PR runs (no workflow_dispatch
-          # inputs on those triggers) — the outer `github.event.inputs.endpoint
-          # && (...) || ''` wrapper makes the WHOLE expression resolve to the
-          # EMPTY STRING in that case, not a second, redundant copy of the
-          # OpenRouter default URL literal. An empty OPENROUTER_ENDPOINT makes
-          # configure-openrouter-eval.ts skip writing the DB key entirely, so
-          # nightly/labeled-PR runs defer to getAiConfig()'s own default
-          # (server/ai.ts) — the single source of truth for that URL — instead
-          # of the workflow re-pinning it a second place that could drift.
-          OPENROUTER_ENDPOINT: ${{ github.event.inputs.endpoint && (github.event.inputs.endpoint == 'ollama-cloud' && 'https://ollama.com/v1/chat/completions' || github.event.inputs.endpoint == 'nvidia-nim' && 'https://integrate.api.nvidia.com/v1/chat/completions' || 'https://openrouter.ai/api/v1/chat/completions') || '' }}
+          # that script's module doc comment). DEFAULT HOST IS OLLAMA CLOUD
+          # (2026-07-23): `github.event.inputs.endpoint` is undefined for
+          # schedule/labeled-PR runs, so those fall through to the Ollama
+          # Cloud URL. Rationale: OpenRouter's free Nemotron pool proved
+          # unreliable for the gate — a fresh-budget nightly scored 81.3%
+          # with 9 invalid_json misses (the free pool does not reliably
+          # honor response_format) and same-day re-runs exhaust the shared
+          # 50 req/day cap — while Ollama Cloud passed the gate at 89.6%
+          # (run 29943226814, 2026-07-22). An explicit `endpoint` input
+          # still selects any of the three hosts.
+          OPENROUTER_ENDPOINT: ${{ github.event.inputs.endpoint == 'nvidia-nim' && 'https://integrate.api.nvidia.com/v1/chat/completions' || github.event.inputs.endpoint == 'openrouter' && 'https://openrouter.ai/api/v1/chat/completions' || 'https://ollama.com/v1/chat/completions' }}
           # Key selection: the provider code (server/ai.ts resolveOpenRouterKey())
           # always reads the env var named OPENROUTER_API_KEY regardless of
           # which host it actually points at (see OPENROUTER_ENDPOINT above) —
@@ -180,9 +180,9 @@ jobs:
           # matching secret is genuinely absent (not yet added to repo
           # secrets), this resolves to an empty string and the eval fails
           # fast via isProviderConfigured()'s "provider_unconfigured" gate.
-          # Schedule/labeled-PR runs carry no `endpoint` input, so this always
-          # falls through to the default OPENROUTER_API_KEY secret — nightly
-          # behavior is byte-identical to before this change.
+          # Schedule/labeled-PR runs carry no `endpoint` input, so this
+          # falls through to OLLAMA_CLOUD_API_KEY — matching the default
+          # Ollama Cloud host above.
           #
           # KNOWN LIMITATION of this `&&`/`||` ternary-emulation (GitHub
           # Actions has no true ternary/null-coalescing operator): `||`
@@ -193,14 +193,15 @@ jobs:
           # to "" — an endpoint/key mismatch that still fails (auth error
           # against the wrong host) rather than the clean
           # "provider_unconfigured" message, but does NOT silently succeed.
-          OPENROUTER_API_KEY: ${{ github.event.inputs.endpoint == 'ollama-cloud' && secrets.OLLAMA_CLOUD_API_KEY || github.event.inputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ github.event.inputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || github.event.inputs.endpoint == 'openrouter' && secrets.OPENROUTER_API_KEY || secrets.OLLAMA_CLOUD_API_KEY }}
           # Precedence: an explicit workflow_dispatch input, else a repo/
           # environment-level variable (lets the nightly schedule/labeled-PR
-          # runs be re-pointed at a different free model without editing this
-          # file), else the script's own default. Model id differs per host
-          # for the SAME underlying model family — see the `endpoint` input's
+          # runs be re-pointed without editing this file), else the
+          # host-matched default for the selected endpoint (the Ollama Cloud
+          # id on the no-input schedule path). Model id differs per host for
+          # the SAME underlying model family — see the `endpoint` input's
           # description above for the exact id per host.
-          OPENROUTER_MODEL: ${{ github.event.inputs.openrouter_model || vars.OPENROUTER_MODEL }}
+          OPENROUTER_MODEL: ${{ github.event.inputs.openrouter_model || vars.OPENROUTER_MODEL || (github.event.inputs.endpoint == 'nvidia-nim' && 'nvidia/nemotron-3-ultra-550b-a55b' || github.event.inputs.endpoint == 'openrouter' && 'nvidia/nemotron-3-ultra-550b-a55b:free' || 'nemotron-3-ultra') }}
         run: npm run eval:configure-openrouter
 
       - name: Run intent eval (gated — real model, accuracy-gated)
@@ -213,7 +214,7 @@ jobs:
           # openrouter_model/openrouter_endpoint) is what actually governs
           # this step's request, since resolveOpenRouterKey() and getAiConfig()
           # (server/ai.ts) read the DB before any env var.
-          OPENROUTER_API_KEY: ${{ github.event.inputs.endpoint == 'ollama-cloud' && secrets.OLLAMA_CLOUD_API_KEY || github.event.inputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ github.event.inputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || github.event.inputs.endpoint == 'openrouter' && secrets.OPENROUTER_API_KEY || secrets.OLLAMA_CLOUD_API_KEY }}
         run: npm run eval:intent
 
       - name: Upload eval results
