@@ -14,11 +14,29 @@ The tool optionally delegates natural-language intent parsing to a cloud LLM —
 
 Cloud LLM providers routinely log inference requests for abuse detection, model improvement, and compliance auditing. In regulated environments, GDPR-adjacent regulatory contexts, and any setting where employee names are treated as protected personal data, transmitting `person_name` values to a third-party API without explicit consent or a data-processing agreement creates legal exposure and reputational risk. Even where no regulation mandates it, minimizing the PII footprint in external API calls is a sound practice.
 
-The tool's LLM integration touches two distinct points: intent parsing (inbound — user types a natural-language command) and optional narrative generation (outbound — the engine's computed result is turned into a human-readable summary). Both must be audited for PII exposure. The narrative path operates on pre-computed `ScenarioResult` structs that contain calculated metrics (margins, costs, headcount deltas) rather than raw database rows, so person names never appear there. The intent-parsing path, by contrast, requires database context and is the primary risk surface.
+The tool's LLM integration touches three distinct points, and each must be audited for PII exposure:
+
+1. **Intent parsing** (inbound) — the user types a natural-language command, and the model needs database context to resolve it. This is the primary risk surface.
+2. **The V3 agentic loop** (`agenticScenario()`) — a tool-calling loop in which the model repeatedly invokes the engine. It needs the same database context up front, so it carries the same risk as intent parsing.
+3. **Narrative generation** (outbound) — the engine's computed result is turned into a human-readable summary. This path operates on pre-computed `ScenarioResult` structs holding calculated metrics (margins, costs, headcount deltas) rather than raw database rows, so no *database-sourced* person name reaches it. It is not name-free in general: `narrateResult()` (`server/ai.ts`) serializes the whole `ScenarioOperation` into the prompt alongside the result, and an operation can carry a `person_name` the user typed — optionally on `remove[]`, always on `hours_changes[]`. See the scope note under Decision.
 
 ## Decision
 
-All context sent to external LLM providers is routed through a single function, `buildAnonymizedContextSnapshot()` in `server/db.ts`. This function is the sole point of contact between the raw database and any LLM call. Within it, every active staffing entry has its `person_name` replaced with a positional token (`Staff-1`, `Staff-2`, etc.) assigned in iteration order. The substitution is consistent within a single snapshot — the same integer index is used everywhere that staff member appears — but tokens are not persistent across snapshots. Project names, labor categories, bill rates, cost rates, hours per week, and financial figures are transmitted without modification. Only `parseIntent()` in `server/ai.ts` calls `buildAnonymizedContextSnapshot()`; it does not query the database directly. No other code path sends data to an external LLM.
+All context sent to external LLM providers is built by one function: `buildAnonymizedContextSnapshot()` in `server/db.ts`. It is the sole point of contact between the raw database and any LLM call. Inside it, every active staffing entry has its `person_name` replaced with a positional token (`Staff-1`, `Staff-2`, etc.) assigned in iteration order. The substitution is consistent within a single snapshot — the same index refers to the same person everywhere they appear — but tokens are not persistent across snapshots. Project names, labor categories, bill rates, cost rates, hours per week, and financial figures are transmitted without modification.
+
+Three call sites build a snapshot. All three go through `buildAnonymizedContextSnapshot()`, so all three are anonymized:
+
+- `POST /api/scenario/v2` (`server/routes.ts`) — builds the snapshot, then passes it to `parseIntent()`.
+- `POST /api/scenario/v2/parse-only` (`server/routes.ts`) — same, minus the engine step.
+- `agenticScenario()` (`server/ai.ts`) — the V3 tool-calling loop builds its own snapshot into the system message.
+
+Note that `parseIntent()` does **not** call `buildAnonymizedContextSnapshot()` itself. It receives the snapshot as its `contextSnapshot` parameter, so its two route callers are the ones that build it. Auditing this privacy boundary therefore means checking the three call sites above — reading `parseIntent()` alone will not show you where LLM context originates. No other code path sends database context to an external LLM.
+
+### What this decision does and does not cover
+
+It covers **database-sourced** names: nothing read out of the `staffing` table reaches a provider un-redacted.
+
+It does not cover a name the **user types**. `parseIntent()` sends the raw query as the user message (`server/ai.ts`), so "remove J. Smith from Project Alpha" transmits that name verbatim; the model may then copy it into the operation's `person_name`, and `narrateResult()` serializes the operation into the narration prompt. `applyRemove()` and `applyHoursChange()` match such a name against real records, which is why the schema keeps the field. Redaction happens on the way out of the database, not on the way in from the keyboard — a deployment that must not transmit names at all needs a local provider, which is what the Airgap Deployment Path below is for.
 
 ## Threat Model
 
@@ -52,7 +70,9 @@ Strip person names in the browser before the natural-language command is submitt
 
 ## Rationale
 
-Centralizing the anonymization in `buildAnonymizedContextSnapshot()` makes the trust boundary structural rather than conventional. There is no "don't forget to anonymize" comment scattered across multiple call sites — there is one function that owns the construction of LLM context, and it is the only function `parseIntent()` calls for that purpose. Future contributors cannot accidentally bypass it by querying the database directly in an AI route handler, because the pattern is explicit: `parseIntent()` calls `buildAnonymizedContextSnapshot()`, not `getStaffingByProject()`.
+Centralizing the anonymization in `buildAnonymizedContextSnapshot()` makes the trust boundary structural rather than conventional. The redaction logic lives in one function, so it is written once, tested once, and reviewed once — rather than being re-implemented (and eventually forgotten) at each place that talks to an LLM.
+
+Centralizing the *builder* is not the same as having a single call site, though, and this ADR does not claim it is. Three call sites exist today (listed under Decision above). What the design guarantees is that there is no un-anonymized alternative: the codebase ships exactly one function that assembles LLM context from the database, and it redacts names. A contributor adding a fourth LLM integration would have to deliberately hand-roll a raw query to bypass it — which the Constraints below forbid — rather than merely forgetting a step. The review burden is correspondingly small: audit the callers of `buildAnonymizedContextSnapshot()`, and confirm no route or AI helper builds context any other way.
 
 Positional tokens (`Staff-1`, `Staff-2`) were chosen over hash-based anonymization (e.g., a truncated HMAC of the name) because readability matters for debugging. When a prompt is logged for troubleshooting, "Staff-1: Senior Developer, 40h/wk" is immediately interpretable. Hash-based tokens like `a3f9c2` carry no semantic information and make audit logs harder to read without sacrificing additional privacy — a hash of a small set of known names is trivially reversible by brute force anyway. Positional tokens are not reversible from the prompt alone, which is sufficient for the threat model.
 
@@ -61,21 +81,21 @@ The constraint that tokens are not persistent across snapshots (re-indexed on ea
 ## Consequences
 
 ### Positive
-- Person names never appear in cloud LLM provider logs under any normal code path.
+- No database-sourced person name appears in cloud LLM provider logs under any normal code path. (A name the user types into their own query is a separate matter — see "What this decision does and does not cover".)
 - The anonymization boundary is enforced at a single, auditable location (`server/db.ts`, `buildAnonymizedContextSnapshot()`).
 - Intent parsing continues to work correctly for all project-name-based commands.
 - The approach is compatible with GDPR data minimization principles and privacy-sensitive PII-handling requirements.
 - No client-side changes are required; the trust boundary is server-enforced.
 
 ### Negative / Tradeoffs
-- The LLM cannot parse commands that reference a specific person by name (e.g., "remove J. Smith from Project Alpha"). Such commands must be reformulated as role-based removals ("remove the Senior Developer from Project Alpha"). This is an acceptable UX constraint given the privacy goal.
+- The LLM cannot *resolve* a person by name from context: it sees `Staff-1`, `Staff-2`, so it cannot tell which record "J. Smith" is or answer a question that depends on knowing. Such a query is best reformulated by role ("remove the Senior Developer from Project Alpha"). The name itself still passes through — it is in the raw query the model receives, and the model may echo it into the operation's `person_name`, where the engine matches it against real records. This is an acceptable UX constraint given the privacy goal, but it is a constraint on *resolution*, not a guarantee that a typed name stays local.
 - Sequential token assignment means the LLM cannot distinguish between two people in the same role on the same project ("Staff-2 and Staff-3 are both Senior Developers on Alpha"). This edge case requires the user to issue two separate remove operations or use count-based removal.
 - Token assignment is positional, not deterministic by identity, so two snapshots taken seconds apart may assign different indices to the same person if the query order shifts.
 
 ### Constraints Imposed
 - `buildAnonymizedContextSnapshot()` must remain the only function used to construct LLM context strings. It must not be bypassed, inlined, or replaced with a raw database query in any route handler or AI utility function.
 - No future code change may add `person_name` (or any field derived from it) to the string returned by `buildAnonymizedContextSnapshot()`.
-- This constraint is enforced structurally rather than by convention: all LLM context strings originate from the single `buildAnonymizedContextSnapshot()` function in `server/db.ts`, so there is exactly one code path to review and no un-anonymized snapshot builder to accidentally call.
+- This constraint is enforced structurally rather than by convention: every LLM context string originates from the single `buildAnonymizedContextSnapshot()` function in `server/db.ts`, and no un-anonymized snapshot builder exists to call by mistake. Reviewing it means checking that function plus its call sites (three today — see Decision above), not a single code path.
 - Any new LLM integration point (additional routes, batch jobs, background summarizers) must route through `buildAnonymizedContextSnapshot()` or its designated successor and must be reviewed against this decision.
 
 ## Airgap Deployment Path

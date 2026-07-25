@@ -20,7 +20,7 @@
                 │                       │
                 ▼                       ▼
       Local SQLite data           Optional LLM provider
-        data/finimpact.db         GitHub Models or Ollama
+        data/finimpact.db         GitHub Models, OpenRouter, or Ollama
 ```
 
 ## Key Design Constraint
@@ -36,7 +36,7 @@ financial-scenario-engine/
 ├── server/                     Express + TypeScript backend
 │   ├── index.ts                Entry point, static file serving
 │   ├── db.ts                   SQLite schema, seed data, queries
-│   ├── ai.ts                   LLM client (GitHub Models + Ollama)
+│   ├── ai.ts                   LLM client (GitHub Models + OpenRouter + Ollama)
 │   ├── routes.ts               REST API endpoints
 │   ├── engine/                 Financial calculation engine
 │   │   ├── types.ts            Shared types and constants
@@ -73,6 +73,7 @@ graph TD
     A --> C[db.ts - Database]
     A --> D[engine/ - Calculations]
     B --> E[GitHub Models API]
+    B --> O[OpenRouter]
     B --> F[Ollama Local]
     C --> G[(SQLite)]
     D --> H[Pure Functions]

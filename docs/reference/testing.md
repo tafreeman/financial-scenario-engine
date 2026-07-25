@@ -49,7 +49,9 @@ End-to-end tests cover UI workflows and API endpoints.
 npm run test:e2e
 ```
 
-Most specs (`app.spec.ts`, the `tests/e2e/excel/` specs) run against the real server and a freshly-seeded SQLite DB. The exception is the AI Analyst query flow (`ai-workflow.spec.ts`): it uses Playwright's `page.route()` to intercept `/api/scenario/v3` in the browser and return a scripted response, so it checks the frontend's handling of a given response shape rather than the real intent-parsing/engine/narration path on the server — the e2e environment has no LLM provider configured, so there's no live model to call instead. The root README's "Coverage scope" note (under Unit Tests) has the full picture of how the AI boundary is covered instead (Vitest + the separate intent-parsing eval below).
+Most specs — `app.spec.ts` and the `tests/e2e/excel/` specs — run against the real server and a freshly-seeded SQLite DB.
+
+The AI Analyst query flow (`ai-workflow.spec.ts`) is the exception. It uses Playwright's `page.route()` to intercept `/api/scenario/v3` in the browser and return a scripted response, so it checks the frontend's handling of a given response shape rather than the real intent-parsing, engine, or narration path on the server. There is no live model to call instead: the E2E environment has no LLM provider configured. For how the AI boundary is covered instead — Vitest plus a separate intent-parsing eval — see the root README's "Coverage scope" and "Intent-parsing evals" sections.
 
 Playwright auto-builds the client and starts the app server on port `3100` via the `webServer` config.
 

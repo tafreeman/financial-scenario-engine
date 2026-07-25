@@ -8,14 +8,33 @@
 
 ## LLM Privacy
 
-When using the GitHub Models API (cloud provider):
+The app uses one LLM provider at a time. Your choice decides whether anything leaves the machine: the two cloud providers send a context snapshot to a third party, and Ollama on its default local endpoint does not. Note that `ollama_endpoint` is configurable and accepts any public HTTPS host, so an Ollama pointed at a hosted instance is a cloud provider for privacy purposes — read the Ollama section below.
 
-- **Anonymized context** — `buildAnonymizedContextSnapshot()` replaces person names with `Staff-N` before any cloud call
-- **Preserved data** — Project names, role names, and financial figures are sent to the LLM (needed for accurate analysis)
-- **PAT security** — The GitHub PAT is stored only in local SQLite, never logged, never cached externally
+Whichever provider you pick, person names are redacted first — `buildAnonymizedContextSnapshot()` replaces them with `Staff-1`, `Staff-2`, and so on before the snapshot is built. Project names, role names, and financial figures are **not** redacted; the model needs them to resolve a query to the right project and produce accurate analysis.
+
+### GitHub Models (cloud)
+
+- **PAT security** — The GitHub PAT is stored only in local SQLite, never logged, never cached externally. `GET /api/config` returns it masked (first 4 and last 4 characters only)
 - **TLS encryption** — PAT transmitted exclusively to `models.github.ai` over HTTPS
 
+### OpenRouter (cloud)
+
+- **API key security** — The OpenRouter API key is stored only in local SQLite, never logged, never cached externally. `GET /api/config` masks it the same way it masks the GitHub PAT (first 4 and last 4 characters only)
+- **TLS encryption** — The key is transmitted exclusively to `openrouter.ai` over HTTPS
+- **Check your account's data policy before using a free model.** OpenRouter's account privacy settings handle paid and free models differently. Verify your account's training and logging opt-outs before relying on a `:free` model for anything past development. What gets sent is not raw PII — person names are redacted, as above — but it does include real project names, rate cards, and financial figures. See [OpenRouter's privacy & logging docs](https://openrouter.ai/docs/features/privacy-and-logging)
+
+### Ollama (local by default)
+
+On the seeded default endpoint — `http://localhost:11434/v1/chat/completions` — all inference happens on your own machine:
+- No data leaves the device
+- No PAT or API key required
+- No network calls for AI processing
+
+**This holds only while the endpoint is local.** `ollama_endpoint` is writable through Settings and `PUT /api/config`, and the validator (`server/ssrf.ts`) accepts any public HTTPS host — plain `http` is allowed for loopback only, and private-range addresses are rejected. Point it at a hosted Ollama and the same context snapshot goes to that third party, with the same handling questions as any cloud provider. Check the endpoint before treating a run as offline.
+
 ### What gets sent to the LLM
+
+Applies to both cloud providers (GitHub Models and OpenRouter), and to an Ollama configured against a remote endpoint. Under a local Ollama, none of this leaves your machine.
 
 | Data | Sent? | Notes |
 |------|-------|-------|
@@ -23,27 +42,22 @@ When using the GitHub Models API (cloud provider):
 | Project names | ✅ | Needed for project resolution |
 | Role/category names | ✅ | Needed for staffing analysis |
 | Financial figures | ✅ | Needed for accurate calculations |
-| Your PAT | ✅ | Auth header to GitHub Models only |
-
-### Ollama (local) mode
-
-When using Ollama, all inference happens on your local machine:
-- No data leaves the device
-- No PAT required
-- No network calls for AI processing
+| Your PAT / API key | ✅ | Auth header to the selected provider only |
 
 ## Network Access
 
 | Destination | When | Purpose |
 |-------------|------|---------|
 | `models.github.ai` | GitHub provider selected | LLM inference |
-| `localhost:11434` | Ollama provider selected | Local LLM inference |
+| `openrouter.ai` | OpenRouter provider selected | LLM inference |
+| `localhost:11434` | Ollama provider selected, default endpoint | Local LLM inference |
+| whatever `ollama_endpoint` names | Ollama provider pointed at a remote host | Remote LLM inference — no longer offline |
 | None | App itself | Server binds to `127.0.0.1` by default |
 
 ## Recommendations for Sensitive Environments
 
 1. **Use Ollama** for fully airgapped operation
-2. **Verify data classification** before using GitHub Models API in regulated environments
+2. **Verify data classification** before using either cloud provider (GitHub Models or OpenRouter) in a regulated environment. For OpenRouter, also confirm your account's training/logging opt-outs — see the OpenRouter section above
 3. **Back up** `data/finimpact.db` — it contains all project data
 4. **Do not expose** the server to external networks (it binds to `127.0.0.1` by default)
 
