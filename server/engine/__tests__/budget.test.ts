@@ -10,6 +10,7 @@ import {
   calcBurnRateDeltaPct,
   calcBudgetMetrics,
 } from "../budget.js";
+import { DAYS_PER_MONTH } from "../types.js";
 import type { Project } from "../types.js";
 
 const testProject: Project = {
@@ -54,6 +55,30 @@ describe("calcExhaustionDate", () => {
 
   it("returns 'N/A' for non-finite months", () => {
     expect(calcExhaustionDate(Infinity)).toBe("N/A");
+  });
+
+  // Pins the fractional-month -> days conversion to the single-source
+  // DAYS_PER_MONTH policy in types.ts.  The previous hardcoded `* 30`
+  // approximation disagrees with this reference by up to ~0.44 days per
+  // fractional month, which is enough to shift the rounded exhaustion date
+  // by a full day for some fractions -- the sweep below covers them.
+  it("converts fractional months using DAYS_PER_MONTH, not a 30-day approximation", () => {
+    const base = new Date("2026-01-01");
+
+    const expectedFor = (monthsRemaining: number): string => {
+      const wholeMonths = Math.floor(monthsRemaining);
+      const expected = new Date(base);
+      expected.setMonth(expected.getMonth() + wholeMonths);
+      expected.setDate(
+        expected.getDate() + Math.round((monthsRemaining - wholeMonths) * DAYS_PER_MONTH),
+      );
+      return expected.toISOString().split("T")[0] ?? expected.toISOString().slice(0, 10);
+    };
+
+    for (let hundredths = 1; hundredths <= 400; hundredths++) {
+      const months = hundredths / 100;
+      expect(calcExhaustionDate(months, base)).toBe(expectedFor(months));
+    }
   });
 });
 

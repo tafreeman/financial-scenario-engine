@@ -1,4 +1,5 @@
 import {
+  DAYS_PER_MONTH,
   MONTHS_PER_YEAR,
   safeDivide,
   type Project,
@@ -24,7 +25,7 @@ export function calcExhaustionDate(monthsRemaining: number, fromDate?: Date): st
     return monthsRemaining <= 0 ? "exhausted" : "N/A";
   }
   const wholeMonths = Math.floor(monthsRemaining);
-  const fractionalDays = (monthsRemaining - wholeMonths) * 30; // approximate
+  const fractionalDays = (monthsRemaining - wholeMonths) * DAYS_PER_MONTH;
   const exhaustion = new Date(base);
   exhaustion.setMonth(exhaustion.getMonth() + wholeMonths);
   exhaustion.setDate(exhaustion.getDate() + Math.round(fractionalDays));
