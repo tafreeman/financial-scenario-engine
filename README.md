@@ -3,7 +3,7 @@
 [![CI / Deploy](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/tafreeman/financial-scenario-engine/actions/workflows/deploy-pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**📖 Live docs:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/)
+**📖 Live docs:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/) · **Project overview:** [/overview/](https://tafreeman.github.io/financial-scenario-engine/overview/)
 
 A local TypeScript financial scenario simulator built on the principle that **financial math must be deterministic and auditable**. The calculation engine in `server/engine/` produces every number — the LLM only parses natural-language intent and optionally narrates results, and any structured output it returns is revalidated against a strict schema at that trust boundary before the engine ever sees it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)). All project data lives in a local SQLite file; inference runs via a multi-provider abstraction over the GitHub Models API, OpenRouter, or fully offline via Ollama, with no external cloud dependency required.
 
@@ -367,19 +367,30 @@ Replace the seed data in `server/db.ts` → `seedSampleData()` with actual proje
 
 ## GitHub Pages Site
 
-This repository includes a static **GitHub Pages** site built with the same React + Vite + Tailwind stack as the application UI.
+The published site is **one artifact composed from two builds**, so a deploy of either surface can never overwrite the other:
+
+| Path | Source | Built with |
+|------|--------|------------|
+| `/` (plus `/guide/`, `/api/`, `/engine/`, `/client/`, `/excel/`, `/reference/`) | `docs/` | VitePress |
+| `/overview/` | `client/pages/` + `client/src/site/` | React + Vite + Tailwind, same stack as the application UI |
 
 ### Pages Commands
 
 ```bash
+# Overview site
 npm run build:pages
 cd client && npm run preview:pages
+
+# Docs
+cd docs && npm ci && npm run build
 ```
+
+Built separately, each surface serves from `/` locally; only the deployed artifact nests the overview site under `/overview/`.
 
 ### Deployment
 
-GitHub Pages deployment is automated in `.github/workflows/deploy-pages.yml`.
-On pushes to `main`, GitHub Actions builds the static site and deploys the artifact from `client/dist-pages`.
+GitHub Pages deployment is automated in `.github/workflows/deploy-pages.yml`, which is the **only** workflow that writes to the `github-pages` environment.
+On pushes to `main` (and on manual dispatch), after lint, typecheck, unit tests, and E2E pass, it builds both surfaces, composes them into a single `site/` tree, and performs one upload and one deploy under the `pages` concurrency group.
 
 ---
 

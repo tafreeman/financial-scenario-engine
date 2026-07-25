@@ -16,6 +16,8 @@ test-results/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 docs/node_modules/
+# Composed Pages artifact (docs at the root + the overview site under /overview/)
+site/
 .vs/*
 .vscode/*
 .claude/
