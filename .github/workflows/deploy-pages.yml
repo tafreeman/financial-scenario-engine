@@ -14,9 +14,11 @@ permissions:
   pages: write
   id-token: write
 
+# One queue for the one workflow that owns the github-pages environment. Do not
+# cancel a run that is already deploying — let production deployments finish.
 concurrency:
-  group: pages-app
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   ci:
@@ -56,8 +58,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: [ci, e2e]
-    # Deploy only on push to main, not on PRs (PRs from forks lack pages permissions)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Deploy only from main, never on PRs (PRs from forks lack pages permissions).
+    # workflow_dispatch is allowed so the site can be redeployed by hand, which is
+    # what the retired docs.yml offered.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -70,6 +76,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             client/package-lock.json
+            docs/package-lock.json
 
       - name: Install root dependencies
         run: npm ci
@@ -78,8 +85,30 @@ jobs:
         run: npm ci
         working-directory: client
 
-      - name: Build GitHub Pages site
+      - name: Install docs dependencies
+        run: npm ci
+        working-directory: docs
+
+      - name: Build overview site
         run: npm run build:pages
+
+      - name: Build docs site
+        run: npm run build
+        working-directory: docs
+
+      - name: Compose Pages artifact
+        run: |
+          # Both surfaces ship as ONE tree from ONE job, so neither deploy can
+          # overwrite the other. The VitePress docs take the site root because
+          # that is what the README advertises and what /guide/, /api/ and
+          # /engine/ resolve against; the static overview site nests under
+          # /overview/, matching `base` in client/vite.pages.config.ts.
+          rm -rf site
+          mkdir -p site
+          cp -r docs/.vitepress/dist/. site/
+          mkdir -p site/overview
+          cp -r client/dist-pages/. site/overview/
+          touch site/.nojekyll
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
@@ -92,7 +121,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: client/dist-pages
+          path: site
 
   deploy:
     environment:

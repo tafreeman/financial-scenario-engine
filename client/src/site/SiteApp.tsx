@@ -22,6 +22,10 @@ import {
 
 const REPOSITORY_URL = "https://github.com/tafreeman/financial-scenario-engine";
 const PROFILE_URL = "https://github.com/tafreeman";
+// Relative on purpose: this site is published under /overview/ of the composed
+// Pages artifact and the VitePress docs own the root one level up, so this
+// resolves without hard-coding the Pages domain.
+const DOCS_URL = "../";
 
 const featureCards = [
   {
@@ -104,6 +108,9 @@ export default function SiteApp() {
             <a href="#features" className="nav-link">Features</a>
             <a href="#workflow" className="nav-link">Workflow</a>
             <a href="#architecture" className="nav-link">Architecture</a>
+            {/* This site is deployed under /overview/ of the Pages artifact; the
+                VitePress docs sit one level up at the site root. */}
+            <a href={DOCS_URL} className="nav-link">Docs</a>
             <a href={PROFILE_URL} className="nav-link" aria-label="tafreeman profile" target="_blank" rel="noopener noreferrer">
               <Github size={15} />
               Profile

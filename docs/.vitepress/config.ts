@@ -32,6 +32,11 @@ export default defineConfig({
         link: "/engine/",
       },
       { text: "Client", link: "/client/" },
+      // Sibling surface in the same Pages artifact, built by client/vite.pages.config.ts.
+      // `target` is required: without it the VitePress SPA router intercepts the
+      // click, fails to resolve /overview/ to a markdown route, and renders its
+      // own 404 instead of letting the browser load the real page.
+      { text: "Overview", link: "/overview/", target: "_self" },
       {
         text: "Reference",
         items: [
