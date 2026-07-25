@@ -66,6 +66,13 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             client/package-lock.json
+            docs/package-lock.json
       - run: npm audit --audit-level=high
       - run: npm audit --audit-level=high
         working-directory: client
+      # docs/ has its own lockfile (VitePress) and was NOT audited here until
+      # 2026-07-25, which is how GHSA-r28c-9q8g-f849 (postcss, HIGH) sat open on
+      # the default branch while this required check stayed green. Every
+      # package-lock.json in the repo must have a leg in this job.
+      - run: npm audit --audit-level=high
+        working-directory: docs
