@@ -358,17 +358,17 @@ function handleStaffingChange(
       afterStaffing = applySwap(
         beforeStaffing, portfolio.labor_categories,
         operation.remove, operation.add,
-        targetProject.id, targetProject.name
+        targetProject.id, targetProject.name, warnings
       );
       break;
     case "add":
       afterStaffing = applyAdd(
         beforeStaffing, portfolio.labor_categories,
-        operation.add, targetProject.id, targetProject.name
+        operation.add, targetProject.id, targetProject.name, warnings
       );
       break;
     case "remove":
-      afterStaffing = applyRemove(beforeStaffing, operation.remove);
+      afterStaffing = applyRemove(beforeStaffing, operation.remove, warnings);
       break;
     case "rate_change":
       afterStaffing = applyRateChange(beforeStaffing, operation.rate_changes, warnings);
@@ -580,10 +580,10 @@ function handleReallocation(
   const fromBefore = computeState(fromProject.staffing, fromProject, asOf);
   const toBefore = computeState(toProject.staffing, toProject, asOf);
 
-  const fromAfterStaffing = applyRemove(fromProject.staffing, operation.remove);
+  const fromAfterStaffing = applyRemove(fromProject.staffing, operation.remove, warnings);
   const toAfterStaffing = applyAdd(
     toProject.staffing, portfolio.labor_categories,
-    operation.add, toProject.id, toProject.name
+    operation.add, toProject.id, toProject.name, warnings
   );
 
   const fromAfter = computeState(fromAfterStaffing, fromProject, asOf);
@@ -699,6 +699,12 @@ function handleComposite(
  *
  * Since ScenarioResult doesn't carry the raw afterStaffing array, we re-derive
  * the updated staffing by replaying the same apply* functions used in the handler.
+ *
+ * The apply* calls below deliberately pass no `warnings` array: this is a replay
+ * of a sub-operation that already ran through executeScenario, so any no-match
+ * warning it produces is already in that sub-result's warnings (and, via
+ * handleComposite, in the composite's). Threading one in here would duplicate
+ * every such warning.
  */
 /**
  * Rebuild the accumulated portfolio state after a sub-operation completes.

@@ -125,9 +125,9 @@ Immutable staffing mutation functions and before/after delta calculation.
 
 | Function | Description |
 |----------|-------------|
-| `applyRemove(staffing, remove[])` | Remove N people of a role |
-| `applyAdd(staffing, add[], categories)` | Add N people of a role |
-| `applySwap(staffing, remove[], add[], categories)` | Swap roles |
+| `applyRemove(staffing, remove[], warnings?)` | Remove N people of a role |
+| `applyAdd(staffing, categories, add[], projectId?, projectName?, warnings?)` | Add N people of a role |
+| `applySwap(staffing, categories, remove[], add[], projectId?, projectName?, warnings?)` | Swap roles |
 | `applyRateChange(staffing, rate_changes[], warnings?)` | Change bill/cost rates (folds all matching entries) |
 | `applyHoursChange(staffing, hours_changes[], warnings?)` | Change hours/week (folds all matching entries) |
 | `calcScenarioImpact(current, projected)` | `ScenarioImpact` delta |
@@ -135,6 +135,8 @@ Immutable staffing mutation functions and before/after delta calculation.
 | `calcUnexpectedCostImpact(project, costs[])` | Impact of ad-hoc cost items |
 
 All mutation functions return **new arrays** — input is never modified.
+
+Roles are matched by case-insensitive substring (`add[]` additionally resolves against the rate card), so an entry naming a role or person the roster does not carry mutates nothing. When a `warnings` array is passed, each such entry appends a warning naming what it failed to match — without it the operation returns a well-formed, all-zero impact that reads exactly like "this change is free". `executeScenario()` passes the result's `warnings` array into the mutations it applies; `mergeProjectedState()` deliberately does not, because it replays a sub-operation whose warnings the sub-result already carries.
 
 ---
 
@@ -165,7 +167,7 @@ Zod schema that revalidates every LLM-produced operation before the engine ever 
 
 | Export | Description |
 |--------|-------------|
-| `scenarioOperationSchema` | Strict Zod schema for `ScenarioOperation` — rejects malformed or hallucinated fields rather than coercing them |
+| `scenarioOperationSchema` | Strict Zod schema for `ScenarioOperation` — rejects malformed or hallucinated fields rather than coercing them, and rejects an action carrying none of the payload its handler reads (a payload-less mutation parses cleanly but executes as a zero-impact no-op) |
 
 Used by `server/ai.ts` on both the V2 parse path and the V3 tool-call path, before `executeScenario()` is ever invoked.
 

@@ -6,9 +6,19 @@
 All mutation functions return **new arrays** — input is never modified.
 :::
 
+::: warning Unmatched roles are reported, not silent
+Roles are matched by case-insensitive substring (`add[]` additionally resolves
+against the rate card), so an entry naming a role or person the roster does not
+carry mutates nothing and yields an all-zero impact. Every mutation below takes
+an optional trailing `warnings` array and appends a warning naming what it
+failed to match; `executeScenario()` passes the result's `warnings` array into the
+mutations it applies. (The one place it does not is `mergeProjectedState()`, which
+replays a sub-operation whose warnings the sub-result already carries.)
+:::
+
 ## Staffing Mutations
 
-### `applyRemove(staffing, remove[])`
+### `applyRemove(staffing, remove[], warnings?)`
 
 Remove N people of a specified role from a staffing list.
 
@@ -22,21 +32,21 @@ const updated = applyRemove(staffing, [
 
 ---
 
-### `applyAdd(staffing, add[], categories)`
+### `applyAdd(staffing, categories, add[], projectId?, projectName?, warnings?)`
 
 Add N people of a specified role. Requires the labor category rate card to look up rates.
 
 ```typescript
 import { applyAdd } from "./engine/index.js";
 
-const updated = applyAdd(staffing, [
+const updated = applyAdd(staffing, categories, [
   { role: "QA Engineer", count: 2, hours_per_week: 40 }
-], categories);
+]);
 ```
 
 ---
 
-### `applySwap(staffing, remove[], add[], categories)`
+### `applySwap(staffing, categories, remove[], add[], projectId?, projectName?, warnings?)`
 
 Atomic swap — remove one set of roles and add another in a single operation.
 
@@ -45,9 +55,9 @@ import { applySwap } from "./engine/index.js";
 
 const updated = applySwap(
   staffing,
+  categories,
   [{ role: "Senior Developer", count: 1 }],
-  [{ role: "Mid-level Developer", count: 2 }],
-  categories
+  [{ role: "Mid-level Developer", count: 2 }]
 );
 ```
 
