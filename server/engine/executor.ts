@@ -358,17 +358,17 @@ function handleStaffingChange(
       afterStaffing = applySwap(
         beforeStaffing, portfolio.labor_categories,
         operation.remove, operation.add,
-        targetProject.id, targetProject.name
+        targetProject.id, targetProject.name, warnings
       );
       break;
     case "add":
       afterStaffing = applyAdd(
         beforeStaffing, portfolio.labor_categories,
-        operation.add, targetProject.id, targetProject.name
+        operation.add, targetProject.id, targetProject.name, warnings
       );
       break;
     case "remove":
-      afterStaffing = applyRemove(beforeStaffing, operation.remove);
+      afterStaffing = applyRemove(beforeStaffing, operation.remove, warnings);
       break;
     case "rate_change":
       afterStaffing = applyRateChange(beforeStaffing, operation.rate_changes, warnings);
@@ -435,6 +435,20 @@ function handleTimelineExtension(
 
   if (extensionResult.budget_gap > 0) {
     warnings.push(`Extension creates a budget gap of $${extensionResult.budget_gap.toFixed(0)}.`);
+  }
+
+  // Every field of this handler's impact block is a literal 0 except
+  // months_remaining_delta, and that one is 0 too: calcBudgetMetrics derives
+  // months_remaining from remaining budget over monthly burn (budget.ts) and
+  // never reads end_date, so moving the date cannot move it. A no-op extension
+  // is therefore byte-identical to a real one in the impact table, and the
+  // caller has no way to tell them apart. Say so rather than let a zero pass
+  // for an answer.
+  if (extensionResult.additional_months <= 0) {
+    warnings.push(
+      `New end date ${extensionResult.new_end_date} is not later than the current end date ` +
+      `${targetProject.end_date}; the timeline was not extended.`
+    );
   }
 
   // Projected budget after extension
@@ -580,10 +594,10 @@ function handleReallocation(
   const fromBefore = computeState(fromProject.staffing, fromProject, asOf);
   const toBefore = computeState(toProject.staffing, toProject, asOf);
 
-  const fromAfterStaffing = applyRemove(fromProject.staffing, operation.remove);
+  const fromAfterStaffing = applyRemove(fromProject.staffing, operation.remove, warnings);
   const toAfterStaffing = applyAdd(
     toProject.staffing, portfolio.labor_categories,
-    operation.add, toProject.id, toProject.name
+    operation.add, toProject.id, toProject.name, warnings
   );
 
   const fromAfter = computeState(fromAfterStaffing, fromProject, asOf);
@@ -699,6 +713,12 @@ function handleComposite(
  *
  * Since ScenarioResult doesn't carry the raw afterStaffing array, we re-derive
  * the updated staffing by replaying the same apply* functions used in the handler.
+ *
+ * The apply* calls below deliberately pass no `warnings` array: this is a replay
+ * of a sub-operation that already ran through executeScenario, so any no-match
+ * warning it produces is already in that sub-result's warnings (and, via
+ * handleComposite, in the composite's). Threading one in here would duplicate
+ * every such warning.
  */
 /**
  * Rebuild the accumulated portfolio state after a sub-operation completes.

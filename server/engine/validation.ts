@@ -67,6 +67,11 @@ const actionEnum = z.enum([
   "what_if_composite",
 ]);
 
+/** True for a payload array the engine can act on — `undefined` and `[]` are both no-ops. */
+function hasEntries(payload: unknown): boolean {
+  return Array.isArray(payload) && payload.length > 0;
+}
+
 // ─── Main schema (exported) ───────────────────────────────────────────────────
 
 // Explicit ZodType annotation is required because TypeScript cannot infer
@@ -100,4 +105,105 @@ export const scenarioOperationSchema: z.ZodType<ScenarioOperation> = z
     _fallback: z.boolean().optional(),
     _fallback_reason: z.string().optional(),
   })
-  .strict();
+  .strict()
+  // Every payload field above is `.optional()` because no single action uses
+  // them all. The side effect is that a mutation action parses cleanly while
+  // carrying nothing to mutate: `{action:"add",project:"X"}` validated, ran,
+  // and came back with an all-zero impact that reads exactly like a real
+  // answer. That is the same "ghost mutation" class rateChangeSchema rejects
+  // one level down (see above), applied at the operation level.
+  //
+  // Each requirement below is what executor.ts actually reads for that action.
+  // A missing payload calls the corresponding apply*/calc* helper with
+  // `undefined`, and every one of those short-circuits to "unchanged" (see
+  // scenarios.ts) — an empty array hits the same short-circuit, so `[]` is
+  // rejected exactly like a missing key.
+  .superRefine((operation, ctx) => {
+    const requirePayload = (present: boolean, fields: string, path: string): void => {
+      if (present) return;
+      ctx.addIssue({
+        code: "custom",
+        path: [path],
+        message:
+          `${operation.action} operation must supply ${fields} — without it the ` +
+          "operation parses cleanly but executes as a zero-impact no-op",
+      });
+    };
+
+    switch (operation.action) {
+      // Read-only analyses: the executor reads no payload for these, and the
+      // documented burn_rate_check fallback (server/ai.ts) is exactly this shape.
+      case "burn_rate_check":
+      case "margin_analysis":
+      case "evm_analysis":
+        break;
+
+      // applySwap = applyRemove ∘ applyAdd; either half alone still mutates the
+      // roster, so requiring both would reject a one-sided swap that does have impact.
+      case "swap":
+        requirePayload(
+          hasEntries(operation.remove) || hasEntries(operation.add),
+          "remove[] or add[]", "remove"
+        );
+        break;
+
+      case "add":
+        requirePayload(hasEntries(operation.add), "add[]", "add");
+        break;
+
+      case "remove":
+        requirePayload(hasEntries(operation.remove), "remove[]", "remove");
+        break;
+
+      case "rate_change":
+        requirePayload(hasEntries(operation.rate_changes), "rate_changes[]", "rate_changes");
+        break;
+
+      case "hours_change":
+        requirePayload(hasEntries(operation.hours_changes), "hours_changes[]", "hours_changes");
+        break;
+
+      // calcTimelineExtensionImpact takes either form and returns a zero-month
+      // no-op when neither is supplied.
+      case "timeline_extension":
+        requirePayload(
+          operation.extension_months !== undefined || operation.new_end_date !== undefined,
+          "extension_months or new_end_date", "extension_months"
+        );
+        break;
+
+      case "unexpected_cost":
+        requirePayload(hasEntries(operation.additional_costs), "additional_costs[]", "additional_costs");
+        break;
+
+      // handleReallocation replays remove[] on the source and add[] on the
+      // destination, and reports the SOURCE project's delta as the headline
+      // impact. So an add-only reallocation returns an all-zero headline while
+      // the destination quietly gains a head — the exact defect this refinement
+      // exists to stop. Both halves are required, matching what
+      // PARSE_INTENT_PROMPT already documents ("REQUIRED: projects[] (exactly
+      // 2), remove[], add[]"), so this rejects nothing production emits.
+      //
+      // The fewer-than-two-projects case is deliberately NOT rejected here: the
+      // executor already warns and degrades to a portfolio burn-rate check,
+      // which is loud rather than silent.
+      case "reallocation":
+        requirePayload(hasEntries(operation.remove), "remove[] (the source side)", "remove");
+        requirePayload(hasEntries(operation.add), "add[] (the destination side)", "add");
+        break;
+
+      // Nested no-ops need no special handling: sub_operations is recursive via
+      // z.lazy, so every sub-operation is parsed by this same schema and faces
+      // this same requirement.
+      case "what_if_composite":
+        requirePayload(hasEntries(operation.sub_operations), "sub_operations[]", "sub_operations");
+        break;
+
+      default: {
+        // Exhaustiveness guard: a newly-added action must declare whether it
+        // requires a payload, the same way executor.ts forces it a handler.
+        const _exhaustive: never = operation.action;
+        void _exhaustive;
+      }
+    }
+  });

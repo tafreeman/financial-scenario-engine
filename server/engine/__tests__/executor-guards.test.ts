@@ -508,11 +508,158 @@ describe("mergeProjectedState resolved name — abbreviated project name in comp
   });
 });
 
+// ─── Unmatched role/person: a zero-impact mutation must not be silent ────────
+//
+// The staffing mutations match roles by case-insensitive substring (and add[]
+// by fuzzy rate-card lookup), so a role the roster does not carry mutates
+// nothing.  The operation still returned a well-formed result with an all-zero
+// impact and no warnings — indistinguishable from "this change is free".
+// Every such action must now name what it failed to match.
+
+describe("staffing changes warn when the operation matches nothing", () => {
+  it("remove with an unmatched role warns and reports a zero impact", () => {
+    const result = executeScenario(
+      { action: "remove", project: "Project Alpha", remove: [{ role: "Nonexistent Role", count: 1 }] },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.warnings.some(w => w.includes("Nonexistent Role"))).toBe(true);
+    // The warning is the ONLY signal — every financial delta is zero.
+    expect(result.impact?.cost_delta_monthly).toBe(0);
+    expect(result.impact?.headcount_delta).toBe(0);
+  });
+
+  it("add with a role that is not on the rate card warns", () => {
+    const result = executeScenario(
+      { action: "add", project: "Project Alpha", add: [{ role: "Imaginary Role", count: 1 }] },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.warnings.some(w => w.includes("Imaginary Role"))).toBe(true);
+    expect(result.impact?.headcount_delta).toBe(0);
+  });
+
+  it("rate_change with an unmatched role warns", () => {
+    const result = executeScenario(
+      {
+        action: "rate_change",
+        project: "Project Alpha",
+        rate_changes: [{ role: "Nonexistent Role", new_bill_rate: 300 }],
+      },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.warnings.some(w => w.includes("Nonexistent Role"))).toBe(true);
+    expect(result.impact?.revenue_delta_monthly).toBe(0);
+  });
+
+  it("hours_change with an unmatched person warns", () => {
+    const result = executeScenario(
+      {
+        action: "hours_change",
+        project: "Project Alpha",
+        hours_changes: [{ person_name: "Nobody Here", new_hours_per_week: 20 }],
+      },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.warnings.some(w => w.includes("Nobody Here"))).toBe(true);
+    expect(result.impact?.cost_delta_monthly).toBe(0);
+  });
+
+  it("reallocation warns about the unmatched half while the other half still applies", () => {
+    const result = executeScenario(
+      {
+        action: "reallocation",
+        projects: ["Project Alpha", "Project Beta"],
+        remove: [{ role: "Nonexistent Role", count: 1 }],
+        add: [{ role: "Mid-level Developer", count: 1, hours_per_week: 40 }],
+      },
+      twoProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.warnings.some(w => w.includes("Nonexistent Role"))).toBe(true);
+    // The destination add resolved, so the second sub-result still has an impact.
+    expect(result.sub_results?.[1]?.impact?.headcount_delta).toBe(1);
+  });
+
+  it("a matched operation adds no such warning", () => {
+    const result = executeScenario(
+      { action: "remove", project: "Project Alpha", remove: [{ role: "Senior Developer", count: 1 }] },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    expect(result.warnings.some(w => w.toLowerCase().includes("matched"))).toBe(false);
+    expect(result.impact?.headcount_delta).toBe(-1);
+  });
+
+  it("a composite reports a sub-op's unmatched role exactly once (no replay duplicate)", () => {
+    // handleComposite replays each sub-op through mergeProjectedState to
+    // accumulate state; that replay must not re-emit the sub-op's warnings.
+    const result = executeScenario(
+      {
+        action: "what_if_composite",
+        sub_operations: [
+          { action: "remove", project: "Project Alpha", remove: [{ role: "Nonexistent Role", count: 1 }] },
+        ],
+      },
+      singleProjectPortfolio,
+      PINNED
+    );
+
+    const matching = result.warnings.filter(w => w.includes("Nonexistent Role"));
+    expect(matching).toHaveLength(1);
+  });
+});
+
 // ─── Invalid new_end_date guard: a direct call must not throw RangeError ──────
 //
 // The boundary schema (validation.ts) rejects a malformed new_end_date, but a
 // direct executeScenario call bypasses it. An unparseable date string previously
 // produced an Invalid Date whose toISOString() threw RangeError on the hot path.
+
+// Every field of handleTimelineExtension's impact block is zero for every
+// input — months_remaining comes from remaining budget over monthly burn and
+// never reads end_date — so a no-op extension and a real one are byte-identical
+// there. The warning is the only thing that can tell them apart.
+describe("timeline_extension warns when the date does not move forward", () => {
+  const alphaEnd = "2026-09-30";
+
+  it("warns when new_end_date equals the project's current end date", () => {
+    const result = executeScenario(
+      { action: "timeline_extension", project: "Project Alpha", new_end_date: alphaEnd },
+      singleProjectPortfolio,
+      PINNED
+    );
+    expect(result.impact?.months_remaining_delta).toBe(0);
+    expect(result.warnings.some(w => w.includes("not later than the current end date"))).toBe(true);
+  });
+
+  it("warns when new_end_date is earlier than the current end date", () => {
+    const result = executeScenario(
+      { action: "timeline_extension", project: "Project Alpha", new_end_date: "2026-06-30" },
+      singleProjectPortfolio,
+      PINNED
+    );
+    expect(result.warnings.some(w => w.includes("not later than the current end date"))).toBe(true);
+  });
+
+  it("stays silent for a real extension", () => {
+    const result = executeScenario(
+      { action: "timeline_extension", project: "Project Alpha", extension_months: 3 },
+      singleProjectPortfolio,
+      PINNED
+    );
+    expect(result.warnings.some(w => w.includes("not later than the current end date"))).toBe(false);
+  });
+});
 
 describe("timeline_extension — invalid new_end_date does not throw", () => {
   it("returns a clean result instead of a RangeError for an unparseable date", () => {

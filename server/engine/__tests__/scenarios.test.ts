@@ -70,6 +70,39 @@ describe("applyRemove", () => {
     expect(result.length).toBe(3);
     expect(result).not.toBe(alphaStaffing); // is a copy
   });
+
+  it("warns when a role matches nobody, so the no-op is not silent", () => {
+    const warnings: string[] = [];
+    applyRemove(alphaStaffing, [{ role: "Nonexistent Role", count: 1 }], warnings);
+    expect(warnings.some(w => w.includes("Nonexistent Role"))).toBe(true);
+  });
+
+  it("warns when person_name narrows a matching role down to nobody", () => {
+    const warnings: string[] = [];
+    const result = applyRemove(
+      alphaStaffing,
+      [{ role: "Senior Developer", count: 1, person_name: "Nobody Here" }],
+      warnings
+    );
+    expect(result.length).toBe(3); // nothing removed
+    expect(warnings.some(w => w.includes("Nobody Here"))).toBe(true);
+  });
+
+  it("stays silent when the role does match", () => {
+    const warnings: string[] = [];
+    applyRemove(alphaStaffing, [{ role: "Senior Developer", count: 1 }], warnings);
+    expect(warnings).toEqual([]);
+  });
+
+  // The roster holds one Senior Developer, so removing two removes one and
+  // costs one salary — half the saving the request implies, reported as though
+  // it were the whole thing.
+  it("warns when fewer than the requested count matched", () => {
+    const warnings: string[] = [];
+    const result = applyRemove(alphaStaffing, [{ role: "Senior Developer", count: 2 }], warnings);
+    expect(result.length).toBe(2);
+    expect(warnings.some(w => w.includes("Only 1 of 2") && w.includes("Senior Developer"))).toBe(true);
+  });
 });
 
 describe("applyAdd", () => {
@@ -100,6 +133,17 @@ describe("applyAdd", () => {
     const result = applyAdd(alphaStaffing, categories, [{ role: "Imaginary Role", count: 1 }], 1, "Test");
     expect(result.length).toBe(3); // unchanged
   });
+
+  it("warns when a role resolves to no rate-card category", () => {
+    const warnings: string[] = [];
+    const result = applyAdd(
+      alphaStaffing, categories,
+      [{ role: "Imaginary Role", count: 1 }],
+      1, "Test", warnings
+    );
+    expect(result.length).toBe(3); // nobody added
+    expect(warnings.some(w => w.includes("Imaginary Role"))).toBe(true);
+  });
 });
 
 describe("applySwap", () => {
@@ -114,6 +158,18 @@ describe("applySwap", () => {
     expect(result.length).toBe(4);
     expect(result.filter(s => s.labor_category === "Senior Developer").length).toBe(0);
     expect(result.filter(s => s.labor_category === "Mid-level Developer").length).toBe(3);
+  });
+
+  it("reports an unmatched role from either half", () => {
+    const warnings: string[] = [];
+    applySwap(
+      alphaStaffing, categories,
+      [{ role: "Nonexistent Role", count: 1 }],
+      [{ role: "Imaginary Role", count: 1 }],
+      1, "Project Alpha", warnings
+    );
+    expect(warnings.some(w => w.includes("Nonexistent Role"))).toBe(true);
+    expect(warnings.some(w => w.includes("Imaginary Role"))).toBe(true);
   });
 });
 
@@ -152,6 +208,17 @@ describe("applyRateChange", () => {
     );
     expect(warnings.some(w => w.includes("Senior Developer"))).toBe(true);
   });
+
+  it("warns when an entry's role matches no record", () => {
+    const warnings: string[] = [];
+    const result = applyRateChange(
+      alphaStaffing,
+      [{ role: "Nonexistent Role", new_bill_rate: 300 }],
+      warnings
+    );
+    expect(result.every((s, i) => s.bill_rate === alphaStaffing[i]?.bill_rate)).toBe(true);
+    expect(warnings.some(w => w.includes("Nonexistent Role"))).toBe(true);
+  });
 });
 
 describe("applyHoursChange", () => {
@@ -159,6 +226,17 @@ describe("applyHoursChange", () => {
     const result = applyHoursChange(alphaStaffing, [{ person_name: "K. Chen", new_hours_per_week: 20 }]);
     const chen = result.find(s => s.person_name === "K. Chen");
     expect(chen!.hours_per_week).toBe(20);
+  });
+
+  it("warns when an entry's person_name matches no record", () => {
+    const warnings: string[] = [];
+    const result = applyHoursChange(
+      alphaStaffing,
+      [{ person_name: "Nobody Here", new_hours_per_week: 20 }],
+      warnings
+    );
+    expect(result.every((s, i) => s.hours_per_week === alphaStaffing[i]?.hours_per_week)).toBe(true);
+    expect(warnings.some(w => w.includes("Nobody Here"))).toBe(true);
   });
 });
 
