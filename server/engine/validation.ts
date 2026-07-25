@@ -177,14 +177,19 @@ export const scenarioOperationSchema: z.ZodType<ScenarioOperation> = z
         break;
 
       // handleReallocation replays remove[] on the source and add[] on the
-      // destination. The fewer-than-two-projects case is deliberately NOT
-      // rejected here: the executor already warns and degrades to a portfolio
-      // burn-rate check, which is loud rather than silent.
+      // destination, and reports the SOURCE project's delta as the headline
+      // impact. So an add-only reallocation returns an all-zero headline while
+      // the destination quietly gains a head — the exact defect this refinement
+      // exists to stop. Both halves are required, matching what
+      // PARSE_INTENT_PROMPT already documents ("REQUIRED: projects[] (exactly
+      // 2), remove[], add[]"), so this rejects nothing production emits.
+      //
+      // The fewer-than-two-projects case is deliberately NOT rejected here: the
+      // executor already warns and degrades to a portfolio burn-rate check,
+      // which is loud rather than silent.
       case "reallocation":
-        requirePayload(
-          hasEntries(operation.remove) || hasEntries(operation.add),
-          "remove[] or add[]", "remove"
-        );
+        requirePayload(hasEntries(operation.remove), "remove[] (the source side)", "remove");
+        requirePayload(hasEntries(operation.add), "add[] (the destination side)", "add");
         break;
 
       // Nested no-ops need no special handling: sub_operations is recursive via

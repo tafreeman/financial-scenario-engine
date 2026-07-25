@@ -325,6 +325,27 @@ describe("scenarioOperationSchema — rejects payload-less mutation operations",
     ).toBe(false);
   });
 
+  // handleReallocation reports the SOURCE project's delta as the headline
+  // impact, so a one-sided reallocation returns all zeros while the other
+  // project actually changes. Both halves are required — which is also what
+  // PARSE_INTENT_PROMPT documents.
+  it("rejects a one-sided reallocation in either direction", () => {
+    expect(
+      scenarioOperationSchema.safeParse({
+        action: "reallocation",
+        projects: ["X", "Y"],
+        add: [{ role: "QA Engineer", count: 1 }],
+      }).success
+    ).toBe(false);
+    expect(
+      scenarioOperationSchema.safeParse({
+        action: "reallocation",
+        projects: ["X", "Y"],
+        remove: [{ role: "QA Engineer", count: 1 }],
+      }).success
+    ).toBe(false);
+  });
+
   it("rejects a composite whose sub_operation is itself a no-op (recursive guard)", () => {
     expect(
       scenarioOperationSchema.safeParse({
@@ -374,6 +395,19 @@ describe("scenarioOperationSchema — no-op guard does not reject legitimate ope
         action: "swap",
         project: "X",
         add: [{ role: "Junior Developer", count: 1 }],
+      }).success
+    ).toBe(true);
+  });
+
+  // The one reallocation entry in the intent corpus, and the shape
+  // PARSE_INTENT_PROMPT's own example emits.
+  it("accepts a reallocation carrying both halves", () => {
+    expect(
+      scenarioOperationSchema.safeParse({
+        action: "reallocation",
+        projects: ["Project Alpha", "Project Gamma"],
+        remove: [{ role: "Business Analyst", count: 1 }],
+        add: [{ role: "Business Analyst", count: 1, hours_per_week: 40 }],
       }).success
     ).toBe(true);
   });

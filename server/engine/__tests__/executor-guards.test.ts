@@ -625,6 +625,42 @@ describe("staffing changes warn when the operation matches nothing", () => {
 // direct executeScenario call bypasses it. An unparseable date string previously
 // produced an Invalid Date whose toISOString() threw RangeError on the hot path.
 
+// Every field of handleTimelineExtension's impact block is zero for every
+// input — months_remaining comes from remaining budget over monthly burn and
+// never reads end_date — so a no-op extension and a real one are byte-identical
+// there. The warning is the only thing that can tell them apart.
+describe("timeline_extension warns when the date does not move forward", () => {
+  const alphaEnd = "2026-09-30";
+
+  it("warns when new_end_date equals the project's current end date", () => {
+    const result = executeScenario(
+      { action: "timeline_extension", project: "Project Alpha", new_end_date: alphaEnd },
+      singleProjectPortfolio,
+      PINNED
+    );
+    expect(result.impact?.months_remaining_delta).toBe(0);
+    expect(result.warnings.some(w => w.includes("not later than the current end date"))).toBe(true);
+  });
+
+  it("warns when new_end_date is earlier than the current end date", () => {
+    const result = executeScenario(
+      { action: "timeline_extension", project: "Project Alpha", new_end_date: "2026-06-30" },
+      singleProjectPortfolio,
+      PINNED
+    );
+    expect(result.warnings.some(w => w.includes("not later than the current end date"))).toBe(true);
+  });
+
+  it("stays silent for a real extension", () => {
+    const result = executeScenario(
+      { action: "timeline_extension", project: "Project Alpha", extension_months: 3 },
+      singleProjectPortfolio,
+      PINNED
+    );
+    expect(result.warnings.some(w => w.includes("not later than the current end date"))).toBe(false);
+  });
+});
+
 describe("timeline_extension — invalid new_end_date does not throw", () => {
   it("returns a clean result instead of a RangeError for an unparseable date", () => {
     const op: ScenarioOperation = {

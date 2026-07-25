@@ -437,6 +437,20 @@ function handleTimelineExtension(
     warnings.push(`Extension creates a budget gap of $${extensionResult.budget_gap.toFixed(0)}.`);
   }
 
+  // Every field of this handler's impact block is a literal 0 except
+  // months_remaining_delta, and that one is 0 too: calcBudgetMetrics derives
+  // months_remaining from remaining budget over monthly burn (budget.ts) and
+  // never reads end_date, so moving the date cannot move it. A no-op extension
+  // is therefore byte-identical to a real one in the impact table, and the
+  // caller has no way to tell them apart. Say so rather than let a zero pass
+  // for an answer.
+  if (extensionResult.additional_months <= 0) {
+    warnings.push(
+      `New end date ${extensionResult.new_end_date} is not later than the current end date ` +
+      `${targetProject.end_date}; the timeline was not extended.`
+    );
+  }
+
   // Projected budget after extension
   const projectedBudget = calcBudgetMetrics(
     { ...targetProject, end_date: extensionResult.new_end_date },
