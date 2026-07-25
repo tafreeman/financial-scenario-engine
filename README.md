@@ -7,7 +7,7 @@
 
 A local TypeScript financial scenario simulator, built on one principle: **financial math must be deterministic and auditable**.
 
-Every number comes from the calculation engine in `server/engine/`. The large language model (LLM) does exactly two jobs — it turns your plain-English question into a structured request, and it optionally writes the prose summary at the end. It never does arithmetic. Whatever structured data it hands back is re-checked against a strict schema before the engine acts on it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)).
+Every number comes from the calculation engine in `server/engine/`. The large language model (LLM) does exactly two jobs — it turns your plain-English question into a structured request, and it optionally writes the prose summary at the end. It never computes a figure — every number in a result comes from the engine. (When you opt into model-written narration, the prose *around* those numbers is the model's own work, which is what the advisory faithfulness judge described below exists to check.) Whatever structured data it hands back is re-checked against a strict schema before the engine acts on it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)).
 
 All project data lives in a local SQLite file. For the language-model step, the app talks to GitHub Models, OpenRouter, or an Ollama instance running on your own machine — so it can run with no external cloud dependency at all.
 
@@ -98,7 +98,7 @@ The app has two AI-assisted flows:
 1. **V2 — one pass.** The model reads your question and returns a structured operation. The engine computes the result. The app then renders a summary, either from a fixed template (the default) or from the model.
 2. **V3 — an agent loop.** `agenticScenario()` (`server/ai.ts`) lets the model call the engine repeatedly through a `run_scenario` tool, so it can explore several scenarios before answering. Each turn it decides what to compute next, gets exact engine numbers back, and reasons from those. The loop is capped at `MAX_ITERATIONS = 8`; if it hits the cap, the app asks for a final summary rather than returning nothing.
 
-Before any request goes to a cloud provider, the app builds a reduced snapshot of your data (`buildAnonymizedContextSnapshot()`, `server/db.ts`) and strips personal information from it. Person names become `Staff-1`, `Staff-2`, and so on — the real names never leave the machine.
+Before any request goes to a cloud provider, the app builds a reduced snapshot of your data (`buildAnonymizedContextSnapshot()`, `server/db.ts`) and strips personal information from it. Person names become `Staff-1`, `Staff-2`, and so on, so no name is read out of the database and sent onward. A name you type into your own question is a different matter — the query goes to the provider as you wrote it (see [ADR 003](docs/decisions/003-pii-anonymization.md)).
 
 ### Scenario Pipeline (V2)
 
@@ -218,7 +218,7 @@ Excluded is not the same as untested. `executor.ts` is exercised directly by `ex
 
 **The Playwright E2E suite does not add coverage of this path.** The only E2E spec that reaches the AI-scenario endpoints, `ai-workflow.spec.ts`, intercepts the request in the browser (`page.route("**/api/scenario/v3", ...)`) and answers it with a scripted response. `executeScenario()` and `calcPortfolioMetrics()` never run during that test. A live call isn't an alternative either, since the E2E environment has no LLM provider configured.
 
-Where the E2E suite *does* exercise `server/engine/` for real is the Dashboard tests in `app.spec.ts`, which hit the live `/api/dashboard` handler. Note that this handler computes its summary with its own arithmetic in `server/routes.ts` rather than calling `portfolio.ts`.
+In fact the E2E suite does not exercise `server/engine/` at all. The Dashboard tests in `app.spec.ts` do hit the live `/api/dashboard` handler, but that handler builds its summary from `server/db.ts` queries and its own arithmetic in `server/routes.ts` — `server/db.ts` imports nothing from the engine. Vitest is the only thing covering the engine.
 
 ### E2E Tests (Playwright)
 
@@ -261,7 +261,7 @@ GITHUB_TOKEN=<pat-with-models:read> npm run eval:intent
 OPENROUTER_API_KEY=<key> npm run eval:configure-openrouter && npm run eval:intent
 ```
 
-The runner sends each query through the same `PARSE_INTENT_PROMPT` production uses. It imports that prompt directly from `server/ai.ts`, so editing the prompt automatically changes what the eval measures. It reuses production's parse and fallback path too, including the `burn_rate_check` fallback for model output it can't parse.
+The runner sends each query through the same `PARSE_INTENT_PROMPT` production uses. It imports that prompt directly from `server/ai.ts`, so editing the prompt automatically changes what the eval measures. It calls production's `parseIntent()` directly rather than reimplementing it, so output it cannot parse comes back as the same typed failure production returns — `invalid_json` or `invalid_operation` — and scores 0, exactly as production surfaces a 422. There is no fallback that turns a failed parse into a plausible-looking success.
 
 Scoring has two parts: whether the action type matched exactly, and how many individual fields matched the labeled values. The runner prints a per-case result table and an aggregate summary. Both aggregate figures — action accuracy and mean field score — divide by the full corpus size, and a transport error scores 0 rather than dropping out of the denominator.
 

@@ -18,7 +18,7 @@ The tool's LLM integration touches three distinct points, and each must be audit
 
 1. **Intent parsing** (inbound) — the user types a natural-language command, and the model needs database context to resolve it. This is the primary risk surface.
 2. **The V3 agentic loop** (`agenticScenario()`) — a tool-calling loop in which the model repeatedly invokes the engine. It needs the same database context up front, so it carries the same risk as intent parsing.
-3. **Narrative generation** (outbound) — the engine's computed result is turned into a human-readable summary. This path operates on pre-computed `ScenarioResult` structs holding calculated metrics (margins, costs, headcount deltas) rather than raw database rows, so person names never appear in it.
+3. **Narrative generation** (outbound) — the engine's computed result is turned into a human-readable summary. This path operates on pre-computed `ScenarioResult` structs holding calculated metrics (margins, costs, headcount deltas) rather than raw database rows, so no *database-sourced* person name reaches it. It is not name-free in general: `narrateResult()` (`server/ai.ts`) serializes the whole `ScenarioOperation` into the prompt alongside the result, and an operation can carry a `person_name` the user typed — optionally on `remove[]`, always on `hours_changes[]`. See the scope note under Decision.
 
 ## Decision
 
@@ -31,6 +31,12 @@ Three call sites build a snapshot. All three go through `buildAnonymizedContextS
 - `agenticScenario()` (`server/ai.ts`) — the V3 tool-calling loop builds its own snapshot into the system message.
 
 Note that `parseIntent()` does **not** call `buildAnonymizedContextSnapshot()` itself. It receives the snapshot as its `contextSnapshot` parameter, so its two route callers are the ones that build it. Auditing this privacy boundary therefore means checking the three call sites above — reading `parseIntent()` alone will not show you where LLM context originates. No other code path sends database context to an external LLM.
+
+### What this decision does and does not cover
+
+It covers **database-sourced** names: nothing read out of the `staffing` table reaches a provider un-redacted.
+
+It does not cover a name the **user types**. `parseIntent()` sends the raw query as the user message (`server/ai.ts`), so "remove J. Smith from Project Alpha" transmits that name verbatim; the model may then copy it into the operation's `person_name`, and `narrateResult()` serializes the operation into the narration prompt. `applyRemove()` and `applyHoursChange()` match such a name against real records, which is why the schema keeps the field. Redaction happens on the way out of the database, not on the way in from the keyboard — a deployment that must not transmit names at all needs a local provider, which is what the Airgap Deployment Path below is for.
 
 ## Threat Model
 
@@ -75,14 +81,14 @@ The constraint that tokens are not persistent across snapshots (re-indexed on ea
 ## Consequences
 
 ### Positive
-- Person names never appear in cloud LLM provider logs under any normal code path.
+- No database-sourced person name appears in cloud LLM provider logs under any normal code path. (A name the user types into their own query is a separate matter — see "What this decision does and does not cover".)
 - The anonymization boundary is enforced at a single, auditable location (`server/db.ts`, `buildAnonymizedContextSnapshot()`).
 - Intent parsing continues to work correctly for all project-name-based commands.
 - The approach is compatible with GDPR data minimization principles and privacy-sensitive PII-handling requirements.
 - No client-side changes are required; the trust boundary is server-enforced.
 
 ### Negative / Tradeoffs
-- The LLM cannot parse commands that reference a specific person by name (e.g., "remove J. Smith from Project Alpha"). Such commands must be reformulated as role-based removals ("remove the Senior Developer from Project Alpha"). This is an acceptable UX constraint given the privacy goal.
+- The LLM cannot *resolve* a person by name from context: it sees `Staff-1`, `Staff-2`, so it cannot tell which record "J. Smith" is or answer a question that depends on knowing. Such a query is best reformulated by role ("remove the Senior Developer from Project Alpha"). The name itself still passes through — it is in the raw query the model receives, and the model may echo it into the operation's `person_name`, where the engine matches it against real records. This is an acceptable UX constraint given the privacy goal, but it is a constraint on *resolution*, not a guarantee that a typed name stays local.
 - Sequential token assignment means the LLM cannot distinguish between two people in the same role on the same project ("Staff-2 and Staff-3 are both Senior Developers on Alpha"). This edge case requires the user to issue two separate remove operations or use count-based removal.
 - Token assignment is positional, not deterministic by identity, so two snapshots taken seconds apart may assign different indices to the same person if the query order shifts.
 

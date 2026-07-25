@@ -2,7 +2,7 @@
 
 The app has two AI-assisted scenario analysis flows, plus a fully deterministic fallback.
 
-In both flows the large language model (LLM) does the language work and nothing else: it reads your plain-English question and decides *what* to compute. The engine then does the computing. No financial number in a response is ever produced by the model.
+In both flows the large language model (LLM) does the language work and nothing else: it reads your plain-English question and decides *what* to compute. The engine then does the computing. Every financial figure in a result is calculated by the engine, never by the model — though with model-written narration enabled the prose describing those figures is the model's own, which is what the advisory faithfulness judge checks.
 
 ## Scenario Pipeline (V2) {#v2}
 
@@ -110,6 +110,8 @@ Anonymized:       "Staff-1 — Senior Developer on Alpha"
 Project names, role names, and financial figures are preserved — only person names are replaced.
 
 Three call sites build a snapshot, and all three are anonymized: the `POST /api/scenario/v2` and `POST /api/scenario/v2/parse-only` handlers in `server/routes.ts`, and `agenticScenario()` in `server/ai.ts`. Note that `parseIntent()` receives the snapshot as a parameter rather than building one, so auditing this boundary means checking those three sites. See [ADR 003](../decisions/003-pii-anonymization.md) for the full rationale.
+
+This covers what the app reads out of the database. It does not cover a name you type yourself: your query is sent to the provider verbatim, so "remove Jane Smith from Alpha" transmits that name. Use a local provider if names must not leave the machine at all.
 
 ::: danger Do Not Modify
 The anonymization function is privacy-critical. Do not modify `buildAnonymizedContextSnapshot()` in a way that could leak real names to external APIs.

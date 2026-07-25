@@ -7,7 +7,7 @@ You need Node.js. Everything else is optional and only affects the AI features �
 - **Node.js 18+** — [download](https://nodejs.org/)
 - **Optional:** GitHub PAT with `models:read` scope for the GitHub Models provider — [create one](https://github.com/settings/tokens?type=beta)
 - **Optional:** an [OpenRouter](https://openrouter.ai/) API key — free (`:free` model-id suffix) or paid models
-- **Optional:** [Ollama](https://ollama.ai/) to run a model on your own machine, with nothing sent to a cloud provider
+- **Optional:** [Ollama](https://ollama.ai/) to run a model on your own machine, with nothing sent to a cloud provider — true on the default `localhost` endpoint; `ollama_endpoint` can also be pointed at a hosted instance, which is no longer offline
 
 ## Installation
 
