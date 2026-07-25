@@ -18,7 +18,7 @@
  * script calls setConfig() directly — same effect, no HTTP round trip.
  *
  * Usage (see .github/workflows/real-model-eval.yml):
- *   OPENROUTER_API_KEY=... [OPENROUTER_MODEL=...] npm run eval:configure-openrouter
+ *   OPENROUTER_API_KEY=... [OPENROUTER_MODEL=...] [OPENROUTER_EVAL_TIMEOUT_MS=...] npm run eval:configure-openrouter
  *
  * OPENROUTER_MODEL is optional — omit it to use DEFAULT_OPENROUTER_MODEL
  * (server/ai.ts). The workflow wires this to a workflow_dispatch input (or a
@@ -55,6 +55,21 @@ import { refineEndpointNoPrivateAsync, type DnsLookupAll } from "../ssrf.js";
 const __filename = fileURLToPath(import.meta.url);
 
 /**
+ * Default per-request LLM timeout (ms) written for eval runs — deliberately
+ * above server/ai.ts DEFAULT_LLM_TIMEOUT_MS (30s). A timed-out request is
+ * never retried (ai.ts's RETRYABLE_STATUS covers HTTP statuses only), so with
+ * the 30s default every provider stall counts as a hard miss against the
+ * accuracy gate: the 2026-07-24 nightly (run 30074508441) failed its 85.0%
+ * gate at 83.3% with 5 of its 8 misses being exactly-30s Ollama Cloud
+ * timeouts, while every successful call completed in under ~8s. 90s rides
+ * out those stalls; ai.ts parseTimeoutMs() clamps the value to
+ * LLM_TIMEOUT_MAX_MS (120s) on read, so this can never exceed the server's
+ * own ceiling. Like every other key this script writes, it lands in the CI
+ * job's fresh SQLite DB only — the app's seeded defaults are unchanged.
+ */
+export const EVAL_DEFAULT_LLM_TIMEOUT_MS = 90_000;
+
+/**
  * @param dnsLookup - Injectable DNS resolver forwarded to
  *   refineEndpointNoPrivateAsync (defaults to a real `dns.lookup` — see
  *   server/ssrf.ts). Tests pass a stub so no real DNS lookup happens.
@@ -63,6 +78,16 @@ export async function configureOpenRouterForEval(dnsLookup?: DnsLookupAll): Prom
   const apiKey = (process.env.OPENROUTER_API_KEY || "").trim();
   const model = (process.env.OPENROUTER_MODEL || "").trim() || DEFAULT_OPENROUTER_MODEL;
   const endpoint = (process.env.OPENROUTER_ENDPOINT || "").trim();
+  const timeoutEnv = (process.env.OPENROUTER_EVAL_TIMEOUT_MS || "").trim();
+  const timeoutParsed = Number(timeoutEnv);
+  const timeoutEnvValid = timeoutEnv !== "" && Number.isFinite(timeoutParsed) && timeoutParsed > 0;
+  const timeoutMs = timeoutEnvValid ? Math.floor(timeoutParsed) : EVAL_DEFAULT_LLM_TIMEOUT_MS;
+  if (timeoutEnv && !timeoutEnvValid) {
+    console.error(
+      `configure-openrouter-eval — OPENROUTER_EVAL_TIMEOUT_MS="${timeoutEnv}" is not a positive ` +
+        `number of milliseconds; using the eval default ${EVAL_DEFAULT_LLM_TIMEOUT_MS}ms.`
+    );
+  }
 
   if (!apiKey) {
     // Not fatal here — run-intent-eval.ts's own upfront gate
@@ -92,6 +117,9 @@ export async function configureOpenRouterForEval(dnsLookup?: DnsLookupAll): Prom
       setConfig("llm_provider", "openrouter");
       setConfig("openrouter_api_key", apiKey);
       setConfig("openrouter_model", model);
+      // The gated run still executes against the default endpoint on this
+      // path, so it needs the eval timeout too.
+      setConfig("llm_timeout_ms", String(timeoutMs));
       return;
     }
   }
@@ -99,6 +127,7 @@ export async function configureOpenRouterForEval(dnsLookup?: DnsLookupAll): Prom
   setConfig("llm_provider", "openrouter");
   setConfig("openrouter_api_key", apiKey);
   setConfig("openrouter_model", model);
+  setConfig("llm_timeout_ms", String(timeoutMs));
   // Only write openrouter_endpoint when explicitly set AND validated above —
   // leaving the DB key untouched otherwise preserves getAiConfig()'s own
   // default endpoint (https://openrouter.ai/api/v1/chat/completions). The
@@ -112,6 +141,7 @@ export async function configureOpenRouterForEval(dnsLookup?: DnsLookupAll): Prom
 
   console.log(
     `configure-openrouter-eval — DB configured: llm_provider=openrouter, openrouter_model=${model}` +
+      `, llm_timeout_ms=${timeoutMs}` +
       (endpoint ? `, openrouter_endpoint=${endpoint}` : "")
   );
 }

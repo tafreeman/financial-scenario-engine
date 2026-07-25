@@ -12,7 +12,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { configureOpenRouterForEval } from "../evals/configure-openrouter-eval.js";
+import {
+  configureOpenRouterForEval,
+  EVAL_DEFAULT_LLM_TIMEOUT_MS,
+} from "../evals/configure-openrouter-eval.js";
 import { getConfig, setConfig } from "../db.js";
 import { DEFAULT_OPENROUTER_MODEL } from "../ai.js";
 import type { DnsLookupAll } from "../ssrf.js";
@@ -25,11 +28,13 @@ const configKeys = [
   "openrouter_api_key",
   "openrouter_model",
   "openrouter_endpoint",
+  "llm_timeout_ms",
 ] as const;
 let originalConfig: Record<(typeof configKeys)[number], string>;
 let originalApiKeyEnv: string | undefined;
 let originalModelEnv: string | undefined;
 let originalEndpointEnv: string | undefined;
+let originalTimeoutEnv: string | undefined;
 let originalExitCode: number | string | null | undefined;
 
 beforeEach(() => {
@@ -39,6 +44,7 @@ beforeEach(() => {
   originalApiKeyEnv = process.env.OPENROUTER_API_KEY;
   originalModelEnv = process.env.OPENROUTER_MODEL;
   originalEndpointEnv = process.env.OPENROUTER_ENDPOINT;
+  originalTimeoutEnv = process.env.OPENROUTER_EVAL_TIMEOUT_MS;
   // configureOpenRouterForEval() sets process.exitCode = 1 on an SSRF
   // rejection instead of throwing (mirrors run-intent-eval.ts's
   // process.exitCode-not-process.exit gate pattern) — save/restore it so a
@@ -57,6 +63,8 @@ afterEach(() => {
   else process.env.OPENROUTER_MODEL = originalModelEnv;
   if (originalEndpointEnv === undefined) delete process.env.OPENROUTER_ENDPOINT;
   else process.env.OPENROUTER_ENDPOINT = originalEndpointEnv;
+  if (originalTimeoutEnv === undefined) delete process.env.OPENROUTER_EVAL_TIMEOUT_MS;
+  else process.env.OPENROUTER_EVAL_TIMEOUT_MS = originalTimeoutEnv;
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
 });
@@ -102,6 +110,51 @@ describe("configureOpenRouterForEval()", () => {
     expect(getConfig("openrouter_api_key")).toBe("");
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0]?.[0]).toMatch(/OPENROUTER_API_KEY is empty/);
+  });
+
+  // ─── llm_timeout_ms (eval-run timeout — rides out provider stalls) ─────────
+
+  it("writes llm_timeout_ms with the eval default when OPENROUTER_EVAL_TIMEOUT_MS is unset", async () => {
+    process.env.OPENROUTER_API_KEY = "test-or-key";
+    delete process.env.OPENROUTER_EVAL_TIMEOUT_MS;
+
+    await configureOpenRouterForEval();
+
+    expect(getConfig("llm_timeout_ms")).toBe(String(EVAL_DEFAULT_LLM_TIMEOUT_MS));
+  });
+
+  it("writes llm_timeout_ms from OPENROUTER_EVAL_TIMEOUT_MS when it is a positive number", async () => {
+    process.env.OPENROUTER_API_KEY = "test-or-key";
+    process.env.OPENROUTER_EVAL_TIMEOUT_MS = "45000";
+
+    await configureOpenRouterForEval();
+
+    expect(getConfig("llm_timeout_ms")).toBe("45000");
+  });
+
+  it("falls back to the eval default and logs when OPENROUTER_EVAL_TIMEOUT_MS is not a positive number", async () => {
+    process.env.OPENROUTER_API_KEY = "test-or-key";
+    process.env.OPENROUTER_EVAL_TIMEOUT_MS = "-5";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await configureOpenRouterForEval();
+
+    expect(getConfig("llm_timeout_ms")).toBe(String(EVAL_DEFAULT_LLM_TIMEOUT_MS));
+    expect(
+      errorSpy.mock.calls.some((c) => String(c[0]).includes("OPENROUTER_EVAL_TIMEOUT_MS"))
+    ).toBe(true);
+  });
+
+  it("still writes llm_timeout_ms when the endpoint is SSRF-rejected (the gated run still executes)", async () => {
+    process.env.OPENROUTER_API_KEY = "test-or-key";
+    process.env.OPENROUTER_ENDPOINT = "https://192.168.1.1/v1/chat/completions";
+    delete process.env.OPENROUTER_EVAL_TIMEOUT_MS;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await configureOpenRouterForEval();
+
+    expect(getConfig("llm_timeout_ms")).toBe(String(EVAL_DEFAULT_LLM_TIMEOUT_MS));
+    expect(process.exitCode).toBe(1);
   });
 
   // ─── OPENROUTER_ENDPOINT (local verification runs, e.g. NVIDIA NIM) ────────
