@@ -36,11 +36,12 @@ title: Financial Scenario Engine
 `server/engine/` is a pure TypeScript engine computing labor costs, margins,
 burn rates, EVM, and staffing scenarios.
 
-- **Deterministic core** — same inputs, same outputs, every time; covered by
-  a dedicated Vitest suite per calculation module under `server/` plus
-  Playwright end-to-end specs under `tests/`.
-- **LLM at the boundary, not in it** — parses intent and narrates results
-  only; structured output is revalidated against a Zod schema
+- **Deterministic core** — same inputs, same outputs, every time. Covered by
+  Vitest unit tests under `server/` and Playwright end-to-end specs under
+  `tests/`.
+- **The language model sits at the boundary, not inside it** — it reads your
+  question and writes the summary, and never does arithmetic. The structured
+  output it returns is re-checked against a Zod schema
   (`scenarioOperationSchema`) before the engine runs.
 - **Local-first** — all project data lives in a single local SQLite file
   (`data/finimpact.db`); no telemetry, no analytics.

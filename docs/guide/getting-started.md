@@ -2,9 +2,12 @@
 
 ## Prerequisites
 
+You need Node.js. Everything else is optional and only affects the AI features — the app runs without any LLM provider configured, you just can't ask it questions in plain English.
+
 - **Node.js 18+** — [download](https://nodejs.org/)
 - **Optional:** GitHub PAT with `models:read` scope for the GitHub Models provider — [create one](https://github.com/settings/tokens?type=beta)
-- **Optional:** [Ollama](https://ollama.ai/) for fully local inference
+- **Optional:** an [OpenRouter](https://openrouter.ai/) API key — free (`:free` model-id suffix) or paid models
+- **Optional:** [Ollama](https://ollama.ai/) to run a model on your own machine, with nothing sent to a cloud provider
 
 ## Installation
 
@@ -15,6 +18,10 @@
 3. Browser opens to `http://127.0.0.1:3000`
 4. Go to **Settings → choose GitHub Models or Ollama**
 5. If using GitHub Models, paste your PAT and save
+
+::: tip Using OpenRouter
+The server supports OpenRouter, but the Settings tab has no picker for it yet. Configure it through the config API instead — see [Configuration](../reference/configuration.md#openrouter-cloud).
+:::
 
 ### Option B: Manual
 
@@ -75,6 +82,7 @@ Try these in the AI Analyst tab:
 | Server | Express + TypeScript | Minimal, well-known |
 | Database | SQLite (better-sqlite3) | Zero-config, single file, portable |
 | AI (cloud) | GitHub Models API | Multi-model, PAT auth |
+| AI (cloud) | OpenRouter | Cloud replacement as GitHub Models retires |
 | AI (local) | Ollama | Fully offline alternative |
 | Calc Engine | Pure TypeScript | Deterministic, fully tested |
 | Frontend | React 19 + Vite + Tailwind | Fast dev, small bundle |

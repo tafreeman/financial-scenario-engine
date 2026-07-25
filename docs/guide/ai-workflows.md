@@ -1,10 +1,12 @@
 # AI Workflows
 
-The app supports two AI-assisted scenario analysis flows, plus a fully deterministic fallback.
+The app has two AI-assisted scenario analysis flows, plus a fully deterministic fallback.
+
+In both flows the large language model (LLM) does the language work and nothing else: it reads your plain-English question and decides *what* to compute. The engine then does the computing. No financial number in a response is ever produced by the model.
 
 ## Scenario Pipeline (V2) {#v2}
 
-The primary scenario path. The LLM parses intent, the deterministic engine computes results, and the app returns a template or LLM-generated narrative.
+The primary scenario path, and a single pass. The model turns your question into a structured operation, the engine computes the result, and the app renders a summary — from a fixed template by default, or from the model if you ask for it.
 
 ```mermaid
 sequenceDiagram
@@ -35,7 +37,7 @@ sequenceDiagram
 
 ## Agentic Analysis (V3) {#v3}
 
-The V3 flow uses tool-calling to let the LLM explore one or more scenarios using exact engine outputs.
+V3 uses tool-calling: the model is given the engine as a callable tool (`run_scenario`) and decides for itself when to invoke it. That lets it work through several scenarios in one request — compute, read the exact engine numbers back, then decide what to try next — rather than committing to a single operation up front. Every number it reasons over still comes from the engine.
 
 ```mermaid
 sequenceDiagram
@@ -45,7 +47,8 @@ sequenceDiagram
     participant E as engine/executor
 
     U->>R: POST /api/scenario/v3
-    R->>AI: agenticScenario(query, context)
+    R->>AI: agenticScenario(query)
+    Note over AI: Builds its own<br/>anonymized context
     loop Tool-calling loop
         AI->>E: run_scenario(operation)
         E-->>AI: ScenarioResult
@@ -97,7 +100,7 @@ Switch providers via the **Settings** tab (GitHub Models / Ollama today) or by e
 
 ## Anonymization
 
-Before sending context to any cloud LLM, `buildAnonymizedContextSnapshot()` in `server/db.ts` strips person names (PII):
+Before any context reaches a cloud LLM, `buildAnonymizedContextSnapshot()` in `server/db.ts` strips person names — the only personally identifiable information (PII) in this dataset:
 
 ```
 Real data:        "Jane Smith — Senior Developer on Alpha"
@@ -105,6 +108,8 @@ Anonymized:       "Staff-1 — Senior Developer on Alpha"
 ```
 
 Project names, role names, and financial figures are preserved — only person names are replaced.
+
+Three call sites build a snapshot, and all three are anonymized: the `POST /api/scenario/v2` and `POST /api/scenario/v2/parse-only` handlers in `server/routes.ts`, and `agenticScenario()` in `server/ai.ts`. Note that `parseIntent()` receives the snapshot as a parameter rather than building one, so auditing this boundary means checking those three sites. See [ADR 003](../decisions/003-pii-anonymization.md) for the full rationale.
 
 ::: danger Do Not Modify
 The anonymization function is privacy-critical. Do not modify `buildAnonymizedContextSnapshot()` in a way that could leak real names to external APIs.

@@ -93,10 +93,26 @@ Changing `seedSampleData()` may break E2E tests that have hardcoded assertions a
 
 ## Environment Variables
 
-The app reads configuration from the SQLite `config` table, not environment variables. However, the server port can be changed:
+Two kinds of settings, two places to put them:
+
+- **LLM provider settings** — provider, model, endpoint, credentials — live in the SQLite `config` table. Edit them in the Settings tab or through `PUT /api/config`; they persist across restarts.
+- **Deployment settings** come from environment variables.
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PORT` | Server port | `3000` (`3100` under Playwright E2E) |
+| `HOST` | Bind address | `127.0.0.1` |
+| `DB_PATH` | SQLite file location | `data/finimpact.db` |
+| `CORS_ORIGIN` | Browser origin allowed to call the API when hosted or behind a proxy | Vite dev origins only |
+| `TRUST_PROXY_HOPS` | How many reverse proxies sit in front of this process | `0` |
+| `APP_API_TOKEN` | Shared secret for the `x-app-token` header on mutating routes | auto-generated at startup and printed once to the console |
 
 ```bash
 PORT=4000 npm start
 ```
 
-Default: `3000` (production), `3100` (Playwright E2E).
+Two provider credentials can also be supplied by environment variable as a fallback when the config table holds no value: `GITHUB_TOKEN` and `OPENROUTER_API_KEY`.
+
+::: warning Deploying beyond localhost
+`CORS_ORIGIN` and `TRUST_PROXY_HOPS` both need attention before you put this behind a reverse proxy — leaving `TRUST_PROXY_HOPS` wrong collapses every client into one rate-limit bucket. See the root README's Security section for the full reasoning.
+:::
