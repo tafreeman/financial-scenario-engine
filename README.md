@@ -5,9 +5,9 @@
 
 **📖 Live docs:** [https://tafreeman.github.io/financial-scenario-engine/](https://tafreeman.github.io/financial-scenario-engine/) · **Project overview:** [/overview/](https://tafreeman.github.io/financial-scenario-engine/overview/)
 
-A local TypeScript financial scenario simulator, built on one principle: **financial math must be deterministic and auditable**.
+**A local what-if simulator for project budgets: an AI reads your question, and tested code does all the math.**
 
-Every number comes from the calculation engine in `server/engine/`. The large language model (LLM) does exactly two jobs — it turns your plain-English question into a structured request, and it optionally writes the prose summary at the end. It never computes a figure — every number in a result comes from the engine. (When you opt into model-written narration, the prose *around* those numbers is the model's own work, which is what the advisory faithfulness judge described below exists to check.) Whatever structured data it hands back is re-checked against a strict schema before the engine acts on it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)).
+Every number comes from the calculation engine in `server/engine/`. The large language model (LLM) does exactly two jobs — it turns your plain-English question into a structured request, and it optionally writes the prose summary at the end. It never computes a figure. (When you opt into model-written narration, the prose *around* those numbers is the model's own work, which is what the advisory faithfulness judge described below exists to check.) Whatever structured data it hands back is re-checked against a strict schema before the engine acts on it (see [Reliability at the LLM boundary](#reliability-at-the-llm-boundary)).
 
 All project data lives in a local SQLite file. For the language-model step, the app talks to GitHub Models, OpenRouter, or an Ollama instance running on your own machine — so it can run with no external cloud dependency at all.
 
@@ -246,7 +246,7 @@ The unit tests can't check whether the model actually understood the question. T
 
 That job belongs to an **eval**: a fixed set of example inputs, each labeled with the output it should produce, run against a real model and scored. Think of it as a test suite for the model — except that models aren't deterministic, so the result is an accuracy percentage measured across the whole set rather than a pass/fail per case.
 
-**Corpus:** `server/evals/intent-corpus.json` holds the labeled cases. They cover all 12 operation types (`swap`, `add`, `remove`, `rate_change`, `hours_change`, `timeline_extension`, `unexpected_cost`, `reallocation`, `burn_rate_check`, `margin_analysis`, `evm_analysis`, `what_if_composite`). It also includes ambiguous and out-of-scope queries paired with the fallback behavior they should trigger, plus an `adversarial` category: prompt-injection attempts (input written to talk the model out of following its instructions), contradictory queries, and trick questions. The case count isn't repeated here — the corpus-integrity tests below enforce both a size floor and category coverage.
+**Corpus:** `server/evals/intent-corpus.json` holds the labeled cases. They cover every operation type (`swap`, `add`, `remove`, `rate_change`, `hours_change`, `timeline_extension`, `unexpected_cost`, `reallocation`, `burn_rate_check`, `margin_analysis`, `evm_analysis`, `what_if_composite`). It also includes ambiguous and out-of-scope queries paired with the fallback behavior they should trigger, plus an `adversarial` category: prompt-injection attempts (input written to talk the model out of following its instructions), contradictory queries, and trick questions. The case count isn't repeated here — the corpus-integrity tests below enforce both a size floor and category coverage.
 
 Some queries have more than one defensible reading under the prompt's rules. Those entries carry an `expectedAlternatives` array, and the scorer takes the best match among the primary expected value and its alternatives.
 
@@ -292,7 +292,7 @@ Free-tier rate limits are worth understanding if you point a run back at OpenRou
 
 When a case fails on a non-2xx response, it records the numeric `httpStatus` alongside the existing `parseFailureCode`. Previously a failed run showed only the generic code, which left a 429 (rate limited) and a 401 (bad credentials) indistinguishable without re-running against a live model.
 
-**Corpus integrity (CI):** `server/__tests__/intent-corpus.test.ts` runs in the normal `npm test` suite — no network needed. It validates that every corpus entry is a structurally valid `ScenarioOperation`, all 12 action types are covered, ids are unique, the adversarial category is non-empty, and the corpus meets the size floor asserted there (the test is the authoritative number, not this README).
+**Corpus integrity (CI):** `server/__tests__/intent-corpus.test.ts` runs in the normal `npm test` suite — no network needed. It validates that every corpus entry is a structurally valid `ScenarioOperation`, every action type is covered, ids are unique, the adversarial category is non-empty, and the corpus meets the size floor asserted there (the test is the authoritative number, not this README).
 
 ### Narration faithfulness (advisory judge)
 

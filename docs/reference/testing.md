@@ -37,7 +37,7 @@ Test file count and pass/fail totals are whatever `npx vitest run` reports for t
 | `executor-guards.test.ts` | `executor.ts` guard paths — transitively covers `matching.ts` and `portfolio.ts` |
 | `evm-proxy.test.ts` | `executor.ts` — EVM proxy/spend-ratio wiring |
 | `deterministic-asofdate.test.ts` | `executor.ts` — deterministic date handling |
-| `goal-seeking.test.ts` | Not a per-module file — composes `labor`/`margin`/`budget`/`scenarios` to check goal-seeking-style what-if composability |
+| `goal-seeking.test.ts` | Not a per-module file — checks that `labor`/`margin`/`budget`/`scenarios` combine correctly for goal-seeking-style what-if questions |
 
 All tests are **deterministic** — no randomness, no time-dependent logic.
 
