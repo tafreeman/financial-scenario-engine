@@ -50,7 +50,7 @@ financial-scenario-engine/
 │   │   ├── matching.ts         Fuzzy role-name matching
 │   │   ├── narrative.ts        Template-based narrative
 │   │   ├── executor.ts         Scenario orchestration
-│   │   └── __tests__/          101 unit tests
+│   │   └── __tests__/          Vitest unit tests
 │   └── import/excel/           Excel workbook import
 ├── client/                     React + Vite + Tailwind SPA
 │   └── src/

@@ -13,6 +13,6 @@ Initial release of the Financial Scenario Engine.
 - **Privacy** — Anonymized context snapshot for cloud LLM calls
 - **Excel Import** — Preview-only workbook upload (Phase 1)
 - **SQLite Storage** — Single-file portable database
-- **98 Unit Tests** — Full engine coverage via Vitest
+- **Unit Tests** — Full engine coverage via Vitest
 - **E2E Tests** — Playwright tests for UI workflows and Excel import
 - **Windows Launcher** — `start.bat` for one-click startup

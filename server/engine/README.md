@@ -234,7 +234,7 @@ Test files:
 | `__tests__/executor-guards.test.ts` | `executor.ts` guard paths — transitively exercises `matching.ts` and `portfolio.ts` |
 | `__tests__/evm-proxy.test.ts` | `executor.ts` — EVM proxy/spend-ratio wiring |
 | `__tests__/deterministic-asofdate.test.ts` | `executor.ts` — deterministic date handling |
-| `__tests__/goal-seeking.test.ts` | Not a per-module file — composes `labor`/`margin`/`budget`/`scenarios` to check goal-seeking-style what-if composability |
+| `__tests__/goal-seeking.test.ts` | Not a per-module file — checks that `labor`/`margin`/`budget`/`scenarios` combine correctly for goal-seeking-style what-if questions |
 
 Run a single file with `npx vitest run server/engine/__tests__/<file>`. The current pass/fail count is whatever that command reports — it isn't maintained as a static number here.
 
