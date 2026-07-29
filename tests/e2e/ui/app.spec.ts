@@ -100,6 +100,11 @@ test.describe("App shell and navigation", () => {
 
     // Tab 3 → Settings
     await page.getByRole("button", { name: "Settings" }).click();
+    // Default provider is "ollama" (server/db.ts) since GitHub Models retires
+    // 2026-07-30 — see migrateRetiredGithubModelsDefault() — so the GitHub
+    // provider (and its PAT card) must be explicitly selected here; it is
+    // still a fully supported, selectable provider, just no longer default.
+    await page.getByRole("button", { name: "GitHub Models" }).click();
     await expect(page.getByText("GitHub Personal Access Token")).toBeVisible();
 
     // Tab 4 → Back to Dashboard
@@ -362,6 +367,12 @@ test.describe("Staffing view", () => {
 test.describe("Settings panel", () => {
   const modelSelect = (page: import("@playwright/test").Page) =>
     page.locator("label:text-is('Model') + select.input-field");
+  // Default provider is "ollama" (server/db.ts) since GitHub Models retires
+  // 2026-07-30 — see migrateRetiredGithubModelsDefault(). A fresh e2e DB
+  // therefore renders the Ollama config fields, not the GitHub ones, until a
+  // test explicitly switches provider.
+  const ollamaModelSelect = (page: import("@playwright/test").Page) =>
+    page.locator("label:text-is('Ollama Model') + select.input-field");
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -369,20 +380,26 @@ test.describe("Settings panel", () => {
   });
 
   test("loads default configuration values", async ({ page }) => {
+    // Pins the thing this migration actually changed: a fresh database
+    // defaults to Ollama, not the retiring GitHub Models.
+    await expect(page.getByText("Ollama Configuration")).toBeVisible();
+    await expect(page.getByText("GitHub Personal Access Token")).not.toBeVisible();
+
     // toHaveValue() checks the current value of an input or select element.
     // This is different from toContainText() — it checks the form value, not visible text.
-    await expect(modelSelect(page)).toHaveValue("openai/gpt-4.1");
-
-    // Check the endpoint input has the expected URL
-    const endpointInput = page.locator("input.input-field[value*='models.github.ai']");
-    await expect(endpointInput).toBeVisible();
-
-    // When no token is resolvable (no PAT, no GITHUB_TOKEN, gh fallback disabled
-    // in e2e), the app shows a warning message pointing at the ways to add one.
-    await expect(page.getByText("No GitHub token found")).toBeVisible();
+    // Values match server/db.ts's seed: ollama_model="llama3.2",
+    // ollama_endpoint="http://localhost:11434/v1/chat/completions".
+    await expect(ollamaModelSelect(page)).toHaveValue("llama3.2");
+    const ollamaEndpointInput = page.locator("input.input-field[value*='localhost:11434']");
+    await expect(ollamaEndpointInput).toBeVisible();
   });
 
   test("saves model configuration and persists across page reload", async ({ page }) => {
+    // GitHub Models is still a fully supported, selectable provider — just no
+    // longer the default — so exercise its model dropdown by switching to it
+    // explicitly first.
+    await page.getByRole("button", { name: "GitHub Models" }).click();
+
     // Step 1: Change the model dropdown
     await modelSelect(page).selectOption("openai/gpt-4o");
 
@@ -393,13 +410,17 @@ test.describe("Settings panel", () => {
     await expect(page.getByText("Saved")).toBeVisible();
 
     // Step 4: Reload the entire page to verify the change persisted to the database
+    // (llm_provider="github" was saved above, so the GitHub panel now loads
+    // automatically — no need to click the provider button again.)
     await page.goto("/");
     await page.getByRole("button", { name: "Settings" }).click();
     await expect(modelSelect(page)).toHaveValue("openai/gpt-4o");
 
     // CLEANUP: Restore the default so other tests aren't affected.
-    // Always leave the database in the same state you found it.
+    // Always leave the database in the same state you found it — including
+    // llm_provider, which this test deliberately switched to "github".
     await modelSelect(page).selectOption("openai/gpt-4.1");
+    await page.getByRole("button", { name: "Ollama (Local)" }).click();
     await page.getByRole("button", { name: /Save Settings/ }).click();
     await expect(page.getByText("Saved")).toBeVisible();
   });

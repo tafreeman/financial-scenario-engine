@@ -12,7 +12,13 @@ export default function SettingsPanel() {
     // Pre-fill from localStorage so the field shows the current stored value.
     () => { try { return localStorage.getItem("app_api_token") ?? ""; } catch { return ""; } }
   );
-  const [llmProvider, setLlmProvider] = useState("github");
+  // Matches the new server-side default in server/db.ts / server/ai.ts —
+  // GitHub Models retires 2026-07-30. See db.ts for why "ollama" (not
+  // "openrouter") replaced "github" as the default: this panel has no UI
+  // branch for "openrouter" at all (isOllama below is a hard binary toggle),
+  // so an "ollama" default keeps this initial value consistent with what the
+  // panel actually renders.
+  const [llmProvider, setLlmProvider] = useState("ollama");
   const [model, setModel] = useState("openai/gpt-4.1");
   const [endpoint, setEndpoint] = useState("https://models.github.ai/inference/chat/completions");
   const [models, setModels] = useState<ModelInfo[]>([]);
