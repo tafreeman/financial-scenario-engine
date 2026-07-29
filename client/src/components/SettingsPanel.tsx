@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { Save, CheckCircle, XCircle, Key, Cpu, Link, Shield, Server } from "lucide-react";
 import { api, type ModelInfo } from "../api";
+import {
+  DEFAULT_LLM_PROVIDER,
+  PROVIDER_PANELS,
+  buildConfigUpdates,
+  isLlmProvider,
+  type LlmProvider,
+} from "./provider-config";
 
 /** Default model highlighted in the picker. Matches the DB seed in server/db.ts. */
 const RECOMMENDED_MODEL = "openai/gpt-4.1";
@@ -12,19 +19,20 @@ export default function SettingsPanel() {
     // Pre-fill from localStorage so the field shows the current stored value.
     () => { try { return localStorage.getItem("app_api_token") ?? ""; } catch { return ""; } }
   );
-  // Matches the new server-side default in server/db.ts / server/ai.ts —
-  // GitHub Models retires 2026-07-30. See db.ts for why "ollama" (not
-  // "openrouter") replaced "github" as the default: this panel has no UI
-  // branch for "openrouter" at all (isOllama below is a hard binary toggle),
-  // so an "ollama" default keeps this initial value consistent with what the
-  // panel actually renders.
-  const [llmProvider, setLlmProvider] = useState("ollama");
-  const [model, setModel] = useState("openai/gpt-4.1");
-  const [endpoint, setEndpoint] = useState("https://models.github.ai/inference/chat/completions");
+  // Matches the server-side default in server/db.ts / server/ai.ts — GitHub
+  // Models retires 2026-07-30, so a fresh install must not land on it.
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>(DEFAULT_LLM_PROVIDER);
+  const [model, setModel] = useState(PROVIDER_PANELS.github.defaultModel);
+  const [endpoint, setEndpoint] = useState(PROVIDER_PANELS.github.defaultEndpoint);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelSource, setModelSource] = useState<"catalog" | "fallback" | "">("");
-  const [ollamaModel, setOllamaModel] = useState("llama3.2");
-  const [ollamaEndpoint, setOllamaEndpoint] = useState("http://localhost:11434/v1/chat/completions");
+  const [ollamaModel, setOllamaModel] = useState(PROVIDER_PANELS.ollama.defaultModel);
+  const [ollamaEndpoint, setOllamaEndpoint] = useState(PROVIDER_PANELS.ollama.defaultEndpoint);
+  const [openrouterModel, setOpenrouterModel] = useState(PROVIDER_PANELS.openrouter.defaultModel);
+  const [openrouterEndpoint, setOpenrouterEndpoint] = useState(
+    PROVIDER_PANELS.openrouter.defaultEndpoint
+  );
+  const [openrouterKey, setOpenrouterKey] = useState("");
   const [temperature, setTemperature] = useState("0.2");
   const [maxTokens, setMaxTokens] = useState("2000");
   const [saving, setSaving] = useState(false);
@@ -35,11 +43,15 @@ export default function SettingsPanel() {
   useEffect(() => {
     api.getConfig().then((c) => {
       setConfig(c);
-      setLlmProvider(c.llm_provider || "github");
-      setModel(c.model || "openai/gpt-4.1");
-      setEndpoint(c.endpoint || "https://models.github.ai/inference/chat/completions");
-      setOllamaModel(c.ollama_model || "llama3.2");
-      setOllamaEndpoint(c.ollama_endpoint || "http://localhost:11434/v1/chat/completions");
+      // Narrow the stored value: anything the server wouldn't accept falls
+      // back to the default rather than rendering an empty provider panel.
+      setLlmProvider(isLlmProvider(c.llm_provider) ? c.llm_provider : DEFAULT_LLM_PROVIDER);
+      setModel(c.model || PROVIDER_PANELS.github.defaultModel);
+      setEndpoint(c.endpoint || PROVIDER_PANELS.github.defaultEndpoint);
+      setOllamaModel(c.ollama_model || PROVIDER_PANELS.ollama.defaultModel);
+      setOllamaEndpoint(c.ollama_endpoint || PROVIDER_PANELS.ollama.defaultEndpoint);
+      setOpenrouterModel(c.openrouter_model || PROVIDER_PANELS.openrouter.defaultModel);
+      setOpenrouterEndpoint(c.openrouter_endpoint || PROVIDER_PANELS.openrouter.defaultEndpoint);
       setTemperature(c.temperature || "0.2");
       setMaxTokens(c.max_tokens || "2000");
     });
@@ -67,17 +79,24 @@ export default function SettingsPanel() {
       try { localStorage.setItem("app_api_token", apiToken.trim()); } catch { /* ignore */ }
     }
 
-    const updates: Record<string, string> = {
-      llm_provider: llmProvider,
+    // Provider → config-key mapping lives in provider-config.ts so it is
+    // covered by a unit test; see __tests__/provider-config.test.ts.
+    const updates = buildConfigUpdates({
+      llmProvider,
       model, endpoint,
-      ollama_model: ollamaModel, ollama_endpoint: ollamaEndpoint,
-      temperature, max_tokens: maxTokens,
-    };
-    if (pat.trim()) updates.github_pat = pat.trim();
+      ollamaModel, ollamaEndpoint,
+      openrouterModel, openrouterEndpoint,
+      temperature, maxTokens,
+      githubPat: pat,
+      openrouterApiKey: openrouterKey,
+    });
     await api.updateConfig(updates);
     setSaving(false);
     setSaved(true);
+    // Clear both secret inputs: the value is stored server-side now and only
+    // ever comes back masked, so leaving it in the box would be misleading.
     setPat("");
+    setOpenrouterKey("");
     // Refresh config display
     api.getConfig().then(setConfig);
     setTimeout(() => setSaved(false), 3000);
@@ -100,7 +119,16 @@ export default function SettingsPanel() {
     }
   };
 
+  const panel = PROVIDER_PANELS[llmProvider];
+  const isGithub = llmProvider === "github";
   const isOllama = llmProvider === "ollama";
+  const isOpenRouter = llmProvider === "openrouter";
+
+  /** Selected-state ring for a provider button; steel when unselected. */
+  const providerButtonClass = (selected: boolean, selectedClass: string) =>
+    `p-3 rounded-lg border-2 text-left transition-colors ${
+      selected ? selectedClass : "border-steel-200 hover:border-steel-300"
+    }`;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -110,36 +138,36 @@ export default function SettingsPanel() {
           <Server size={16} className="text-navy-700" />
           <h2 className="text-sm font-semibold text-navy-800">LLM Provider</h2>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <button
             onClick={() => setLlmProvider("github")}
-            className={`p-3 rounded-lg border-2 text-left transition-colors ${
-              !isOllama
-                ? "border-navy-700 bg-navy-50"
-                : "border-steel-200 hover:border-steel-300"
-            }`}
+            className={providerButtonClass(isGithub, "border-navy-700 bg-navy-50")}
           >
-            <p className="text-sm font-semibold text-navy-800">GitHub Models</p>
+            <p className="text-sm font-semibold text-navy-800">{PROVIDER_PANELS.github.label}</p>
             <p className="text-[10px] text-steel-500 mt-0.5">Cloud API — requires PAT</p>
             <p className="text-[10px] text-amber-600 mt-0.5">Anonymized context sent to cloud</p>
           </button>
           <button
             onClick={() => setLlmProvider("ollama")}
-            className={`p-3 rounded-lg border-2 text-left transition-colors ${
-              isOllama
-                ? "border-emerald-500 bg-emerald-50"
-                : "border-steel-200 hover:border-steel-300"
-            }`}
+            className={providerButtonClass(isOllama, "border-emerald-500 bg-emerald-50")}
           >
-            <p className="text-sm font-semibold text-navy-800">Ollama (Local)</p>
+            <p className="text-sm font-semibold text-navy-800">{PROVIDER_PANELS.ollama.label}</p>
             <p className="text-[10px] text-steel-500 mt-0.5">Fully local — no data leaves machine</p>
             <p className="text-[10px] text-emerald-600 mt-0.5">✓ Maximum data privacy</p>
+          </button>
+          <button
+            onClick={() => setLlmProvider("openrouter")}
+            className={providerButtonClass(isOpenRouter, "border-navy-700 bg-navy-50")}
+          >
+            <p className="text-sm font-semibold text-navy-800">{PROVIDER_PANELS.openrouter.label}</p>
+            <p className="text-[10px] text-steel-500 mt-0.5">Cloud API — requires an API key</p>
+            <p className="text-[10px] text-amber-600 mt-0.5">Anonymized context sent to cloud</p>
           </button>
         </div>
       </div>
 
       {/* PAT — only shown for GitHub provider */}
-      {!isOllama && (
+      {isGithub && (
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
             <Key size={16} className="text-navy-700" />
@@ -194,16 +222,98 @@ export default function SettingsPanel() {
         </div>
       )}
 
+      {/* API key — only shown for the OpenRouter provider. Mirrors the PAT
+          card above: the key is stored in the local SQLite DB, and
+          GET /api/config only ever returns it masked (server/routes.ts). */}
+      {isOpenRouter && (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Key size={16} className="text-navy-700" />
+            <h2 className="text-sm font-semibold text-navy-800">OpenRouter API Key</h2>
+          </div>
+          <p className="text-xs text-steel-500 mb-3">
+            Create a key at{" "}
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer"
+               className="text-navy-700 underline">
+              openrouter.ai/keys
+            </a>
+            . The key is stored in the local SQLite database and only transmitted to the
+            endpoint configured below over HTTPS.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              className="input-field flex-1 font-mono text-xs"
+              placeholder={
+                config.openrouter_api_key_masked
+                  ? `Current: ${config.openrouter_api_key_masked}`
+                  : "sk-or-v1-..."
+              }
+              value={openrouterKey}
+              onChange={(e) => setOpenrouterKey(e.target.value)}
+            />
+          </div>
+          {config.openrouter_api_key_masked && (
+            <p className="text-[10px] text-emerald-600 mt-1.5 flex items-center gap-1">
+              <CheckCircle size={10} /> API key configured ({config.openrouter_api_key_masked})
+            </p>
+          )}
+          {/* Unlike the GitHub PAT there is no token-source field to report on:
+              resolveOpenRouterKey() falls back to the OPENROUTER_API_KEY env
+              var, but GET /api/config does not expose whether that is set — so
+              this says "stored", which is all the UI can actually attest to. */}
+          {!config.openrouter_api_key_masked && !openrouterKey && (
+            <p className="text-[10px] text-amber-600 mt-1.5">
+              No API key stored. Paste one above, or set{" "}
+              <code className="text-[10px] bg-steel-50 px-1 py-0.5 rounded">OPENROUTER_API_KEY</code>{" "}
+              in the server environment.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Model config */}
       <div className="card p-5">
         <div className="flex items-center gap-2 mb-4">
           <Cpu size={16} className="text-navy-700" />
-          <h2 className="text-sm font-semibold text-navy-800">
-            {isOllama ? "Ollama Configuration" : "GitHub Models Configuration"}
-          </h2>
+          <h2 className="text-sm font-semibold text-navy-800">{panel.heading}</h2>
         </div>
         <div className="space-y-3">
-          {isOllama ? (
+          {isOpenRouter ? (
+            <>
+              <div>
+                <label className="text-xs font-medium text-steel-500 block mb-1">OpenRouter Model</label>
+                {/* Free text, not a <select>: the /api/models catalog is the
+                    GitHub Models list, and OpenRouter exposes thousands of
+                    model ids. Browse them at openrouter.ai/models. */}
+                <input
+                  className="input-field font-mono text-xs"
+                  value={openrouterModel}
+                  onChange={(e) => setOpenrouterModel(e.target.value)}
+                />
+                <p className="text-[10px] text-steel-500 mt-1">
+                  A <code className="bg-steel-50 px-1 rounded">:free</code> suffix means no-charge
+                  inference (rate-limited). Browse ids at{" "}
+                  <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer"
+                     className="text-navy-700 underline">
+                    openrouter.ai/models
+                  </a>.
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-steel-500 block mb-1">OpenRouter Endpoint</label>
+                <input
+                  className="input-field font-mono text-xs"
+                  value={openrouterEndpoint}
+                  onChange={(e) => setOpenrouterEndpoint(e.target.value)}
+                />
+                <p className="text-[10px] text-steel-500 mt-1">
+                  Any OpenAI-compatible endpoint works here. Must be https, and the server
+                  rejects hosts that resolve to a loopback or private-range address.
+                </p>
+              </div>
+            </>
+          ) : isOllama ? (
             <>
               <div>
                 <label className="text-xs font-medium text-steel-500 block mb-1">Ollama Model</label>
@@ -360,7 +470,7 @@ export default function SettingsPanel() {
             <span className="text-emerald-500 mt-0.5">●</span>
             All data stored locally in <code className="bg-steel-50 px-1 rounded">data/finimpact.db</code> (SQLite)
           </li>
-          {isOllama ? (
+          {isOllama && (
             <>
               <li className="flex items-start gap-2">
                 <span className="text-emerald-500 mt-0.5">●</span>
@@ -371,7 +481,8 @@ export default function SettingsPanel() {
                 Suitable for restricted deployment environments — zero cloud dependency
               </li>
             </>
-          ) : (
+          )}
+          {isGithub && (
             <>
               <li className="flex items-start gap-2">
                 <span className="text-emerald-500 mt-0.5">●</span>
@@ -384,6 +495,23 @@ export default function SettingsPanel() {
               <li className="flex items-start gap-2">
                 <span className="text-amber-500 mt-0.5">●</span>
                 For DoD environments: verify GitHub Models API is approved for your data classification level
+              </li>
+            </>
+          )}
+          {isOpenRouter && (
+            <>
+              <li className="flex items-start gap-2">
+                <span className="text-emerald-500 mt-0.5">●</span>
+                API key is only transmitted to the endpoint configured above, over HTTPS
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-emerald-500 mt-0.5">●</span>
+                Anonymized context sent to LLM — person names are stripped, only financial structure shared
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-amber-500 mt-0.5">●</span>
+                For DoD environments: verify the model provider behind your endpoint is approved for
+                your data classification level
               </li>
             </>
           )}
