@@ -2,7 +2,15 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["server/**/__tests__/**/*.test.ts"],
+    // client/src is included for PURE (no React, no DOM) client-side logic
+    // only — this project has no jsdom/Testing Library, so a test that mounts
+    // a component cannot run here. See client/src/components/provider-config.ts,
+    // which exists precisely so the provider → config-key mapping is testable
+    // without a DOM.
+    include: [
+      "server/**/__tests__/**/*.test.ts",
+      "client/src/**/__tests__/**/*.test.ts",
+    ],
     // Pin a stable shared secret for the whole suite. server/auth.ts reads
     // APP_API_TOKEN once at module-load time; setting it here (before any test
     // module imports auth.ts) makes requireAppToken's guard deterministically
