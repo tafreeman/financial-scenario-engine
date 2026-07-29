@@ -8,6 +8,7 @@ export default [
       "client/dist/**",
       "client/dist-pages/**",
       "client/node_modules/**",
+      ".claude/**",
       "dist/**",
       "node_modules/**",
       "**/*.js",
