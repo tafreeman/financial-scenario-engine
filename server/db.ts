@@ -67,6 +67,48 @@ function ensureColumn(
   d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${columnType}`);
 }
 
+/** GitHub Models inference endpoint — retiring 2026-07-30. */
+const RETIRED_GITHUB_MODELS_ENDPOINT = "https://models.github.ai/inference/chat/completions";
+
+interface ConfigValueRow {
+  value: string;
+}
+
+/**
+ * One-time startup fix-up: rewrite `llm_provider` away from the retiring
+ * GitHub Models default, but ONLY for rows that still hold the EXACT retired
+ * values — `llm_provider = "github"` AND `endpoint` = the retiring
+ * `models.github.ai` URL.
+ *
+ * `INSERT OR IGNORE` (used to seed config, below) never overwrites an existing
+ * row, so it only fixes brand-new databases. Any database that already ran
+ * with the old seed has `llm_provider = "github"` persisted forever unless
+ * something rewrites it — this does that, idempotently, on every startup.
+ *
+ * The exact-match guard is deliberate: a user who left `llm_provider =
+ * "github"` but pointed `endpoint` somewhere else (e.g. a GitHub Enterprise
+ * Server Models endpoint) made a deliberate custom choice and must not be
+ * touched; a row already switched to "ollama" or "openrouter" is untouched
+ * for the same reason.
+ *
+ * This repo has no migrations directory or schema-version table (see
+ * `ensureColumn` above for the same idempotent-startup-fixup convention used
+ * for schema changes) — this follows that existing pattern rather than
+ * introducing new migration infrastructure for a single one-time value swap.
+ */
+export function migrateRetiredGithubModelsDefault(d: Database.Database): void {
+  const provider = d.prepare("SELECT value FROM config WHERE key = 'llm_provider'").get() as
+    | ConfigValueRow
+    | undefined;
+  const endpoint = d.prepare("SELECT value FROM config WHERE key = 'endpoint'").get() as
+    | ConfigValueRow
+    | undefined;
+
+  if (provider?.value === "github" && endpoint?.value === RETIRED_GITHUB_MODELS_ENDPOINT) {
+    d.prepare("UPDATE config SET value = ? WHERE key = 'llm_provider'").run("ollama");
+  }
+}
+
 function initSchema() {
   const d = getDb();
 
@@ -131,12 +173,32 @@ function initSchema() {
   const insertConfig = d.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)");
   insertConfig.run("github_pat", "");
   insertConfig.run("model", "openai/gpt-4.1");
-  insertConfig.run("endpoint", "https://models.github.ai/inference/chat/completions");
+  insertConfig.run("endpoint", RETIRED_GITHUB_MODELS_ENDPOINT);
   insertConfig.run("temperature", "0.2");
   insertConfig.run("max_tokens", "2000");
-  insertConfig.run("llm_provider", "github");
+  // GitHub Models retires 2026-07-30 (github.blog changelog). "ollama" is the
+  // new default: it is a fully-supported provider with a matching Settings UI
+  // branch (SettingsPanel.tsx already renders dedicated Ollama config fields
+  // that exactly match ollama_model/ollama_endpoint below), fits this app's
+  // local-first design, and has no request quota. "openrouter" was the more
+  // obvious swap and IS fully supported server-side, but was rejected as the
+  // *default*: (1) SettingsPanel.tsx has no UI branch for it at all — it's a
+  // hard GitHub/Ollama toggle, so an openrouter default would render as a
+  // mislabeled "GitHub Models Configuration" panel edited via the wrong
+  // config keys; (2) the owner's OpenRouter account has never purchased
+  // credits, capping the ":free" model pool at 50 requests/day. Ollama
+  // requires a local Ollama install and fails without one, but does so via
+  // the existing fail-closed retry + "Is Ollama running? Try: ollama serve"
+  // hint path (see server/ai.ts), not silently.
+  insertConfig.run("llm_provider", "ollama");
   insertConfig.run("ollama_model", "llama3.2");
   insertConfig.run("ollama_endpoint", "http://localhost:11434/v1/chat/completions");
+
+  // One-time fix-up for databases that already persisted the retired GitHub
+  // Models default before this change (INSERT OR IGNORE above never overwrites
+  // an existing row, so a pre-existing DB would otherwise silently keep
+  // llm_provider="github" forever, breaking the moment GitHub Models retires).
+  migrateRetiredGithubModelsDefault(d);
 
   // Seed sample data — wrapped in a transaction so concurrent workers can't
   // both observe projCount === 0 and then race to INSERT the same rows.

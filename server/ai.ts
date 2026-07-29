@@ -300,7 +300,10 @@ export function resolveOpenRouterKey(): string {
 
 /** Centralized AI config with defaults applied */
 export function getAiConfig() {
-  const provider = (getConfig("llm_provider") || "github") as LlmProvider;
+  // Falls back to "ollama", not "github" — GitHub Models retires 2026-07-30;
+  // see server/db.ts's seed default + migrateRetiredGithubModelsDefault() for
+  // the full rationale on why ollama replaced github as the default provider.
+  const provider = (getConfig("llm_provider") || "ollama") as LlmProvider;
 
   if (provider === "ollama") {
     return {
