@@ -14,9 +14,9 @@ npm run dev              # server 127.0.0.1:3000 + Vite 5173 proxying /api
 npm run lint             # npx eslint .
 npm run typecheck        # typecheck:server (tsc -p tsconfig.json) && typecheck:client
 npm run test:coverage    # vitest run --coverage — the blocking gate
-npx vitest run server/engine/__tests__/labor.test.ts     # single test file
-npx vitest run server/__tests__/intent-corpus.test.ts -t "<name>"   # single test case
-npx playwright test tests/e2e/ui/app.spec.ts             # WARNING: deletes data/finimpact.db
+npm exec vitest -- run server/engine/__tests__/labor.test.ts     # single test file
+npm exec vitest -- run server/__tests__/intent-corpus.test.ts -t "<name>"   # single test case
+npm exec playwright -- test tests/e2e/ui/app.spec.ts             # WARNING: deletes data/finimpact.db
 npm run build            # client ONLY (cd client && tsc -b && vite build)
 npm start                # tsx server/index.ts
 cd docs && npm ci && npm run build                       # VitePress site
@@ -35,7 +35,7 @@ cd docs && npm ci && npm run build                       # VitePress site
 - Every `package-lock.json` needs its own `npm audit` leg. `docs/` was unaudited until 2026-07-25, which is how a HIGH postcss advisory (GHSA-r28c-9q8g-f849) sat open on main while the required check stayed green.
 - `server/evals/intent-corpus.json` is schema-gated by an **offline** unit test in the normal suite (valid ScenarioOperation, unique ids, all 12 action types, non-empty adversarial category, ≥40 entries) — trimming it breaks `npm test` with no network involved.
 - The live-model eval needs the `run-live-eval` label; its **default host is Ollama Cloud**, not OpenRouter (the workflow emulates a ternary with `&&`/`||` and label/cron runs carry no `endpoint` input). The env var is `OPENROUTER_API_KEY` regardless of host.
-- The app's seeded default provider is still `github` (GitHub Models, retired 2026-07-30). Changing `server/db.ts`'s `insertConfig.run("llm_provider", "github")` is an owner-gated product decision — do not "fix" it in passing.
-- `eslint.config.js:7-16` ignores `**/*.js` and `server/engine/__tests__/**` (engine tests are unlinted); `no-explicit-any` is `error` on both halves (`:43` server, `:78` client).
+- `server/db.ts`'s seeded default provider migrated from `github` to `ollama` in PR #60 (merged 2026-07-29, ahead of GitHub Models' 2026-07-30 retirement) — the `real-model-eval.yml` workflow's own header comment still claims this default is unchanged/`github`; that comment is now stale. Verify the live default in `server/db.ts` directly rather than trusting workflow comments. The seeded default is an owner-gated product decision either way — do not change it in passing.
+- `eslint.config.js` ignores `**/*.js` and `server/engine/__tests__/**` (engine tests are unlinted); `no-explicit-any` is `error` on both halves (server and client blocks).
 - `tsconfig.playwright.json` exists but **nothing** references it — no npm script, no CI step. E2E type errors surface only when Playwright runs.
 - `server/import/excel/v2/` holds no source files; `handleExcelImportV2` is an alias re-export of V1 (`server/import/excel/index.ts:3`), so both endpoints are the same preview-only path.
