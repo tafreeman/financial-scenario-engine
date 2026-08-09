@@ -123,13 +123,13 @@ One function — `getAiConfig()` in `server/ai.ts` — reads the model, endpoint
 
 | Provider | Config key `llm_provider` | Notes |
 |----------|--------------------------|-------|
-| GitHub Models API | `github` (default) | Requires PAT with `models:read` scope. Fully retired 2026-07-30 — see the callout below. |
+| GitHub Models API | `github` | Requires PAT with `models:read` scope. Fully retired 2026-07-30 — see the callout below. |
 | OpenRouter | `openrouter` | Requires an API key (`openrouter_api_key` config key, or `OPENROUTER_API_KEY` env var). Default model is a `:free` (no-charge) model — the current free catalog is enumerable via `GET https://openrouter.ai/api/v1/models`. Configurable today via `PUT /api/config`; no Settings-tab picker yet (see Quick Start). |
-| Ollama (local) | `ollama` | No PAT needed; requires a running Ollama server |
+| Ollama (local) | `ollama` (default) | No PAT needed; requires a running Ollama server |
 
 Switch providers via the Settings tab (GitHub Models / Ollama today) or by editing `llm_provider` directly in the config table / via `PUT /api/config` (all three providers, including OpenRouter).
 
-> **GitHub Models retirement (2026-07-30):** the app's own default provider is still `github`. Changing that default is a separate, owner-gated product decision — the CI eval migration described below did not touch it. The CI intent-eval workflow (`.github/workflows/real-model-eval.yml`) has already moved off GitHub Models and now runs against Ollama Cloud by default. That is a CI-only change; see "Intent-parsing evals" below.
+> **GitHub Models retirement (2026-07-30):** the app's own default provider is now `ollama` — migrated from `github` in PR #60 (merged 2026-07-29, ahead of the retirement). Separately, the CI intent-eval workflow (`.github/workflows/real-model-eval.yml`) made its own move off GitHub Models on 2026-07-22 and now runs against Ollama Cloud by default; see "Intent-parsing evals" below.
 
 ## Data
 
@@ -250,7 +250,15 @@ That job belongs to an **eval**: a fixed set of example inputs, each labeled wit
 
 Some queries have more than one defensible reading under the prompt's rules. Those entries carry an `expectedAlternatives` array, and the scorer takes the best match among the primary expected value and its alternatives.
 
-**Runner (local, GitHub Models — the DB's seeded default):**
+**Runner (local, Ollama — the DB's seeded default):**
+
+```bash
+npm run eval:intent
+```
+
+Requires a running local Ollama server (`ollama serve`); no token needed.
+
+**Runner (local, GitHub Models):**
 
 ```bash
 GITHUB_TOKEN=<pat-with-models:read> npm run eval:intent
@@ -267,7 +275,7 @@ The runner sends each query through the same `PARSE_INTENT_PROMPT` production us
 Scoring has two parts: whether the action type matched exactly, and how many individual fields matched the labeled values. The runner prints a per-case result table and an aggregate summary. Both aggregate figures — action accuracy and mean field score — divide by the full corpus size, and a transport error scores 0 rather than dropping out of the denominator.
 
 Notes on the runner's environment:
-- Model, provider, and endpoint are resolved via the same `getAiConfig()` production uses (`server/ai.ts`), which reads the app's SQLite config table — a custom model/provider configured in Settings (or the seeded default, `openai/gpt-4.1` on the GitHub Models endpoint) is reflected in eval results, not hardcoded here.
+- Model, provider, and endpoint are resolved via the same `getAiConfig()` production uses (`server/ai.ts`), which reads the app's SQLite config table — a custom model/provider configured in Settings (or the seeded default, `llama3.2` on the local Ollama endpoint) is reflected in eval results, not hardcoded here.
 - The upfront skip/gate check is provider-aware: it calls the SAME `isProviderConfigured()` production uses (`server/ai.ts`), so it correctly recognizes whichever provider is actually configured (github/ollama/openrouter) rather than keying on one provider's credential env var alone.
 - If the resolved provider is unconfigured: an ungated local run (plain `npm run eval:intent`) exits cleanly without failing; a gated run (`EVAL_INTENT_GATED=1`, as set by `.github/workflows/real-model-eval.yml`) fails instead, so CI can't silently skip the accuracy gate.
 - When the resolved provider is `openrouter`, requests are paced (`OPENROUTER_EVAL_PACING_MS` in `run-intent-eval.ts`) to stay under OpenRouter's free-tier rate limit of 20 requests/minute — see the CI section below. Pacing keys off the provider name, not the host, so it also applies to the CI runs that use the `openrouter` provider against Ollama Cloud. It has no effect on `github` or `ollama` runs.
@@ -284,7 +292,7 @@ Every run executes `npm run eval:configure-openrouter` before `npm run eval:inte
 
 All three hosts serve the same underlying model family, but each names the model differently — so if you override `endpoint`, set `openrouter_model` to match. The three endpoint URLs are fixed constants owned by the workflow, never free text, so selecting one does not widen the SSRF surface that `server/ssrf.ts` guards on `PUT /api/config`.
 
-To swap models without a code change, use the `openrouter_model` `workflow_dispatch` input for manual runs, or set an `OPENROUTER_MODEL` repository/environment variable for scheduled and labeled-PR runs. The app's own default provider (`server/db.ts`, still `github`) is untouched by any of this — see the callout in "LLM Providers" above.
+To swap models without a code change, use the `openrouter_model` `workflow_dispatch` input for manual runs, or set an `OPENROUTER_MODEL` repository/environment variable for scheduled and labeled-PR runs. The app's own default provider (`server/db.ts`, now `ollama` — see the callout in "LLM Providers" above) is untouched by any of this; it was migrated separately, in PR #60.
 
 Free-tier rate limits are worth understanding if you point a run back at OpenRouter (https://openrouter.ai/docs/api-reference/limits): 20 requests/minute always, and 50 requests/day unless the OpenRouter account has purchased $10+ in credits all-time, which raises the cap to 1,000/day. One full eval run issues one LLM call per corpus entry (`server/__tests__/intent-corpus.test.ts` holds the enforced size floor — not repeated here as a number that could drift). That sits comfortably inside the per-minute cap once paced, but a single run comes close enough to the 50/day cap — on an account with no purchased credits — to leave little headroom for a same-day schedule plus a labeled-PR run plus a manual dispatch. Purchasing credits, or accepting a tighter cadence, is an account-level decision for the repo owner; the workflow's code cannot change it. NVIDIA NIM and Ollama Cloud draw on separate quotas, which is why they remain available for same-day manual re-runs after OpenRouter's daily budget is spent.
 
