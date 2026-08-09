@@ -5,6 +5,13 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    # Weekly on main, so a HIGH advisory that lands after the last push/PR
+    # doesn't sit open until someone happens to touch this repo again. This
+    # is the fix for the failure mode documented in the npm-audit job below:
+    # GHSA-r28c-9q8g-f849 (postcss) sat open on the default branch while the
+    # required check stayed green, because nothing re-ran it.
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:

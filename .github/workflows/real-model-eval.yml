@@ -12,9 +12,11 @@ name: Real Model Eval
 # 19 consecutive scheduled runs against the GitHub Models endpoint with
 # failureCode "http_error" (see README "LLM Providers" / "Intent-parsing
 # evals"). The app's own DEFAULT provider (server/db.ts initSchema(),
-# "llm_provider": "github") is UNCHANGED by this migration — switching that
-# default is a separate, owner-gated product decision, not something this
-# CI-only eval config affects.
+# "llm_provider") was separately migrated from "github" to "ollama" in PR #60
+# (merged 2026-07-29, ahead of the 2026-07-30 retirement) — that change is
+# unrelated to this CI-only eval config, which has driven its own provider
+# selection since the 2026-07-22 migration described above. Switching the
+# app's default is an owner-gated product decision either way.
 #
 # Model: nvidia/nemotron-3-ultra-550b-a55b:free by default (a ":free"
 # model-id suffix on OpenRouter means no-charge inference; the full current
