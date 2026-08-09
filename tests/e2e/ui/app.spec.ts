@@ -424,6 +424,50 @@ test.describe("Settings panel", () => {
     await page.getByRole("button", { name: /Save Settings/ }).click();
     await expect(page.getByText("Saved")).toBeVisible();
   });
+
+  test("OpenRouter: renders its own panel bound to openrouter_* keys, not GitHub's", async ({ page }) => {
+    // Regression cover: with the old binary isOllama toggle, selecting
+    // "openrouter" rendered "GitHub Models Configuration" and read/wrote
+    // model/endpoint/github_pat instead of the openrouter_* keys getAiConfig()
+    // actually reads (server/ai.ts) — silently, since nothing threw.
+    await page.getByRole("button", { name: "OpenRouter" }).click();
+
+    await expect(page.getByText("OpenRouter Configuration")).toBeVisible();
+    await expect(page.getByText("GitHub Models Configuration")).not.toBeVisible();
+    await expect(page.getByText("OpenRouter API Key")).toBeVisible();
+    await expect(page.getByText("GitHub Personal Access Token")).not.toBeVisible();
+
+    const openrouterModelInput = page.locator("label:text-is('OpenRouter Model') + input.input-field");
+    // Scoped to the OpenRouter API Key card specifically — the GitHub PAT
+    // input is also type="password", so an unscoped locator would match both.
+    const openrouterKeyInput = page.locator('div.card:has-text("OpenRouter API Key") input[type="password"]');
+
+    // Step 1: change the OpenRouter model and paste a key
+    await openrouterModelInput.fill("meta-llama/llama-3.3-70b-instruct:free");
+    await openrouterKeyInput.fill("sk-or-v1-e2e-test-key");
+
+    // Step 2: Save
+    await page.getByRole("button", { name: /Save Settings/ }).click();
+    await expect(page.getByText("Saved")).toBeVisible();
+
+    // Step 3: Reload and confirm the values persisted under the openrouter_*
+    // keys, and did NOT leak onto the GitHub Models fields — the actual
+    // regression this test guards against.
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByText("OpenRouter Configuration")).toBeVisible();
+    await expect(openrouterModelInput).toHaveValue("meta-llama/llama-3.3-70b-instruct:free");
+    await expect(page.getByText(/API key configured/)).toBeVisible();
+
+    await page.getByRole("button", { name: "GitHub Models" }).click();
+    await expect(modelSelect(page)).not.toHaveValue("meta-llama/llama-3.3-70b-instruct:free");
+    await expect(page.getByText(/PAT configured/)).not.toBeVisible();
+
+    // CLEANUP: restore the default so other tests aren't affected.
+    await page.getByRole("button", { name: "Ollama (Local)" }).click();
+    await page.getByRole("button", { name: /Save Settings/ }).click();
+    await expect(page.getByText("Saved")).toBeVisible();
+  });
 });
 
 
