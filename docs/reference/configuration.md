@@ -114,5 +114,5 @@ PORT=4000 npm start
 Two provider credentials can also be supplied by environment variable as a fallback when the config table holds no value: `GITHUB_TOKEN` and `OPENROUTER_API_KEY`.
 
 ::: warning Deploying beyond localhost
-`CORS_ORIGIN` and `TRUST_PROXY_HOPS` both need attention before you put this behind a reverse proxy — leaving `TRUST_PROXY_HOPS` wrong collapses every client into one rate-limit bucket. See the root README's Security section for the full reasoning.
+`CORS_ORIGIN` and `TRUST_PROXY_HOPS` both need attention before you put this behind a reverse proxy — leaving `TRUST_PROXY_HOPS` wrong collapses every client into one rate-limit bucket. See [Security → CORS Configuration](security.md#cors-configuration) and [Reverse-Proxy Mode](security.md#reverse-proxy-mode-trust-proxy-hops) for the full reasoning.
 :::

@@ -54,6 +54,30 @@ Applies to both cloud providers (GitHub Models and OpenRouter), and to an Ollama
 | whatever `ollama_endpoint` names | Ollama provider pointed at a remote host | Remote LLM inference — no longer offline |
 | None | App itself | Server binds to `127.0.0.1` by default |
 
+## CORS Configuration
+
+The server defaults to allowing requests only from the Vite dev-client origins `http://localhost:5173` and `http://127.0.0.1:5173`. When deploying behind a reverse proxy or to a hosted environment, set the `CORS_ORIGIN` environment variable to your application's actual origin:
+
+```bash
+CORS_ORIGIN=https://your-app.example.com npm start
+```
+
+Leaving `CORS_ORIGIN` unset in production causes browsers to reject cross-origin requests from the production domain. The explicit origin requirement stops arbitrary pages in a user's browser from reading API data (including `/api/config`).
+
+## Reverse-Proxy Mode: `TRUST_PROXY_HOPS`
+
+Behind a reverse proxy, the socket-level source of every request is the proxy's own address, not the client's. Unless you tell Express to trust that proxy, `req.ip` resolves to the proxy address on every request. Every per-IP rate limiter in `server/routes.ts` — the 300/min ceiling on read routes, the 10/min ceiling on scenario routes — then shares a single bucket across every client behind the proxy, and one abusive client can exhaust the budget for everyone else.
+
+Set `TRUST_PROXY_HOPS` to the number of reverse proxies actually in front of this process (typically `1`):
+
+```bash
+TRUST_PROXY_HOPS=1 CORS_ORIGIN=https://your-app.example.com npm start
+```
+
+`TRUST_PROXY_HOPS` defaults to `0`: no proxy is trusted, and Express reads the real socket address. That matches this app's out-of-the-box direct-bind deployment.
+
+**Never** set it to a value meaning "trust everything." Express's `trust proxy: true` trusts the whole `X-Forwarded-For` chain, and the left-most entry in that header is fully client-spoofable — any caller can send `X-Forwarded-For: 1.2.3.4` and walk past the per-IP ceiling. Giving a specific hop count instead makes Express read the Nth-from-the-right entry: the one your own trusted proxy actually appended. See `server/trust-proxy.ts` for the full rationale.
+
 ## Recommendations for Sensitive Environments
 
 1. **Use Ollama** for fully airgapped operation

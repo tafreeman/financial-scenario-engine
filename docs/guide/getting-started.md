@@ -26,10 +26,11 @@ The server supports OpenRouter, but the Settings tab has no picker for it yet. C
 ### Option B: Manual
 
 ```bash
-npm run install:all
-npm run build
+npm run setup   # installs root + client deps, then builds the client
 npm start
 ```
+
+`npm run setup` is exactly `npm run install:all && npm run build` — there's no need to run those two separately first.
 
 ### Option C: Development (hot reload)
 

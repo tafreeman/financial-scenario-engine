@@ -4,8 +4,6 @@ title: Financial Scenario Engine
 ---
 
 <div class="console-hero">
-  <img class="console-hero__image" src="/console-ds/assets/hero-cinematic.jpg" alt="" />
-  <div class="console-hero__scrim"></div>
   <div class="console-hero__content">
     <div class="console-hero__eyebrow">L3 · APPLIED</div>
     <h1 class="console-hero__title">Financial Scenario Engine</h1>
@@ -48,5 +46,12 @@ burn rates, EVM, and staffing scenarios.
   (`data/finimpact.db`); no telemetry, no analytics.
 - **Portable** — runs on Node.js, ships a Windows launcher, no cloud hosting
   required.
+
+::: tip This site is static
+Everything under this domain — including the <a href="/financial-scenario-engine/overview/" target="_self">Overview</a> tab
+in the nav above — is a pre-rendered static build with no backend attached. It is not
+a running instance of the app; there's no live server behind it to query or mutate.
+To use the app for real, run it locally — see [Getting Started](/guide/getting-started).
+:::
 
 </div>

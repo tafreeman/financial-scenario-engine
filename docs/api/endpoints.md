@@ -15,6 +15,26 @@ Health check endpoint.
 
 ---
 
+## Telemetry
+
+### <span class="http-method http-get">GET</span> `/api/telemetry/llm`
+
+Read-only, in-process snapshot of LLM call accounting for the life of the current server process (`server/llm-telemetry.ts`). Counters reset on restart — this is not a persisted metrics store. Served locally and transmitted nowhere else; never includes prompts, queries, or financial content.
+
+**Response** (freshly started process, no LLM calls yet):
+```json
+{
+  "processStartedAt": "2026-09-07T18:43:31.730Z",
+  "totals": { "calls": 0, "tokensIn": 0, "tokensOut": 0, "failures": 0, "retries": 0 },
+  "byPurpose": {},
+  "failuresByCode": {}
+}
+```
+
+After calls are made, `totals` accumulates call/token/failure/retry counts, `byPurpose` breaks the same counters down per call purpose (e.g. intent parsing vs. narration), and `failuresByCode` tallies typed failure codes (e.g. `invalid_json`, `timeout`).
+
+---
+
 ## Dashboard
 
 ### <span class="http-method http-get">GET</span> `/api/dashboard`
