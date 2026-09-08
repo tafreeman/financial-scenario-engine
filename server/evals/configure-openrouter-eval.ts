@@ -61,13 +61,29 @@ const __filename = fileURLToPath(import.meta.url);
  * the 30s default every provider stall counts as a hard miss against the
  * accuracy gate: the 2026-07-24 nightly (run 30074508441) failed its 85.0%
  * gate at 83.3% with 5 of its 8 misses being exactly-30s Ollama Cloud
- * timeouts, while every successful call completed in under ~8s. 90s rides
- * out those stalls; ai.ts parseTimeoutMs() clamps the value to
- * LLM_TIMEOUT_MAX_MS (120s) on read, so this can never exceed the server's
- * own ceiling. Like every other key this script writes, it lands in the CI
- * job's fresh SQLite DB only — the app's seeded defaults are unchanged.
+ * timeouts, while every successful call completed in under ~8s. Raised to
+ * 90s at that time.
+ *
+ * Raised again 2026-09-07: run 34092525592 (same commit that had passed
+ * cleanly on 2026-09-05 and 2026-09-06 — provider-day variance, not a code
+ * regression) failed the same gate at 83.3% with 4 of its 8 misses being
+ * exactly-90s timeouts against nemotron-3-ultra via Ollama Cloud, while a
+ * separate successful case in the same run (direct-override-003) took
+ * 80.8s — evidence this model's tail latency was simply pushing past
+ * whatever ceiling is configured, not that 90s specifically was too
+ * aggressive. Set to the server's own maximum (120s) rather than another
+ * incremental bump: ai.ts parseTimeoutMs() clamps any configured value to
+ * LLM_TIMEOUT_MAX_MS (120s) regardless, so this is the most headroom this
+ * knob can ever provide. This does not change chatRequest()'s deliberate
+ * no-retry-on-timeout policy (server/ai.ts: "A timeout already consumed the
+ * full per-attempt budget; do not retry") or the eval's accuracy gate/
+ * denominator (run-intent-eval.ts still scores a timeout as a miss) — it
+ * only gives a slow-but-eventually-successful call more room to finish
+ * before that miss is recorded. Like every other key this script writes, it
+ * lands in the CI job's fresh SQLite DB only — the app's seeded defaults are
+ * unchanged.
  */
-export const EVAL_DEFAULT_LLM_TIMEOUT_MS = 90_000;
+export const EVAL_DEFAULT_LLM_TIMEOUT_MS = 120_000;
 
 /**
  * @param dnsLookup - Injectable DNS resolver forwarded to

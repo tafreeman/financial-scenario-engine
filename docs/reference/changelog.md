@@ -16,3 +16,9 @@ Initial release of the Financial Scenario Engine.
 - **Unit Tests** — Full engine coverage via Vitest
 - **E2E Tests** — Playwright tests for UI workflows and Excel import
 - **Windows Launcher** — `start.bat` for one-click startup
+
+## Roadmap
+
+Forward-looking work that is **not** in the current release:
+
+- **Full Excel-to-SQLite import.** Today's `/api/import/excel*` endpoints only return a preview (sheet names + first 20 rows for up to 10 sheets) and do not persist any data. Mapping previewed sheets onto the projects / staffing / labor schemas — including conflict resolution and column-mapping UI — is planned but not yet implemented.

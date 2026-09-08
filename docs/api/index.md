@@ -33,6 +33,7 @@ With an appropriate HTTP status code (400, 404, 500, etc.).
 | Method | Path | Description |
 |--------|------|-------------|
 | <span class="http-method http-get">GET</span> | `/api/health` | Health check |
+| <span class="http-method http-get">GET</span> | `/api/telemetry/llm` | In-process LLM call metrics (counts, latency, typed failure codes — no content) |
 | <span class="http-method http-get">GET</span> | `/api/dashboard` | Summary stats + project list |
 | <span class="http-method http-get">GET</span> | `/api/projects` | Projects with burn rate |
 | <span class="http-method http-post">POST</span> | `/api/projects` | Add project |

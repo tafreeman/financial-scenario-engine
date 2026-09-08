@@ -743,7 +743,22 @@ export async function parseIntent(
 
   const payload = {
     model: config.model,
-    max_tokens: 500,
+    // 2026-09-07 real-model-eval diagnosis: 3 of 4 invalid_json misses in run
+    // 34092525592 (hours_change-002, jailbreak-roleplay-002, out-of-vocab-002)
+    // had tokensOut logged at EXACTLY the old 500-token cap — a truncation
+    // signature, not a formatting miss. All three are cases where a
+    // reasoning-family model (nemotron-3-ultra) plausibly spends tokens on a
+    // <think> trace or an adversarial-refusal explanation (see
+    // stripReasoningAndFences above) before ever reaching the JSON answer;
+    // 500 was sized for the JSON alone and was never revisited when the
+    // 2026-07-22 fix (response_format json_object + reasoning-strip, this
+    // file's history) addressed the same symptom's other two causes.
+    // Tripled to 1500 (matching the headroom already used for the narrate
+    // step below) so a verbose reasoning/refusal preamble doesn't cut off the
+    // JSON payload that follows it. response_format/JSON-schema validation
+    // and the accuracy gate are unchanged — this only removes a truncation
+    // failure mode, it does not relax what counts as a pass.
+    max_tokens: 1500,
     temperature: 0,
     messages: [
       { role: "system", content: `${PARSE_INTENT_PROMPT}\n\nCURRENT DATA:\n${contextSnapshot}` },
