@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { E2E_DB_PATH } from "./tests/e2e/reset-e2e-db";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -18,14 +19,18 @@ export default defineConfig({
     extraHTTPHeaders: { "x-app-token": "e2e-app-token" },
   },
   webServer: {
-    // e2e:reset-db MUST finish before build/start — it deletes
-    // data/finimpact.db so the server seeds fresh, and the server opens
-    // that file as soon as it starts. Chaining with && (not Playwright's
-    // globalSetup) guarantees that ordering — see tests/e2e/reset-e2e-db.ts
-    // for why globalSetup was the wrong tool here.
+    // e2e:reset-db MUST finish before build/start — it deletes the e2e
+    // database so the server seeds fresh, and the server opens that file as
+    // soon as it starts. Chaining with && (not Playwright's globalSetup)
+    // guarantees that ordering — see tests/e2e/reset-e2e-db.ts for why
+    // globalSetup was the wrong tool here.
     command: "npm run e2e:reset-db && npm run build && npm run start",
     env: {
       PORT: "3100",
+      // The e2e server gets its own database under the OS temp directory,
+      // never the developer's data/finimpact.db. The reset step above reads
+      // this same variable and refuses any other path.
+      DB_PATH: E2E_DB_PATH,
       // Stable token for e2e; matches tests/e2e/auth-state.json localStorage seed.
       APP_API_TOKEN: "e2e-app-token",
       // Disable the gh-CLI token fallback so the "no token" UI state is

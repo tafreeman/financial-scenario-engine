@@ -55,7 +55,7 @@ End-to-end tests cover UI workflows and API endpoints.
 npm run test:e2e
 ```
 
-Most specs — `app.spec.ts` and the `tests/e2e/excel/` specs — run against the real server and a freshly-seeded SQLite DB.
+Most specs — `app.spec.ts` and the `tests/e2e/excel/` specs — run against the real server and a freshly-seeded SQLite DB. That database is a dedicated file under the OS temp directory (`fse-e2e/finimpact-e2e.db`), which the run deletes and reseeds each time. Your own `data/finimpact.db` is never touched.
 
 The AI Analyst query flow (`ai-workflow.spec.ts`) is the exception. It uses Playwright's `page.route()` to intercept `/api/scenario/v3` in the browser and return a scripted response, so it checks the frontend's handling of a given response shape rather than the real intent-parsing, engine, or narration path on the server. There is no live model to call instead: the E2E environment has no LLM provider configured. For how the AI boundary is covered instead, see [Coverage Scope](#coverage-scope) above and [Intent-Parsing Evals](#intent-parsing-evals) below.
 
