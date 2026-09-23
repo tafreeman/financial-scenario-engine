@@ -1,0 +1,39 @@
+version: 2
+updates:
+  # Three independent npm lockfiles. Each has its own `npm audit` leg in
+  # .github/workflows/security.yml, so each needs its own update entry;
+  # an unwatched lockfile is how an advisory sits open on main.
+  # Minor and patch bumps arrive as one grouped PR per directory; majors stay
+  # separate so each gets a deliberate review.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: "/client"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: "/docs"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
