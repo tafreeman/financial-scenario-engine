@@ -238,6 +238,31 @@ describe("applyHoursChange", () => {
     expect(result.every((s, i) => s.hours_per_week === alphaStaffing[i]?.hours_per_week)).toBe(true);
     expect(warnings.some(w => w.includes("Nobody Here"))).toBe(true);
   });
+
+  // Regression (ADR 004): when two entries matched one record, the collision
+  // warning quoted the record's stored person_name, and agent mode sent
+  // warnings to the model — so the single letters "e" and "n" extracted
+  // "K. Chen". The warning may quote only the colliding inputs.
+  it("keeps stored names out of the collision warning", () => {
+    const warnings: string[] = [];
+    const result = applyHoursChange(
+      alphaStaffing,
+      [
+        { person_name: "e", new_hours_per_week: 20 },
+        { person_name: "n", new_hours_per_week: 30 },
+      ],
+      warnings
+    );
+
+    expect(result.find(s => s.id === 2)!.hours_per_week).toBe(30); // last entry wins
+    const collisions = warnings.filter(w => w.startsWith("Multiple hours changes"));
+    expect(collisions).toHaveLength(1);
+    for (const record of alphaStaffing) {
+      if (record.person_name) expect(collisions[0]).not.toContain(record.person_name);
+    }
+    expect(collisions[0]).toContain('"e"');
+    expect(collisions[0]).toContain('"n"');
+  });
 });
 
 // ─── Impact Calculation ──────────────────────────────────────────────────────

@@ -182,7 +182,9 @@ export function applyHoursChange(
   return staffing.map(s => {
     const matches = hoursChanges.filter(change => matchesPerson(s, change.person_name));
     if (matches.length > 1 && warnings) {
-      warnings.push(`Multiple hours changes matched "${s.person_name ?? ""}"; applied in order (last entry wins).`);
+      // Quote only the caller's inputs, never the stored name (ADR 004).
+      const inputs = matches.map(change => `"${change.person_name}"`).join(", ");
+      warnings.push(`Multiple hours changes (${inputs}) matched the same staff record; applied in order (last entry wins).`);
     }
     return matches.reduce<StaffingRecord>(
       (acc, change) => ({ ...acc, hours_per_week: change.new_hours_per_week }),
