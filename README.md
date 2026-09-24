@@ -108,10 +108,10 @@ Full project structure, data-flow diagrams, and database schema: [Architecture �
 1. Double-click `start.bat`
 2. First run installs dependencies and builds (~2 min)
 3. Browser opens to `http://127.0.0.1:3000`
-4. Go to Settings → choose GitHub Models or Ollama
-5. If using GitHub Models, paste your PAT and save
+4. Go to Settings → choose Ollama (local) or OpenRouter (cloud)
+5. If using OpenRouter, paste your API key and save
 
-> OpenRouter is supported by the server (`llm_provider: "openrouter"` via `PUT /api/config`), but the Settings UI does not yet have a picker for it — configure it via the config API directly, see [Configuration](https://tafreeman.github.io/financial-scenario-engine/reference/configuration).
+> GitHub Models still appears in Settings, but GitHub retired the service on 2026-07-30. See [Configuration](https://tafreeman.github.io/financial-scenario-engine/reference/configuration) for each provider's options.
 
 ### Option B: Manual
 ```bash
