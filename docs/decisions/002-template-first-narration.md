@@ -1,7 +1,7 @@
 # ADR 002: Template-First Narration with LLM Opt-In
 
 ## Status
-Accepted
+Accepted; amended by [ADR 004](004-lean-egress-kernel.md) (2026-09-24). The LLM opt-in path this ADR kept, `narrateResult()`, was removed because it sent computed results to a model. Template narration is now the only narration.
 
 ## Date
 2026-05-11

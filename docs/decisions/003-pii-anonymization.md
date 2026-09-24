@@ -1,7 +1,7 @@
 # ADR 003: PII Anonymization Strategy
 
 ## Status
-Accepted
+Accepted; mechanism superseded by [ADR 004](004-lean-egress-kernel.md) (2026-09-24). Names are still PII, as defined below. But the single-function boundary is gone, and so is this ADR's claim that no database-sourced name reaches a provider "under any normal code path": on 2026-09-24 an engine warning carried a stored name into agent-mode and narration prompts (see ADR 004, Context). The `Staff-N` snapshot, and the narration path this ADR ruled out of scope, no longer exist.
 
 ## Date
 2026-05-11
