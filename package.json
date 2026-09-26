@@ -33,7 +33,7 @@
     "express": "^4.21.0",
     "express-rate-limit": "^8.5.2",
     "multer": "^2.2.0",
-    "open": "^10.1.0",
+    "open": "^11.0.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
