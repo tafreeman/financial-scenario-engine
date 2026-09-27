@@ -16,7 +16,6 @@ export const WEEKS_PER_MONTH = 52 / 12;
 export const DAYS_PER_MONTH = 365.25 / 12;
 
 export const HOURS_PER_YEAR = 2080; // 52 weeks × 40 hours
-export const WORKING_DAYS_PER_MONTH = 21.67; // 260 / 12
 export const WEEKS_PER_YEAR = 52;
 export const MONTHS_PER_YEAR = 12;
 

@@ -16,11 +16,11 @@ You need Node.js. Everything else is optional and only affects the AI features �
 1. Double-click `start.bat`
 2. First run installs dependencies and builds (~2 min)
 3. Browser opens to `http://127.0.0.1:3000`
-4. Go to **Settings → choose GitHub Models or Ollama**
-5. If using GitHub Models, paste your PAT and save
+4. Go to **Settings → choose Ollama or OpenRouter**
+5. If using OpenRouter, paste your API key and save
 
-::: tip Using OpenRouter
-The server supports OpenRouter, but the Settings tab has no picker for it yet. Configure it through the config API instead — see [Configuration](../reference/configuration.md#openrouter-cloud).
+::: tip GitHub Models
+GitHub Models still appears in Settings, but GitHub retired the service on 2026-07-30. See [Configuration](../reference/configuration.md#openrouter-cloud) for the OpenRouter options.
 :::
 
 ### Option B: Manual

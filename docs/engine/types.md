@@ -10,9 +10,9 @@ Changing interfaces in `types.ts` can break the engine, tests, routes, and clien
 
 | Name | Value | Meaning |
 |------|-------|---------|
-| `WEEKS_PER_MONTH` | `4.33` | 365.25 / 12 / 7 |
+| `WEEKS_PER_MONTH` | `52 / 12` (≈ 4.3333) | 52 weeks / 12 months |
+| `DAYS_PER_MONTH` | `365.25 / 12` (≈ 30.4375) | average calendar days per month |
 | `HOURS_PER_YEAR` | `2080` | 52 weeks × 40 hours |
-| `WORKING_DAYS_PER_MONTH` | `21.67` | 260 / 12 |
 | `WEEKS_PER_YEAR` | `52` | — |
 | `MONTHS_PER_YEAR` | `12` | — |
 

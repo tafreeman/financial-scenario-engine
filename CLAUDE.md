@@ -16,7 +16,7 @@ npm run typecheck        # typecheck:server (tsc -p tsconfig.json) && typecheck:
 npm run test:coverage    # vitest run --coverage — the blocking gate
 npm exec vitest -- run server/engine/__tests__/labor.test.ts     # single test file
 npm exec vitest -- run server/__tests__/intent-corpus.test.ts -t "<name>"   # single test case
-npm exec playwright -- test tests/e2e/ui/app.spec.ts             # WARNING: deletes data/finimpact.db
+npm exec playwright -- test tests/e2e/ui/app.spec.ts             # runs against a temp DB, never data/finimpact.db
 npm run build            # client ONLY (cd client && tsc -b && vite build)
 npm start                # tsx server/index.ts
 cd docs && npm ci && npm run build                       # VitePress site
@@ -30,7 +30,7 @@ cd docs && npm ci && npm run build                       # VitePress site
 - Coverage thresholds (`vitest.config.ts`: lines/functions/statements 70, **branches 65**) apply **only to `server/engine/**`** and explicitly exclude `executor.ts`, `portfolio.ts`, `index.ts`. Uncovered code elsewhere in the engine can fail the gate; code in those three cannot.
 - Vitest's include glob is `server/**/__tests__/**/*.test.ts` **only**. A test in `client/`, `tests/`, or beside its source silently never runs — and there is no client-side test runner at all.
 - `vitest.config.ts` pins `APP_API_TOKEN` and `DB_PATH=":memory:"` at **config** level, not in a setup file, because `server/auth.ts` reads the token once at module load. Moving them breaks the auth test and lets tests hit the real dev DB.
-- `npm run test:e2e` **deletes `data/finimpact.db`** — Playwright's `webServer.command` chains `npm run e2e:reset-db && npm run build && npm run start` with `&&` specifically because the old globalSetup ran after the server had opened the file (EBUSY/EPERM on Windows). Rationale lives in `tests/e2e/reset-e2e-db.ts:22-28`, not the README. Local Windows runs are flaky; the ubuntu `e2e` job is the real gate.
+- `npm run test:e2e` runs the server against `E2E_DB_PATH` (`<os tmpdir>/fse-e2e/finimpact-e2e.db`), passed as `DB_PATH` in `playwright.config.ts`'s `webServer.env`. Until 2026-09-23 it deleted the real `data/finimpact.db` instead, and did so once for real. `tests/e2e/reset-e2e-db.ts` now deletes only the e2e file and refuses when `DB_PATH` names anything else or a path falls inside `data/`; `server/__tests__/e2e-db-reset.test.ts` pins all three. Keep the `DB_PATH` entry in `webServer.env`. `webServer.command` chains `npm run e2e:reset-db && npm run build && npm run start` with `&&` because the old globalSetup ran after the server had opened the file (EBUSY/EPERM on Windows); the rationale is in the reset script's header, not the README. Local Windows runs are flaky; the ubuntu `e2e` job is the real gate.
 - The E2E token `"e2e-app-token"` is duplicated in three places that must stay identical: `playwright.config.ts` webServer env, its `extraHTTPHeaders`, and `tests/e2e/auth-state.json`. The same config sets `FSE_DISABLE_GH_TOKEN: "1"` so a machine with `gh` authenticated doesn't change asserted Settings copy.
 - Every `package-lock.json` needs its own `npm audit` leg. `docs/` was unaudited until 2026-07-25, which is how a HIGH postcss advisory (GHSA-r28c-9q8g-f849) sat open on main while the required check stayed green.
 - `server/evals/intent-corpus.json` is schema-gated by an **offline** unit test in the normal suite (valid ScenarioOperation, unique ids, all 12 action types, non-empty adversarial category, ≥40 entries) — trimming it breaks `npm test` with no network involved.
