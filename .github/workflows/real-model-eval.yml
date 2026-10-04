@@ -179,21 +179,15 @@ jobs:
           # Key selection: the provider code (server/ai.ts resolveOpenRouterKey())
           # always reads the env var named OPENROUTER_API_KEY regardless of
           # which host it actually points at (see OPENROUTER_ENDPOINT above) —
-          # only the secret VALUE changes per host. When the matching secret
-          # is genuinely absent, this resolves to an empty string and the eval
-          # fails fast via isProviderConfigured()'s "provider_unconfigured"
-          # gate.
-          #
-          # KNOWN LIMITATION of this `&&`/`||` ternary-emulation (GitHub
-          # Actions has no true ternary/null-coalescing operator): `||`
-          # treats an empty string as falsy, same as null. So if a manual run
-          # names "nvidia-nim"/"ollama-cloud" AND that secret is empty or
-          # missing, evaluation falls through to secrets.OPENROUTER_API_KEY —
-          # an endpoint/key mismatch that still fails (auth error against the
-          # wrong host) rather than the clean "provider_unconfigured" message,
-          # but does NOT silently succeed. An "auto" run never hits this: it
-          # picks NVIDIA NIM only when NVIDIA_API_KEY is non-empty.
-          OPENROUTER_API_KEY: ${{ steps.host.outputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || steps.host.outputs.endpoint == 'ollama-cloud' && secrets.OLLAMA_CLOUD_API_KEY || secrets.OPENROUTER_API_KEY }}
+          # only the secret VALUE changes per host. Each term below is the
+          # chosen host's own secret or '' (`cond && secret || ''`), and the
+          # three conditions exclude each other, so format() joins exactly one
+          # secret or nothing. A chained `a && x || b && y || z` is NOT used:
+          # `||` treats an empty secret as false and would fall through to
+          # another provider's key, sending it as a Bearer credential to the
+          # wrong host. A missing secret therefore resolves to '' and the eval
+          # fails fast via isProviderConfigured()'s "provider_unconfigured" gate.
+          OPENROUTER_API_KEY: ${{ format('{0}{1}{2}', steps.host.outputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || '', steps.host.outputs.endpoint == 'openrouter' && secrets.OPENROUTER_API_KEY || '', steps.host.outputs.endpoint == 'ollama-cloud' && secrets.OLLAMA_CLOUD_API_KEY || '') }}
           # Precedence: an explicit workflow_dispatch input, else the model id
           # that matches the chosen host (the SAME model family has a
           # different id on each host — see the `endpoint` input's
@@ -212,7 +206,7 @@ jobs:
           # openrouter_model/openrouter_endpoint) is what actually governs
           # this step's request, since resolveOpenRouterKey() and getAiConfig()
           # (server/ai.ts) read the DB before any env var.
-          OPENROUTER_API_KEY: ${{ steps.host.outputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || steps.host.outputs.endpoint == 'ollama-cloud' && secrets.OLLAMA_CLOUD_API_KEY || secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ format('{0}{1}{2}', steps.host.outputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || '', steps.host.outputs.endpoint == 'openrouter' && secrets.OPENROUTER_API_KEY || '', steps.host.outputs.endpoint == 'ollama-cloud' && secrets.OLLAMA_CLOUD_API_KEY || '') }}
         run: npm run eval:intent
 
       - name: Upload eval results
