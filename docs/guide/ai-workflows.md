@@ -101,7 +101,7 @@ Returns the structured `ScenarioOperation` without executing the engine.
 Switch providers via the **Settings** tab (GitHub Models / Ollama today) or by editing `llm_provider` directly in the config table / via `PUT /api/config` (all three providers).
 
 ::: warning GitHub Models retirement (2026-07-30)
-The app's own default provider is now `ollama` — migrated from `github` in PR #60 (merged 2026-07-29, ahead of the retirement). Separately, the CI intent-eval workflow (`.github/workflows/real-model-eval.yml`) made its own move off GitHub Models on 2026-07-22 and now runs against Ollama Cloud by default — see [Intent-Parsing Evals](../reference/testing.md#intent-parsing-evals).
+The app's own default provider is now `ollama` — migrated from `github` in PR #60 (merged 2026-07-29, ahead of the retirement). Separately, the CI intent-eval workflow (`.github/workflows/real-model-eval.yml`) made its own move off GitHub Models on 2026-07-22 and now runs against NVIDIA NIM's free tier, falling back to OpenRouter's free tier — see [Intent-Parsing Evals](../reference/testing.md#intent-parsing-evals).
 :::
 
 ### Default Models
