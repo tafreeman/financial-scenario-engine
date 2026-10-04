@@ -21,10 +21,11 @@
  *   OPENROUTER_API_KEY=... [OPENROUTER_MODEL=...] [OPENROUTER_EVAL_TIMEOUT_MS=...] npm run eval:configure-openrouter
  *
  * OPENROUTER_MODEL is optional — omit it to use DEFAULT_OPENROUTER_MODEL
- * (server/ai.ts). The workflow wires this to a workflow_dispatch input (or a
- * repo-level variable for scheduled runs) so the model can be swapped — e.g.
- * to a different ":free" model if the current one is rate-limited or
- * deprecated — without a code change.
+ * (server/ai.ts). The workflow sets it to the model id that matches the host
+ * server/evals/choose-eval-host.ts picked, or to a manual run's
+ * `openrouter_model` input, so the model can be swapped — e.g. to a different
+ * ":free" model if the current one is rate-limited or deprecated — without a
+ * code change.
  *
  * OPENROUTER_ENDPOINT is also optional and, when set, writes the
  * `openrouter_endpoint` DB config key — the SAME SSRF-validated key

@@ -75,7 +75,16 @@ jobs:
             client/package-lock.json
             docs/package-lock.json
       - run: npm audit --audit-level=high
-      - run: npm audit --audit-level=high
+      # The client ships as static files built from its four `dependencies`
+      # (react, react-dom, lucide-react, react-markdown). Its devDependencies
+      # (Vite, Tailwind, PostCSS, TypeScript) run only at build time, on this
+      # repository's own sources and config, never on user input at runtime, so
+      # this leg audits production dependencies only (--omit=dev). Adopted
+      # 2026-10-04 when GHSA-vfj7-8cjw-p6xm (braces <= 3.0.3, no patched
+      # release) reached Tailwind 3's build-time globbing; its only fix is the
+      # Tailwind 4 migration. Drop --omit=dev once the client is on Tailwind 4.
+      # The root and docs legs still audit every dependency.
+      - run: npm audit --audit-level=high --omit=dev
         working-directory: client
       # docs/ has its own lockfile (VitePress) and was NOT audited here until
       # 2026-07-25, which is how GHSA-r28c-9q8g-f849 (postcss, HIGH) sat open on
