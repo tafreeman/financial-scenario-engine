@@ -18,13 +18,15 @@ name: Real Model Eval
 # selection since the 2026-07-22 migration described above. Switching the
 # app's default is an owner-gated product decision either way.
 #
-# Model: nvidia/nemotron-3-ultra-550b-a55b:free by default (a ":free"
-# model-id suffix on OpenRouter means no-charge inference; the full current
-# free-model catalog is enumerable at any time via
-# `GET https://openrouter.ai/api/v1/models`). Overridable per-run without a
-# code change via the `openrouter_model` workflow_dispatch input (manual
-# runs) or the `OPENROUTER_MODEL` repository/environment variable (schedule
-# and labeled-PR runs) — see the "Configure eval provider" step below.
+# Host and model (2026-10-04): scheduled, labeled-PR and default manual runs
+# use NVIDIA NIM's free tier (model nvidia/nemotron-3-ultra-550b-a55b, secret
+# NVIDIA_API_KEY) when that secret is set and a one-token probe answers HTTP
+# 200, and otherwise OpenRouter's free tier (nvidia/nemotron-3-ultra-550b-a55b:free,
+# secret OPENROUTER_API_KEY; a ":free" model-id suffix means no-charge
+# inference) — see the "Choose eval host" step below. Both hosts are free. Ollama
+# Cloud, the default from 2026-07-23 until this change, draws on a paid plan's
+# included usage, so it is now only a manual choice. A manual run can also pick
+# the host with the `endpoint` input and the model with `openrouter_model`.
 #
 # Rate limits (free-tier, https://openrouter.ai/docs/api-reference/limits):
 #   - 20 requests/minute, regardless of purchased credits.
@@ -48,15 +50,13 @@ name: Real Model Eval
 #     below), so a maintainer can opt a specific PR in on demand.
 #   - schedule: nightly on main, so an accuracy regression is caught even
 #     when no PR happens to carry the label that day.
-#   - workflow_dispatch: manual on-demand run from the Actions tab — use this
-#     to verify the OpenRouter migration once OPENROUTER_API_KEY is set, and
-#     optionally to try a different free model via the `openrouter_model`
-#     input, or a different host entirely (NVIDIA NIM / Ollama Cloud) via the
-#     `endpoint` input — see that input's description below for the required
-#     secrets (NVIDIA_API_KEY / OLLAMA_CLOUD_API_KEY) and per-host model ids.
-#     Same-day manual re-runs against NIM/Ollama Cloud draw on a SEPARATE
-#     quota from OpenRouter's, so they remain available even after the
-#     scheduled nightly run has spent OpenRouter's free-tier daily cap.
+#   - workflow_dispatch: manual on-demand run from the Actions tab. By default
+#     (`endpoint: auto`) it picks the host exactly as the nightly run does; the
+#     `endpoint` input can force one host instead and `openrouter_model` a
+#     different model — see that input's description below for the secrets
+#     and per-host model ids. Each host draws on its own quota, so a manual
+#     re-run on another host stays available after one host's daily cap is
+#     spent.
 #
 # On an unlabeled PR the single job below exits immediately (see the `if:`
 # guard on the job) with a neutral "skipped" conclusion rather than failing —
@@ -74,48 +74,46 @@ on:
     inputs:
       endpoint:
         description: >-
-          Which OpenAI-compatible host to run this eval against. Nightly
-          schedule and labeled-PR runs carry no `endpoint` input and ALWAYS
-          use "openrouter" (free tier) regardless of this default — this
-          input only takes effect on a manual workflow_dispatch run. These
-          three endpoint URLs are FIXED, workflow-owned constants (mapped
-          below in the "Configure eval provider" step), never user-supplied
-          free text, so selecting one does not change the SSRF posture of
-          PUT /api/config's endpoint validation (server/ssrf.ts) — this
-          workflow never writes an arbitrary attacker-controlled URL.
-            openrouter   -> https://openrouter.ai/api/v1/chat/completions (free tier; keeps the public nightly proof on OpenRouter's metered free budget)
-            nvidia-nim   -> https://integrate.api.nvidia.com/v1/chat/completions (NVIDIA NIM, same model family, separate quota — for same-day manual re-runs once the OpenRouter free-tier daily cap is spent)
-            ollama-cloud -> https://ollama.com/v1/chat/completions (Ollama Cloud, same model family, separate quota)
+          Which OpenAI-compatible host to run this eval against. "auto" (the
+          default, and what nightly schedule and labeled-PR runs always use)
+          picks NVIDIA NIM's free tier when NVIDIA_API_KEY is set and a
+          one-token probe answers, else OpenRouter's free tier. The three
+          endpoint URLs are FIXED, workflow-owned constants (mapped below in
+          the "Configure eval provider" step), never user-supplied free text,
+          so selecting one does not change the SSRF posture of PUT
+          /api/config's endpoint validation (server/ssrf.ts) — this workflow
+          never writes an arbitrary attacker-controlled URL.
+            nvidia-nim   -> https://integrate.api.nvidia.com/v1/chat/completions (NVIDIA NIM free tier; secret NVIDIA_API_KEY)
+            openrouter   -> https://openrouter.ai/api/v1/chat/completions (OpenRouter free tier; secret OPENROUTER_API_KEY)
+            ollama-cloud -> https://ollama.com/v1/chat/completions (Ollama Cloud; draws on a paid plan's included usage; secret OLLAMA_CLOUD_API_KEY)
           IMPORTANT: the model id for the SAME underlying model differs per
-          host — set the openrouter_model input below to match whichever
-          endpoint you select here:
-            openrouter:   nvidia/nemotron-3-ultra-550b-a55b:free
+          host. Leave openrouter_model blank to get the right one for the
+          chosen host, or set it to match:
             nvidia-nim:   nvidia/nemotron-3-ultra-550b-a55b
+            openrouter:   nvidia/nemotron-3-ultra-550b-a55b:free
             ollama-cloud: nemotron-3-ultra
         required: false
         type: choice
         options:
-          - openrouter
+          - auto
           - nvidia-nim
+          - openrouter
           - ollama-cloud
-        default: ollama-cloud
+        default: auto
       openrouter_model:
         description: >-
-          Model id for this run (must end in ":free" when `endpoint` is
+          Model id for this run (must end in ":free" when the host is
           "openrouter", for a no-charge run — see the `endpoint` input above
-          for the exact model id per host). Leave blank to use the
-          OPENROUTER_MODEL repo/environment variable if set, else the script
-          default (nvidia/nemotron-3-ultra-550b-a55b:free) — see
-          server/evals/configure-openrouter-eval.ts. Browse the current free
-          OpenRouter catalog at GET https://openrouter.ai/api/v1/models.
+          for the exact model id per host). Leave blank to use the chosen
+          host's default. Browse the current free OpenRouter catalog at
+          GET https://openrouter.ai/api/v1/models.
         required: false
         type: string
 
-# No GitHub Models auth needed now that this workflow calls OpenRouter (or,
-# on a manual `endpoint`-selected run, NVIDIA NIM / Ollama Cloud) instead —
-# the relevant secret (OPENROUTER_API_KEY / NVIDIA_API_KEY /
-# OLLAMA_CLOUD_API_KEY) is selected and passed via `env:` on the steps that
-# need it, not through `permissions:`.
+# No GitHub Models auth needed now that this workflow calls NVIDIA NIM /
+# OpenRouter (or, on a manual run, Ollama Cloud) instead — the relevant secret
+# (NVIDIA_API_KEY / OPENROUTER_API_KEY / OLLAMA_CLOUD_API_KEY) is selected and
+# passed via `env:` on the steps that need it, not through `permissions:`.
 permissions:
   contents: read
 
@@ -156,54 +154,52 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Configure eval provider (OpenRouter / NVIDIA NIM / Ollama Cloud)
+      # Picks the host, so the steps below never guess: a manual run's named
+      # host, else NVIDIA NIM's free tier when NVIDIA_API_KEY is set and a
+      # one-token probe answers, else OpenRouter's free tier. The rules and the
+      # reasons for this order are in server/evals/choose-eval-host.ts. Only
+      # the host name is written as an output; the steps below choose the
+      # secret from that name, so no secret passes through a step output.
+      - name: Choose eval host (NVIDIA NIM free tier, else OpenRouter free tier)
+        id: host
         env:
-          # Endpoint URL: a FIXED, workflow-owned mapping from the `endpoint`
-          # choice input (see that input's description above) — never
-          # user-supplied free text, so this does not change the SSRF posture
-          # server/ssrf.ts enforces on PUT /api/config's endpoint validation
-          # (server/evals/configure-openrouter-eval.ts also now re-validates
-          # this value through that SAME refinement before writing it — see
-          # that script's module doc comment). DEFAULT HOST IS OLLAMA CLOUD
-          # (2026-07-23): `github.event.inputs.endpoint` is undefined for
-          # schedule/labeled-PR runs, so those fall through to the Ollama
-          # Cloud URL. Rationale: OpenRouter's free Nemotron pool proved
-          # unreliable for the gate — a fresh-budget nightly scored 81.3%
-          # with 9 invalid_json misses (the free pool does not reliably
-          # honor response_format) and same-day re-runs exhaust the shared
-          # 50 req/day cap — while Ollama Cloud passed the gate at 89.6%
-          # (run 29943226814, 2026-07-22). An explicit `endpoint` input
-          # still selects any of the three hosts.
-          OPENROUTER_ENDPOINT: ${{ github.event.inputs.endpoint == 'nvidia-nim' && 'https://integrate.api.nvidia.com/v1/chat/completions' || github.event.inputs.endpoint == 'openrouter' && 'https://openrouter.ai/api/v1/chat/completions' || 'https://ollama.com/v1/chat/completions' }}
+          EVAL_HOST: ${{ github.event.inputs.endpoint }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: npm run eval:choose-host
+
+      - name: Configure eval provider (NVIDIA NIM / OpenRouter / Ollama Cloud)
+        env:
+          # Endpoint URL: a FIXED, workflow-owned mapping from the host chosen
+          # above — never user-supplied free text, so this does not change the
+          # SSRF posture server/ssrf.ts enforces on PUT /api/config's endpoint
+          # validation (server/evals/configure-openrouter-eval.ts also
+          # re-validates this value through that SAME refinement before
+          # writing it — see that script's module doc comment).
+          OPENROUTER_ENDPOINT: ${{ steps.host.outputs.endpoint == 'nvidia-nim' && 'https://integrate.api.nvidia.com/v1/chat/completions' || steps.host.outputs.endpoint == 'ollama-cloud' && 'https://ollama.com/v1/chat/completions' || 'https://openrouter.ai/api/v1/chat/completions' }}
           # Key selection: the provider code (server/ai.ts resolveOpenRouterKey())
           # always reads the env var named OPENROUTER_API_KEY regardless of
           # which host it actually points at (see OPENROUTER_ENDPOINT above) —
-          # only the secret VALUE changes per `endpoint` choice. When the
-          # matching secret is genuinely absent (not yet added to repo
-          # secrets), this resolves to an empty string and the eval fails
-          # fast via isProviderConfigured()'s "provider_unconfigured" gate.
-          # Schedule/labeled-PR runs carry no `endpoint` input, so this
-          # falls through to OLLAMA_CLOUD_API_KEY — matching the default
-          # Ollama Cloud host above.
+          # only the secret VALUE changes per host. When the matching secret
+          # is genuinely absent, this resolves to an empty string and the eval
+          # fails fast via isProviderConfigured()'s "provider_unconfigured"
+          # gate.
           #
           # KNOWN LIMITATION of this `&&`/`||` ternary-emulation (GitHub
           # Actions has no true ternary/null-coalescing operator): `||`
-          # treats an empty string as falsy, same as null. So if `endpoint`
-          # is "nvidia-nim"/"ollama-cloud" AND that specific secret happens to
-          # be an empty string (as opposed to simply undefined), evaluation
-          # falls through to secrets.OPENROUTER_API_KEY instead of resolving
-          # to "" — an endpoint/key mismatch that still fails (auth error
-          # against the wrong host) rather than the clean
-          # "provider_unconfigured" message, but does NOT silently succeed.
-          OPENROUTER_API_KEY: ${{ github.event.inputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || github.event.inputs.endpoint == 'openrouter' && secrets.OPENROUTER_API_KEY || secrets.OLLAMA_CLOUD_API_KEY }}
-          # Precedence: an explicit workflow_dispatch input, else a repo/
-          # environment-level variable (lets the nightly schedule/labeled-PR
-          # runs be re-pointed without editing this file), else the
-          # host-matched default for the selected endpoint (the Ollama Cloud
-          # id on the no-input schedule path). Model id differs per host for
-          # the SAME underlying model family — see the `endpoint` input's
-          # description above for the exact id per host.
-          OPENROUTER_MODEL: ${{ github.event.inputs.openrouter_model || vars.OPENROUTER_MODEL || (github.event.inputs.endpoint == 'nvidia-nim' && 'nvidia/nemotron-3-ultra-550b-a55b' || github.event.inputs.endpoint == 'openrouter' && 'nvidia/nemotron-3-ultra-550b-a55b:free' || 'nemotron-3-ultra') }}
+          # treats an empty string as falsy, same as null. So if a manual run
+          # names "nvidia-nim"/"ollama-cloud" AND that secret is empty or
+          # missing, evaluation falls through to secrets.OPENROUTER_API_KEY —
+          # an endpoint/key mismatch that still fails (auth error against the
+          # wrong host) rather than the clean "provider_unconfigured" message,
+          # but does NOT silently succeed. An "auto" run never hits this: it
+          # picks NVIDIA NIM only when NVIDIA_API_KEY is non-empty.
+          OPENROUTER_API_KEY: ${{ steps.host.outputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || steps.host.outputs.endpoint == 'ollama-cloud' && secrets.OLLAMA_CLOUD_API_KEY || secrets.OPENROUTER_API_KEY }}
+          # Precedence: an explicit workflow_dispatch input, else the model id
+          # that matches the chosen host (the SAME model family has a
+          # different id on each host — see the `endpoint` input's
+          # description above). There is no repository-variable override any
+          # more: one value cannot match whichever host an "auto" run lands on.
+          OPENROUTER_MODEL: ${{ github.event.inputs.openrouter_model || (steps.host.outputs.endpoint == 'nvidia-nim' && 'nvidia/nemotron-3-ultra-550b-a55b' || steps.host.outputs.endpoint == 'ollama-cloud' && 'nemotron-3-ultra' || 'nvidia/nemotron-3-ultra-550b-a55b:free') }}
         run: npm run eval:configure-openrouter
 
       - name: Run intent eval (gated — real model, accuracy-gated)
@@ -216,7 +212,7 @@ jobs:
           # openrouter_model/openrouter_endpoint) is what actually governs
           # this step's request, since resolveOpenRouterKey() and getAiConfig()
           # (server/ai.ts) read the DB before any env var.
-          OPENROUTER_API_KEY: ${{ github.event.inputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || github.event.inputs.endpoint == 'openrouter' && secrets.OPENROUTER_API_KEY || secrets.OLLAMA_CLOUD_API_KEY }}
+          OPENROUTER_API_KEY: ${{ steps.host.outputs.endpoint == 'nvidia-nim' && secrets.NVIDIA_API_KEY || steps.host.outputs.endpoint == 'ollama-cloud' && secrets.OLLAMA_CLOUD_API_KEY || secrets.OPENROUTER_API_KEY }}
         run: npm run eval:intent
 
       - name: Upload eval results

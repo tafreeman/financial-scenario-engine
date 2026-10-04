@@ -24,6 +24,7 @@
     "test:e2e": "playwright test",
     "eval:intent": "tsx server/evals/run-intent-eval.ts",
     "eval:configure-openrouter": "tsx server/evals/configure-openrouter-eval.ts",
+    "eval:choose-host": "tsx server/evals/choose-eval-host.ts",
     "eval:faithfulness": "tsx server/evals/run-faithfulness-eval.ts"
   },
   "dependencies": {
