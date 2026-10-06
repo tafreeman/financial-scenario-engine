@@ -28,7 +28,7 @@
     "eval:faithfulness": "tsx server/evals/run-faithfulness-eval.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "exceljs": "^4.4.0",
     "express": "^4.21.0",
