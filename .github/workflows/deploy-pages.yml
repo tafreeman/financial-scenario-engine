@@ -14,11 +14,13 @@ permissions:
   pages: write
   id-token: write
 
-# One queue for the one workflow that owns the github-pages environment. Do not
-# cancel a run that is already deploying — let production deployments finish.
+# One queue per ref. A newer push to a PR supersedes its older run, so PR runs
+# cancel in progress; runs on main never do. This used to be one repo-wide
+# `pages` group, which meant every queued main run cancelled whichever PR run
+# was still pending and dropped its required ci/e2e checks.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ci:
@@ -27,7 +29,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -47,7 +49,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       - run: npm ci
@@ -71,7 +73,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -124,6 +126,11 @@ jobs:
           path: site
 
   deploy:
+    # The github-pages environment gets its own queue: deployments serialize and
+    # one that has started is never cancelled.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
