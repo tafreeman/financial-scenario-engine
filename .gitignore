@@ -16,8 +16,9 @@ test-results/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 docs/node_modules/
-# Composed Pages artifact (docs at the root + the overview site under /overview/)
-site/
+# Composed Pages artifact (docs at the root + the overview site under /overview/).
+# Anchored: unanchored `site/` also matched client/src/site/, the overview source.
+/site/
 .vs/*
 .vscode/*
 .claude/

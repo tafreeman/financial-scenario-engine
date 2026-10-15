@@ -11,7 +11,6 @@ import {
   BarChart3,
   Bot,
   Database,
-  Github,
   Globe,
   Laptop,
   Lock,
@@ -19,6 +18,7 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
+import { GithubMark } from "./GithubMark";
 
 const REPOSITORY_URL = "https://github.com/tafreeman/financial-scenario-engine";
 const PROFILE_URL = "https://github.com/tafreeman";
@@ -112,7 +112,7 @@ export default function SiteApp() {
                 VitePress docs sit one level up at the site root. */}
             <a href={DOCS_URL} className="nav-link">Docs</a>
             <a href={PROFILE_URL} className="nav-link" aria-label="tafreeman profile" target="_blank" rel="noopener noreferrer">
-              <Github size={15} />
+              <GithubMark size={15} />
               Profile
             </a>
             <a href={REPOSITORY_URL} className="nav-btn" target="_blank" rel="noopener noreferrer">
