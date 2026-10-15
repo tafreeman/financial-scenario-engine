@@ -1,7 +1,7 @@
 # ADR 001: LLM-Engine Separation
 
 ## Status
-Accepted
+Accepted; narrowed by [ADR 004](004-lean-egress-kernel.md) (2026-09-24). The LLM now only parses intent. The V3 agentic loop and LLM narration described below were removed because they showed the model engine results. Intent requests are built by the Lean egress kernel from a placeholder-masked question.
 
 ## Date
 2026-05-11
