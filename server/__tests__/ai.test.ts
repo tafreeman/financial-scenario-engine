@@ -1476,6 +1476,32 @@ describe("parseIntent — response_format (OpenRouter reasoning-model invalid_js
     expect(result.details).toContain("parse_error=");
   });
 
+  // NVIDIA NIM / vLLM-style hosts name the field `reasoning_content`
+  // (OpenRouter uses `reasoning`, covered above).
+  it("parseIntent() reports a populated reasoning_content field in invalid_json details", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{
+          message: { role: "assistant", content: "", reasoning_content: "burn_rate_check applies." },
+          finish_reason: "stop",
+        }],
+      }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a parse failure");
+    expect(result.code).toBe("invalid_json");
+    expect(result.details).toContain("reasoning_field=present");
+  });
+
   it("parseIntent() reports finish_reason and prose-before-JSON in invalid_json details", async () => {
     setConfig("llm_provider", "openrouter");
     setConfig("openrouter_api_key", "or-test-key");
