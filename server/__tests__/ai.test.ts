@@ -1469,6 +1469,37 @@ describe("parseIntent — response_format (OpenRouter reasoning-model invalid_js
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Expected a parse failure");
     expect(result.code).toBe("invalid_json");
+    // The diagnostic names the cause (empty content, answer in a reasoning
+    // field) without echoing any model output.
+    expect(result.details).toContain("content_length=0");
+    expect(result.details).toContain("reasoning_field=present");
+    expect(result.details).toContain("parse_error=");
+  });
+
+  it("parseIntent() reports finish_reason and prose-before-JSON in invalid_json details", async () => {
+    setConfig("llm_provider", "openrouter");
+    setConfig("openrouter_api_key", "or-test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => ({
+        choices: [{
+          message: { role: "assistant", content: "Sure, here is the operation you asked for." },
+          finish_reason: "length",
+        }],
+      }),
+    }));
+
+    const result = await parseIntent("What's the burn rate?", "context");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a parse failure");
+    expect(result.code).toBe("invalid_json");
+    expect(result.details).toContain("finish_reason=length");
+    expect(result.details).toContain("reasoning_field=absent");
+    expect(result.details).not.toContain("content_length=0");
   });
 
   it("parseIntent() parses clean JSON content when reasoning is in a separate field (response_format: json_object shape)", async () => {

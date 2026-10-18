@@ -113,6 +113,10 @@ interface CaseResult {
    *  succeeded. Scored as a miss (fieldScore 0), exactly like production
    *  surfaces it as a 422 rather than a disguised burn_rate_check. */
   parseFailureCode?: string;
+  /** Echoes IntentParseFailure.details (server/ai.ts). For "invalid_json" this
+   *  is finish_reason / content length / reasoning-field presence / the
+   *  JSON.parse error, so a run's artifact says why parsing failed. */
+  parseFailureDetails?: string;
   /**
    * Numeric HTTP status from the upstream call, echoed from
    * IntentParseFailure.httpStatus (server/ai.ts) when parseFailureCode is
@@ -439,6 +443,7 @@ async function main(): Promise<void> {
     let actual: ScenarioOperation | null = null;
     let parseFailureCode: string | undefined;
     let httpStatus: number | undefined;
+    let parseFailureDetails: string | undefined;
     let caseError: string | undefined;
 
     try {
@@ -452,6 +457,7 @@ async function main(): Promise<void> {
         // rather than a disguised burn_rate_check success.
         parseFailureCode = result.code;
         httpStatus = result.httpStatus;
+        parseFailureDetails = result.details;
         parseFailureCount++;
       }
     } catch (err: unknown) {
@@ -492,6 +498,7 @@ async function main(): Promise<void> {
       actionMatch: score.actionMatch,
       matchedAlternative: score.matchedAlternative,
       ...(parseFailureCode ? { parseFailureCode } : {}),
+      ...(parseFailureDetails ? { parseFailureDetails } : {}),
       ...(httpStatus !== undefined ? { httpStatus } : {}),
       fieldMatches: score.fieldMatches,
       fieldScore: caseError ? 0 : Math.max(score.fieldScore, 0),
