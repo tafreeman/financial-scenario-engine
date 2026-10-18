@@ -740,7 +740,7 @@ export function describeInvalidContent(
   content: string,
   parseError: string
 ): string {
-  const reasoning = choice?.message.reasoning_content ?? choice?.message.reasoning;
+  const reasoning = choice?.message?.reasoning_content ?? choice?.message?.reasoning;
   return [
     `finish_reason=${choice?.finish_reason ?? "none"}`,
     `content_length=${content.length}`,
