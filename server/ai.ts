@@ -27,7 +27,10 @@ export interface ChatMessage {
 type ChatPayloadMessage = Pick<ChatMessage, "role" | "content" | "tool_calls" | "tool_call_id">;
 
 interface ChatChoice {
-  message: ChatMessage;
+  // Reasoning-family models on OpenAI-compatible hosts may return their answer
+  // (or a trace) in a separate field instead of `content`; typed only so
+  // describeEmptyOrBadContent() can report whether it was present.
+  message: ChatMessage & { reasoning_content?: string | null; reasoning?: string | null };
   finish_reason: "stop" | "tool_calls" | string;
 }
 
@@ -724,6 +727,28 @@ export function stripReasoningAndFences(content: string): string {
   return withoutThink.trim();
 }
 
+/**
+ * Content-free facts about a completion that failed JSON.parse: why it failed,
+ * how the provider ended it, how long it was, and whether a separate reasoning
+ * field was present. Distinguishes empty content, prose-before-JSON,
+ * truncation (finish_reason "length") and a misplaced answer without logging
+ * model output. The parse error message is appended last because V8 may quote
+ * a few leading characters of the input.
+ */
+export function describeInvalidContent(
+  choice: ChatChoice | undefined,
+  content: string,
+  parseError: string
+): string {
+  const reasoning = choice?.message?.reasoning_content ?? choice?.message?.reasoning;
+  return [
+    `finish_reason=${choice?.finish_reason ?? "none"}`,
+    `content_length=${content.length}`,
+    `reasoning_field=${reasoning ? "present" : "absent"}`,
+    `parse_error=${parseError}`,
+  ].join("; ");
+}
+
 /** Parse user query into a structured ScenarioOperation via LLM */
 export async function parseIntent(
   userQuery: string,
@@ -777,7 +802,8 @@ export async function parseIntent(
 
   try {
     const data = await instrumentedChatRequest("intent", config.endpoint, config.pat, payload);
-    const content = data.choices?.[0]?.message?.content ?? "";
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content ?? "";
 
     const cleaned = stripReasoningAndFences(content);
     let parsed: unknown;
@@ -787,7 +813,7 @@ export async function parseIntent(
       return intentParseFailure(
         "invalid_json",
         "The model did not return valid scenario JSON.",
-        err instanceof Error ? err.message : String(err)
+        describeInvalidContent(choice, content, err instanceof Error ? err.message : String(err))
       );
     }
 
