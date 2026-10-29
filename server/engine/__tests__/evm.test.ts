@@ -238,6 +238,23 @@ describe("calcEvm zero-denominator semantics", () => {
     expect(r.eac_mixed).toBe(r.eac_atypical);
   });
 
+  it("falls back to atypical when BAC / CPI overflows to a non-finite value", () => {
+    const BIG_BAC = Number.MAX_VALUE;
+    const TINY_EV = Number.MIN_VALUE; // CPI = EV / AC is positive but tiny
+    const AC = 1;
+    const r = calcEvm(BIG_BAC, AC, PV, TINY_EV);
+    expect(r.cpi).toBeGreaterThan(0);
+    expect(calcEACTypical(BIG_BAC, r.cpi)).toBeNull();
+    expect(r.eac_typical).toBe(AC + (BIG_BAC - TINY_EV));
+    expect(r.eac_mixed).toBe(r.eac_atypical);
+    expect(Number.isFinite(r.etc)).toBe(true);
+    expect(Number.isFinite(r.vac)).toBe(true);
+  });
+
+  it("calcEACMixed is null when the result overflows", () => {
+    expect(calcEACMixed(1, Number.MAX_VALUE, 0, Number.MIN_VALUE, 1)).toBeNull();
+  });
+
   it("TCPI is null when BAC = AC", () => {
     expect(calcEvm(BAC, BAC, PV, 400).tcpi).toBeNull();
   });

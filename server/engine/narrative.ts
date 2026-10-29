@@ -207,6 +207,9 @@ function renderRecommendation(result: ScenarioResult): string {
     if ((cpi !== null && cpi < 1) || (spi !== null && spi < 1)) {
       return "Project performance indices are below 1.0 — **initiate a corrective action plan** to address cost or schedule variances.";
     }
+    if (cpi === null || spi === null) {
+      return "Cost or schedule performance cannot yet be computed (no actual cost or planned value) — **gather more data** before assessing EVM performance.";
+    }
     return "Project performance is on track — continue monitoring key EVM indicators.";
   }
 
@@ -259,7 +262,11 @@ export function generateNarrative(result: ScenarioResult): string {
     const { cpi, spi, tcpi } = result.evm;
     table += `| CPI | ${fmtIndex(cpi)} | ${cpi === null ? "Not computable (no actual cost)" : cpi >= 1 ? "✅ On/under budget" : "⚠️ Over budget"} |\n`;
     table += `| SPI | ${fmtIndex(spi)} | ${spi === null ? "Not computable (no planned value)" : spi >= 1 ? "✅ On/ahead of schedule" : "⚠️ Behind schedule"} |\n`;
-    table += `| EAC (typical) | ${fmt(result.evm.eac_typical)} | If current CPI persists |\n`;
+    // eac_typical falls back to the atypical formula when CPI is unusable (or
+    // BAC / CPI overflows); do not describe the fallback as "CPI persists".
+    const typicalIsFallback =
+      cpi === null || !Number.isFinite(cpi) || cpi <= 0 || !Number.isFinite(result.evm.bac / cpi);
+    table += `| EAC (typical) | ${fmt(result.evm.eac_typical)} | ${typicalIsFallback ? "Atypical fallback (CPI not usable)" : "If current CPI persists"} |\n`;
     table += `| EAC (atypical) | ${fmt(result.evm.eac_atypical)} | If variance was one-time |\n`;
     table += `| VAC | ${fmt(result.evm.vac)} | ${result.evm.vac >= 0 ? "Under budget at completion" : "Over budget at completion"} |\n`;
     table += `| TCPI | ${fmtIndex(tcpi)} | CPI needed to finish on budget |\n`;

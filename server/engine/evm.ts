@@ -46,7 +46,8 @@ export function calcSV(ev: number, pv: number): number {
  */
 export function calcEACTypical(bac: number, cpi: number | null): number | null {
   if (cpi === null || !Number.isFinite(cpi) || cpi <= 0) return null;
-  return bac / cpi;
+  const eac = bac / cpi;
+  return Number.isFinite(eac) ? eac : null;
 }
 
 /** EAC Atypical: AC + (BAC - EV) — variance was one-time, future at plan */
@@ -68,7 +69,8 @@ export function calcEACMixed(
   if (cpi === null || spi === null) return null;
   const product = cpi * spi;
   if (!Number.isFinite(product) || product <= 0) return null;
-  return ac + (bac - ev) / product;
+  const eac = ac + (bac - ev) / product;
+  return Number.isFinite(eac) ? eac : null;
 }
 
 // ─── Remaining Estimates ─────────────────────────────────────────────────────
