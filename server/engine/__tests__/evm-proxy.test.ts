@@ -73,3 +73,34 @@ describe("handleEvmAnalysis percent-complete source", () => {
     expect(result.evm?.ev).toBe(calcEarnedValue(0, BAC));
   });
 });
+
+describe("handleEvmAnalysis zero-denominator warnings", () => {
+  function withSpend(spent: number, pct: number): PortfolioSnapshot {
+    const base = makePortfolio(pct);
+    return {
+      ...base,
+      projects: base.projects.map(p => ({ ...p, spent_to_date: spent })),
+    };
+  }
+  const MID = new Date("2026-03-31T00:00:00.000Z"); // PV > 0
+  const BEFORE_START = new Date("2025-01-01T00:00:00.000Z"); // PV = 0
+
+  it("AC = 0 and EV = 0: CPI is null and no CPI warning fires", () => {
+    const result = executeScenario(evmOp, withSpend(0, 0), MID);
+    expect(result.evm?.cpi).toBeNull();
+    expect(result.warnings.some(w => w.startsWith("CPI"))).toBe(false);
+    expect(result.evm!.etc).toBeGreaterThanOrEqual(0);
+  });
+
+  it("AC > 0 and EV = 0: CPI is a real 0 and the over-budget warning fires", () => {
+    const result = executeScenario(evmOp, withSpend(100, 0), MID);
+    expect(result.evm?.cpi).toBe(0);
+    expect(result.warnings.some(w => w.startsWith("CPI"))).toBe(true);
+  });
+
+  it("PV = 0: SPI is null and no SPI warning fires", () => {
+    const result = executeScenario(evmOp, withSpend(100, 10), BEFORE_START);
+    expect(result.evm?.spi).toBeNull();
+    expect(result.warnings.some(w => w.startsWith("SPI"))).toBe(false);
+  });
+});

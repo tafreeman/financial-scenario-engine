@@ -1,19 +1,29 @@
 import {
-  safeDivide,
   type Project,
   type EvmMetrics,
 } from "./types.js";
 
 // ─── Core EVM Indices ────────────────────────────────────────────────────────
 
-/** Cost Performance Index: EV / AC — >1 = under budget */
-export function calcCPI(ev: number, ac: number): number {
-  return safeDivide(ev, ac);
+/**
+ * Ratio that is `null` when it is not computable (zero or non-finite
+ * denominator). Unlike safeDivide, it never substitutes 0: a zero
+ * denominator is "no data", which must not read as a real index of 0.
+ */
+function ratioOrNull(numerator: number, denominator: number): number | null {
+  if (denominator === 0 || !Number.isFinite(denominator)) return null;
+  const result = numerator / denominator;
+  return Number.isFinite(result) ? result : null;
 }
 
-/** Schedule Performance Index: EV / PV — >1 = ahead of schedule */
-export function calcSPI(ev: number, pv: number): number {
-  return safeDivide(ev, pv);
+/** Cost Performance Index: EV / AC — >1 = under budget; null when AC = 0 */
+export function calcCPI(ev: number, ac: number): number | null {
+  return ratioOrNull(ev, ac);
+}
+
+/** Schedule Performance Index: EV / PV — >1 = ahead of schedule; null when PV = 0 */
+export function calcSPI(ev: number, pv: number): number | null {
+  return ratioOrNull(ev, pv);
 }
 
 // ─── Variances ───────────────────────────────────────────────────────────────
@@ -30,9 +40,13 @@ export function calcSV(ev: number, pv: number): number {
 
 // ─── Estimate at Completion (4 variants) ─────────────────────────────────────
 
-/** EAC Typical: BAC / CPI — variance will continue at same rate */
-export function calcEACTypical(bac: number, cpi: number): number {
-  return safeDivide(bac, cpi);
+/**
+ * EAC Typical: BAC / CPI — variance will continue at same rate.
+ * null unless CPI is a finite number > 0 (caller falls back to atypical).
+ */
+export function calcEACTypical(bac: number, cpi: number | null): number | null {
+  if (cpi === null || !Number.isFinite(cpi) || cpi <= 0) return null;
+  return bac / cpi;
 }
 
 /** EAC Atypical: AC + (BAC - EV) — variance was one-time, future at plan */
@@ -40,9 +54,21 @@ export function calcEACAtypical(ac: number, bac: number, ev: number): number {
   return ac + (bac - ev);
 }
 
-/** EAC Mixed: AC + (BAC - EV) / (CPI × SPI) — both cost and schedule variances persist */
-export function calcEACMixed(ac: number, bac: number, ev: number, cpi: number, spi: number): number {
-  return ac + safeDivide(bac - ev, cpi * spi);
+/**
+ * EAC Mixed: AC + (BAC - EV) / (CPI × SPI) — both cost and schedule variances persist.
+ * null unless CPI × SPI is a finite number > 0 (caller falls back to atypical).
+ */
+export function calcEACMixed(
+  ac: number,
+  bac: number,
+  ev: number,
+  cpi: number | null,
+  spi: number | null
+): number | null {
+  if (cpi === null || spi === null) return null;
+  const product = cpi * spi;
+  if (!Number.isFinite(product) || product <= 0) return null;
+  return ac + (bac - ev) / product;
 }
 
 // ─── Remaining Estimates ─────────────────────────────────────────────────────
@@ -57,9 +83,9 @@ export function calcVAC(bac: number, eac: number): number {
   return bac - eac;
 }
 
-/** To-Complete Performance Index: (BAC - EV) / (BAC - AC) — CPI needed to finish on budget */
-export function calcTCPI(bac: number, ev: number, ac: number): number {
-  return safeDivide(bac - ev, bac - ac);
+/** To-Complete Performance Index: (BAC - EV) / (BAC - AC) — CPI needed to finish on budget; null when BAC = AC */
+export function calcTCPI(bac: number, ev: number, ac: number): number | null {
+  return ratioOrNull(bac - ev, bac - ac);
 }
 
 // ─── Value Estimation from Project Data ──────────────────────────────────────
@@ -95,9 +121,11 @@ export function calcEvm(
 ): EvmMetrics {
   const cpi = calcCPI(ev, ac);
   const spi = calcSPI(ev, pv);
-  const eac_typical = calcEACTypical(bac, cpi);
   const eac_atypical = calcEACAtypical(ac, bac, ev);
-  const eac_mixed = calcEACMixed(ac, bac, ev, cpi, spi);
+  // Typical/mixed need a usable CPI (and SPI); otherwise report the atypical
+  // estimate rather than a bogus 0 derived from a zero denominator.
+  const eac_typical = calcEACTypical(bac, cpi) ?? eac_atypical;
+  const eac_mixed = calcEACMixed(ac, bac, ev, cpi, spi) ?? eac_atypical;
   const etc = calcETC(eac_typical, ac);
   const vac = calcVAC(bac, eac_typical);
   const tcpi = calcTCPI(bac, ev, ac);

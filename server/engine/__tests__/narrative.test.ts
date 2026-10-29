@@ -122,6 +122,26 @@ describe("generateNarrative", () => {
     expect(narrative).toContain("Behind schedule");
   });
 
+  it("renders null EVM indices as n/a without a status claim", () => {
+    const result: ScenarioResult = {
+      ...baseResult,
+      operation: { action: "evm_analysis", project: "Project Alpha" },
+      evm: {
+        bac: 1000, ac: 0, pv: 0, ev: 0,
+        cpi: null, spi: null, cv: 0, sv: 0,
+        eac_typical: 1000, eac_atypical: 1000, eac_mixed: 1000,
+        etc: 1000, vac: 0, tcpi: null,
+      },
+    };
+
+    const narrative = generateNarrative(result);
+    expect(narrative).toContain("| CPI | n/a |");
+    expect(narrative).toContain("| SPI | n/a |");
+    expect(narrative).toContain("| TCPI | n/a |");
+    expect(narrative).not.toContain("Over budget");
+    expect(narrative).not.toContain("corrective action");
+  });
+
   it("includes warnings from the engine", () => {
     const result: ScenarioResult = {
       ...baseResult,

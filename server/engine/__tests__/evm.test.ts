@@ -28,10 +28,6 @@ describe("calcCPI", () => {
   it("CPI < 1 means over budget", () => {
     expect(calcCPI(90, 100)).toBeLessThan(1);
   });
-
-  it("returns 0 for zero AC", () => {
-    expect(calcCPI(100, 0)).toBe(0);
-  });
 });
 
 describe("calcSPI", () => {
@@ -62,8 +58,11 @@ describe("calcEACTypical", () => {
     expect(calcEACTypical(1000, cpi)).toBeCloseTo(1000 / cpi, 2);
   });
 
-  it("returns 0 for zero CPI", () => {
-    expect(calcEACTypical(1000, 0)).toBe(0);
+  it("is not computable (null) unless CPI is a finite number > 0", () => {
+    expect(calcEACTypical(1000, 0)).toBeNull();
+    expect(calcEACTypical(1000, null)).toBeNull();
+    expect(calcEACTypical(1000, -1)).toBeNull();
+    expect(calcEACTypical(1000, Number.NaN)).toBeNull();
   });
 });
 
@@ -99,8 +98,8 @@ describe("calcTCPI", () => {
     expect(calcTCPI(1000, 500, 600)).toBeCloseTo((1000 - 500) / (1000 - 600), 5);
   });
 
-  it("returns 0 when BAC = AC", () => {
-    expect(calcTCPI(1000, 500, 1000)).toBe(0);
+  it("is null (not computable) when BAC = AC", () => {
+    expect(calcTCPI(1000, 500, 1000)).toBeNull();
   });
 });
 
@@ -160,6 +159,94 @@ describe("calcPlannedValue", () => {
     const pv = calcPlannedValue(project);
     expect(pv).toBeGreaterThanOrEqual(0);
     expect(pv).toBeLessThanOrEqual(project.total_budget);
+  });
+});
+
+describe("calcCPI / calcSPI zero denominators", () => {
+  it("returns null, not 0, when AC = 0 or PV = 0", () => {
+    expect(calcCPI(0, 0)).toBeNull();
+    expect(calcCPI(100, 0)).toBeNull();
+    expect(calcSPI(0, 0)).toBeNull();
+    expect(calcSPI(100, 0)).toBeNull();
+  });
+
+  it("keeps a genuine 0 when the denominator is positive and EV = 0", () => {
+    expect(calcCPI(0, 100)).toBe(0);
+    expect(calcSPI(0, 100)).toBe(0);
+  });
+});
+
+describe("calcEACMixed with unusable indices", () => {
+  it("is null when CPI or SPI is null, or their product is not > 0", () => {
+    expect(calcEACMixed(100, 1000, 0, null, 1)).toBeNull();
+    expect(calcEACMixed(100, 1000, 0, 1, null)).toBeNull();
+    expect(calcEACMixed(100, 1000, 0, 0, 1)).toBeNull();
+  });
+});
+
+describe("calcEvm zero-denominator semantics", () => {
+  const BAC = 1000;
+  const PV = 500;
+
+  function expectFallbackEac(r: ReturnType<typeof calcEvm>): void {
+    const atypical = r.ac + (r.bac - r.ev);
+    expect(r.eac_atypical).toBe(atypical);
+    expect(r.eac_typical).toBe(atypical);
+    expect(r.eac_mixed).toBe(atypical);
+    expect(r.etc).toBe(r.eac_typical - r.ac);
+    expect(r.vac).toBe(r.bac - r.eac_typical);
+  }
+
+  it("(a) AC = 0 and EV = 0: CPI null, EAC falls back, ETC never negative", () => {
+    const r = calcEvm(BAC, 0, PV, 0);
+    expect(r.cpi).toBeNull();
+    expect(r.spi).toBe(0); // PV > 0 and EV = 0 is a genuine 0
+    expectFallbackEac(r);
+    expect(r.eac_typical).not.toBe(0);
+    expect(r.etc).toBeGreaterThanOrEqual(0);
+    expect(r.vac).toBe(r.bac - r.eac_typical);
+  });
+
+  it("(b) AC > 0 and EV = 0: CPI is a real 0, EAC falls back, ETC never negative", () => {
+    const AC = 100;
+    const r = calcEvm(BAC, AC, PV, 0);
+    expect(r.cpi).toBe(0);
+    expectFallbackEac(r);
+    expect(r.eac_typical).not.toBe(0);
+    expect(r.etc).toBeGreaterThanOrEqual(0);
+    expect(r.vac).toBe(r.bac - r.eac_typical);
+  });
+
+  it("(c) AC = 0 and EV > 0: CPI null, EAC falls back to atypical", () => {
+    const EV = 200;
+    const r = calcEvm(BAC, 0, PV, EV);
+    expect(r.cpi).toBeNull();
+    expect(r.spi).toBeCloseTo(EV / PV, 10);
+    expectFallbackEac(r);
+    expect(r.eac_typical).toBe(BAC - EV);
+    expect(r.etc).toBeGreaterThanOrEqual(0);
+  });
+
+  it("PV = 0: SPI null while CPI stays computable and EAC(typical) uses it", () => {
+    const AC = 100;
+    const EV = 80;
+    const r = calcEvm(BAC, AC, 0, EV);
+    expect(r.spi).toBeNull();
+    expect(r.cpi).toBeCloseTo(EV / AC, 10);
+    expect(r.eac_typical).toBeCloseTo(BAC / (EV / AC), 6);
+    // Mixed needs SPI, so it falls back to atypical.
+    expect(r.eac_mixed).toBe(r.eac_atypical);
+  });
+
+  it("TCPI is null when BAC = AC", () => {
+    expect(calcEvm(BAC, BAC, PV, 400).tcpi).toBeNull();
+  });
+
+  it("uses the typical estimate when CPI is a usable positive number", () => {
+    const r = calcEvm(BAC, 500, PV, 480);
+    expect(r.eac_typical).toBeCloseTo(BAC / (480 / 500), 6);
+    expect(r.etc).toBe(r.eac_typical - r.ac);
+    expect(r.vac).toBe(BAC - r.eac_typical);
   });
 });
 

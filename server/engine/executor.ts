@@ -313,8 +313,10 @@ function handleEvmAnalysis(
 
   const evm = calcEvm(bac, ac, pv, ev);
 
-  if (evm.cpi < 1) warnings.push(`CPI ${evm.cpi.toFixed(2)} < 1: project is over budget.`);
-  if (evm.spi < 1) warnings.push(`SPI ${evm.spi.toFixed(2)} < 1: project is behind schedule.`);
+  // Warn only on a real index below 1. A null index (zero denominator) is
+  // "not computable" and stays silent; a true 0 (spent, no progress) warns.
+  if (evm.cpi !== null && evm.cpi < 1) warnings.push(`CPI ${evm.cpi.toFixed(2)} < 1: project is over budget.`);
+  if (evm.spi !== null && evm.spi < 1) warnings.push(`SPI ${evm.spi.toFixed(2)} < 1: project is behind schedule.`);
 
   return {
     operation,
