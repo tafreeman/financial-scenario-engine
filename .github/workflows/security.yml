@@ -66,6 +66,21 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 2
+      # An advisory published against an existing dependency is not caused by
+      # an unrelated PR, so on pull requests the audit runs only when the PR
+      # changes the dependency set. Pushes to main and the schedule always
+      # audit. The job still reports, so a required check is still satisfied.
+      - id: npm-audit-scope
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] \
+             || git diff --name-only HEAD^1 HEAD | grep -qE '(^|/)package(-lock)?\.json$'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::dependency audit skipped: this PR does not change dependency files"
+          fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: "22"
@@ -74,7 +89,8 @@ jobs:
             package-lock.json
             client/package-lock.json
             docs/package-lock.json
-      - run: npm audit --audit-level=high
+      - if: steps.npm-audit-scope.outputs.run == 'true'
+        run: npm audit --audit-level=high
       # The client ships as static files built from its four `dependencies`
       # (react, react-dom, lucide-react, react-markdown). Its devDependencies
       # (Vite, Tailwind, PostCSS, TypeScript) run only at build time, on this
@@ -84,11 +100,13 @@ jobs:
       # release) reached Tailwind 3's build-time globbing; its only fix is the
       # Tailwind 4 migration. Drop --omit=dev once the client is on Tailwind 4.
       # The root and docs legs still audit every dependency.
-      - run: npm audit --audit-level=high --omit=dev
+      - if: steps.npm-audit-scope.outputs.run == 'true'
+        run: npm audit --audit-level=high --omit=dev
         working-directory: client
       # docs/ has its own lockfile (VitePress) and was NOT audited here until
       # 2026-07-25, which is how GHSA-r28c-9q8g-f849 (postcss, HIGH) sat open on
       # the default branch while this required check stayed green. Every
       # package-lock.json in the repo must have a leg in this job.
-      - run: npm audit --audit-level=high
+      - if: steps.npm-audit-scope.outputs.run == 'true'
+        run: npm audit --audit-level=high
         working-directory: docs
