@@ -27,15 +27,13 @@ export default defineConfig({
       include: ["server/engine/**/*.ts"],
       exclude: [
         "server/engine/**/__tests__/**",
-        "server/engine/executor.ts",   // orchestration layer — covered by direct Vitest tests (server/engine/__tests__/), NOT Playwright E2E, which mocks the /api/scenario/v3 endpoint
-        "server/engine/portfolio.ts",  // portfolio aggregation — covered by direct Vitest tests (server/engine/__tests__/), NOT Playwright E2E, which mocks the /api/scenario/v3 endpoint
         "server/engine/index.ts",       // barrel re-export only
       ],
       thresholds: {
-        lines: 70,
-        functions: 70,
-        branches: 65,
-        statements: 70,
+        lines: 91,
+        functions: 96,
+        branches: 77,
+        statements: 90,
       },
       reporter: ["text", "lcov"],
     },

@@ -794,6 +794,10 @@ function mergeProjectedState(
       // Prefer resolved project names (from ScenarioResult.projects_involved) over the
       // raw subOp.projects strings so that abbreviated names fuzzy-matched during
       // execution are correctly applied here too.
+      // A reallocation naming fewer than 2 projects was rejected by the handler
+      // (it fell back to a portfolio-wide analysis whose projects_involved lists
+      // every project), so it must not mutate the accumulated state.
+      if ((subOp.projects?.length ?? 0) < 2) return portfolio;
       const resolvedNames = resolvedProjectsInvolved ?? subOp.projects ?? [];
       const fromName = resolvedNames[0];
       const toName = resolvedNames[1];
