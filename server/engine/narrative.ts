@@ -7,6 +7,11 @@
 import type { ScenarioResult } from "./types.js";
 
 /** Format a number as a dollar string: "$1,234" */
+/** EVM index to 3 dp, or "n/a" when not computable (zero denominator) */
+function fmtIndex(n: number | null): string {
+  return n === null ? "n/a" : n.toFixed(3);
+}
+
 function fmt(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-US");
 }
@@ -133,10 +138,10 @@ function renderObservations(result: ScenarioResult): string[] {
 
   if (result.evm) {
     const { cpi, spi } = result.evm;
-    if (cpi < 1) obs.push(`CPI of ${cpi.toFixed(2)} indicates the project is over budget.`);
-    if (spi < 1) obs.push(`SPI of ${spi.toFixed(2)} indicates the project is behind schedule.`);
-    if (cpi >= 1) obs.push(`CPI of ${cpi.toFixed(2)} indicates cost performance is on or under budget.`);
-    if (spi >= 1) obs.push(`SPI of ${spi.toFixed(2)} indicates schedule performance is on or ahead.`);
+    if (cpi !== null && cpi < 1) obs.push(`CPI of ${cpi.toFixed(2)} indicates the project is over budget.`);
+    if (spi !== null && spi < 1) obs.push(`SPI of ${spi.toFixed(2)} indicates the project is behind schedule.`);
+    if (cpi !== null && cpi >= 1) obs.push(`CPI of ${cpi.toFixed(2)} indicates cost performance is on or under budget.`);
+    if (spi !== null && spi >= 1) obs.push(`SPI of ${spi.toFixed(2)} indicates schedule performance is on or ahead.`);
   }
 
   return obs;
@@ -198,8 +203,12 @@ function renderRecommendation(result: ScenarioResult): string {
   }
 
   if (result.evm) {
-    if (result.evm.cpi < 1 || result.evm.spi < 1) {
+    const { cpi, spi } = result.evm;
+    if ((cpi !== null && cpi < 1) || (spi !== null && spi < 1)) {
       return "Project performance indices are below 1.0 — **initiate a corrective action plan** to address cost or schedule variances.";
+    }
+    if (cpi === null || spi === null) {
+      return "Cost or schedule performance cannot yet be computed (no actual cost or planned value) — **gather more data** before assessing EVM performance.";
     }
     return "Project performance is on track — continue monitoring key EVM indicators.";
   }
@@ -250,12 +259,17 @@ export function generateNarrative(result: ScenarioResult): string {
     sections.push("\n\n## Earned Value Metrics\n");
     let table = "| Metric | Value | Status |\n";
     table += "|--------|-------|--------|\n";
-    table += `| CPI | ${result.evm.cpi.toFixed(3)} | ${result.evm.cpi >= 1 ? "✅ On/under budget" : "⚠️ Over budget"} |\n`;
-    table += `| SPI | ${result.evm.spi.toFixed(3)} | ${result.evm.spi >= 1 ? "✅ On/ahead of schedule" : "⚠️ Behind schedule"} |\n`;
-    table += `| EAC (typical) | ${fmt(result.evm.eac_typical)} | If current CPI persists |\n`;
+    const { cpi, spi, tcpi } = result.evm;
+    table += `| CPI | ${fmtIndex(cpi)} | ${cpi === null ? "Not computable (no actual cost)" : cpi >= 1 ? "✅ On/under budget" : "⚠️ Over budget"} |\n`;
+    table += `| SPI | ${fmtIndex(spi)} | ${spi === null ? "Not computable (no planned value)" : spi >= 1 ? "✅ On/ahead of schedule" : "⚠️ Behind schedule"} |\n`;
+    // eac_typical falls back to the atypical formula when CPI is unusable (or
+    // BAC / CPI overflows); do not describe the fallback as "CPI persists".
+    const typicalIsFallback =
+      cpi === null || !Number.isFinite(cpi) || cpi <= 0 || !Number.isFinite(result.evm.bac / cpi);
+    table += `| EAC (typical) | ${fmt(result.evm.eac_typical)} | ${typicalIsFallback ? "Atypical fallback (CPI not usable)" : "If current CPI persists"} |\n`;
     table += `| EAC (atypical) | ${fmt(result.evm.eac_atypical)} | If variance was one-time |\n`;
     table += `| VAC | ${fmt(result.evm.vac)} | ${result.evm.vac >= 0 ? "Under budget at completion" : "Over budget at completion"} |\n`;
-    table += `| TCPI | ${result.evm.tcpi.toFixed(3)} | CPI needed to finish on budget |\n`;
+    table += `| TCPI | ${fmtIndex(tcpi)} | CPI needed to finish on budget |\n`;
     sections.push(table);
   }
 

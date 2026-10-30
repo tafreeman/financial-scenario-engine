@@ -79,10 +79,11 @@ describe("percent_complete persistence → EVM (integration)", () => {
     // EV is driven by the explicit 75% progress, not the 30% spend ratio:
     //   EV = 0.75 × BAC = 750,000 ;  CPI = EV / AC = 750,000 / 300,000 = 2.5
     expect(result.evm!.ev).toBe((EXPLICIT_PCT / 100) * BAC);
+    expect(result.evm!.cpi).not.toBeNull();
     expect(result.evm!.cpi).toBeCloseTo(((EXPLICIT_PCT / 100) * BAC) / AC, 6);
 
     // The key behavioural assertion: CPI must NOT be pinned to ~1.0 the way the
     // spend-ratio proxy (EV ≈ AC) would force it.
-    expect(Math.abs(result.evm!.cpi - 1.0)).toBeGreaterThan(0.5);
+    expect(Math.abs(result.evm!.cpi! - 1.0)).toBeGreaterThan(0.5);
   });
 });

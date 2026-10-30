@@ -173,16 +173,16 @@ export interface EvmMetrics {
   ac: number;
   pv: number;
   ev: number;
-  cpi: number;
-  spi: number;
+  cpi: number | null;      // EV / AC; null when AC = 0 (not computable)
+  spi: number | null;      // EV / PV; null when PV = 0 (not computable)
   cv: number;
   sv: number;
-  eac_typical: number;     // BAC / CPI
+  eac_typical: number;     // BAC / CPI; falls back to eac_atypical unless CPI > 0
   eac_atypical: number;    // AC + (BAC - EV)
-  eac_mixed: number;       // AC + (BAC - EV) / (CPI × SPI)
+  eac_mixed: number;       // AC + (BAC - EV) / (CPI × SPI); falls back to eac_atypical unless CPI × SPI > 0
   etc: number;             // EAC - AC
   vac: number;             // BAC - EAC
-  tcpi: number;            // (BAC - EV) / (BAC - AC)
+  tcpi: number | null;     // (BAC - EV) / (BAC - AC); null when BAC = AC
 }
 
 export interface UtilizationMetrics {

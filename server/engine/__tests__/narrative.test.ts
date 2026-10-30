@@ -122,6 +122,44 @@ describe("generateNarrative", () => {
     expect(narrative).toContain("Behind schedule");
   });
 
+  it("renders null EVM indices as n/a without a status claim", () => {
+    const result: ScenarioResult = {
+      ...baseResult,
+      operation: { action: "evm_analysis", project: "Project Alpha" },
+      evm: {
+        bac: 1000, ac: 0, pv: 0, ev: 0,
+        cpi: null, spi: null, cv: 0, sv: 0,
+        eac_typical: 1000, eac_atypical: 1000, eac_mixed: 1000,
+        etc: 1000, vac: 0, tcpi: null,
+      },
+    };
+
+    const narrative = generateNarrative(result);
+    expect(narrative).toContain("| CPI | n/a |");
+    expect(narrative).toContain("| SPI | n/a |");
+    expect(narrative).toContain("| TCPI | n/a |");
+    expect(narrative).not.toContain("Over budget");
+    expect(narrative).not.toContain("corrective action");
+    expect(narrative).not.toContain("on track");
+    expect(narrative).toContain("cannot yet be computed");
+    expect(narrative).toContain("Atypical fallback");
+    expect(narrative).not.toContain("If current CPI persists");
+  });
+
+  it("keeps the corrective-action recommendation for a true CPI of 0", () => {
+    const result: ScenarioResult = {
+      ...baseResult,
+      operation: { action: "evm_analysis", project: "Project Alpha" },
+      evm: {
+        bac: 1000, ac: 100, pv: 0, ev: 0,
+        cpi: 0, spi: null, cv: -100, sv: 0,
+        eac_typical: 1100, eac_atypical: 1100, eac_mixed: 1100,
+        etc: 1000, vac: -100, tcpi: 1,
+      },
+    };
+    expect(generateNarrative(result)).toContain("corrective action");
+  });
+
   it("includes warnings from the engine", () => {
     const result: ScenarioResult = {
       ...baseResult,

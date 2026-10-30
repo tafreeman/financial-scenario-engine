@@ -19,6 +19,14 @@
 | `calcVAC(bac, eac)` | Variance at Completion | `BAC − EAC` |
 | `calcTCPI(bac, ev, ac)` | To-Complete Performance Index | `(BAC − EV) / (BAC − AC)` |
 
+### Zero denominators
+
+A ratio with a zero denominator is "not computable", not 0:
+
+- `cpi` is `null` when AC = 0; `spi` is `null` when PV = 0; `tcpi` is `null` when BAC = AC. A genuine 0 (AC > 0 and EV = 0) stays 0.
+- `eac_typical` is `BAC / CPI` only when CPI is a finite number > 0; `eac_mixed` only when CPI × SPI is > 0. Otherwise both fall back to `eac_atypical` (`AC + (BAC − EV)`), so `etc` and `vac` are never derived from a bogus 0.
+- Over-budget and behind-schedule warnings fire only for a real index below 1. A true CPI of 0 (money spent, no progress) still warns; a `null` index does not. Narratives render `null` indices as "n/a".
+
 ### Derived Values
 
 | Function | Description |
