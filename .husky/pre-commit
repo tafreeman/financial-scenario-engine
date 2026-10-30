@@ -1,0 +1,6 @@
+# Lint staged TS files, then typecheck server + client. Bypass in emergencies: git commit --no-verify
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E "\.(ts|tsx)$" || true)
+if [ -n "$files" ]; then
+  echo "$files" | xargs npx eslint --no-warn-ignored --max-warnings=0 || exit 1
+fi
+npm run typecheck
