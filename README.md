@@ -99,8 +99,7 @@ Full project structure, data-flow diagrams, and database schema: [Architecture �
 ## Quick Start
 
 ### Prerequisites
-- **Node.js 18+** — [download](https://nodejs.org/)
-- **Optional:** GitHub PAT with `models:read` scope for AI-powered scenario analysis — [create one](https://github.com/settings/tokens?type=beta)
+- **Node.js 22+** — [download](https://nodejs.org/)
 - **Optional:** an OpenRouter API key ([openrouter.ai](https://openrouter.ai/)) — free-tier (`:free` model-id suffix) or paid models
 - **Optional:** Ollama for fully local inference
 
