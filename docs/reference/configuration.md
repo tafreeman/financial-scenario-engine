@@ -2,17 +2,9 @@
 
 ## LLM Provider Setup
 
-### GitHub Models API (Cloud)
-
-1. Create a GitHub PAT with `models:read` scope at [github.com/settings/tokens](https://github.com/settings/tokens?type=beta)
-2. Open the app → **Settings** tab
-3. Select **GitHub Models** as provider
-4. Paste your PAT and click **Save**
-5. Click **Test Connection** to verify
-
 ### OpenRouter (Cloud)
 
-GitHub Models is fully retired 2026-07-30 — OpenRouter is the recommended cloud replacement. Configure it in the Settings tab or through the config API:
+For hosted models, configure OpenRouter in Settings or through the config API:
 
 1. Create an API key at [openrouter.ai](https://openrouter.ai/)
 2. In **Settings**, choose **OpenRouter**, paste the key and save. Or `PUT /api/config` with `{"llm_provider": "openrouter", "openrouter_api_key": "<your key>"}` (requires the `x-app-token` header — see `server/auth.ts`), or set the `OPENROUTER_API_KEY` environment variable and `llm_provider=openrouter` in the config table directly
@@ -27,11 +19,17 @@ GitHub Models is fully retired 2026-07-30 — OpenRouter is the recommended clou
 5. Confirm endpoint is `http://localhost:11434`
 6. Click **Test Connection** to verify
 
+### Legacy GitHub Models configuration
+
+Do not create a GitHub token for the retired default endpoint. On startup, the
+app migrates an existing GitHub setting that points to that endpoint to Ollama.
+It leaves custom GitHub endpoints unchanged. For a new setup, choose Ollama or
+OpenRouter.
+
 ### Default Models
 
 | Provider | Default model |
 |----------|--------------|
-| GitHub Models | `openai/gpt-4.1` |
 | OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` |
 | Ollama | `llama3.2` |
 

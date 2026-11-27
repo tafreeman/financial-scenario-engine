@@ -4,8 +4,7 @@
 
 You need Node.js. Everything else is optional and only affects the AI features — the app runs without any LLM provider configured, you just can't ask it questions in plain English.
 
-- **Node.js 18+** — [download](https://nodejs.org/)
-- **Optional:** GitHub PAT with `models:read` scope for the GitHub Models provider — [create one](https://github.com/settings/tokens?type=beta)
+- **Node.js 22+** — [download](https://nodejs.org/)
 - **Optional:** an [OpenRouter](https://openrouter.ai/) API key — free (`:free` model-id suffix) or paid models
 - **Optional:** [Ollama](https://ollama.ai/) to run a model on your own machine, with nothing sent to a cloud provider — true on the default `localhost` endpoint; `ollama_endpoint` can also be pointed at a hosted instance, which is no longer offline
 
@@ -64,7 +63,7 @@ Once running, the app provides four tabs:
 | **Dashboard** | Portfolio-level budget overview, stat cards, per-project burn rate bars |
 | **AI Analyst** | Ask natural-language questions — swap staff, check burn rates, compare margins |
 | **Staffing** | CRUD staffing assignments + view labor rate card |
-| **Settings** | Configure LLM provider, PAT, model selection, Ollama endpoint |
+| **Settings** | Configure the AI provider, model, and provider credentials or endpoint |
 
 ### Example Queries
 
@@ -79,11 +78,10 @@ Try these in the AI Analyst tab:
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| Runtime | Node.js 18+ | Portable, no compilation step |
+| Runtime | Node.js 22+ | Portable, no compilation step |
 | Server | Express + TypeScript | Minimal, well-known |
 | Database | SQLite (better-sqlite3) | Zero-config, single file, portable |
-| AI (cloud) | GitHub Models API | Multi-model, PAT auth |
-| AI (cloud) | OpenRouter | Cloud replacement as GitHub Models retires |
+| AI (cloud) | OpenRouter | Optional hosted models; API key required |
 | AI (local) | Ollama | Fully offline alternative |
 | Calc Engine | Pure TypeScript | Deterministic, fully tested |
 | Frontend | React 19 + Vite + Tailwind | Fast dev, small bundle |
