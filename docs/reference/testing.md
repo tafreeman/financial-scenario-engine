@@ -127,12 +127,6 @@ npm run eval:intent
 
 Requires a running local Ollama server (`ollama serve`); no token needed.
 
-**Runner (local, GitHub Models):**
-
-```bash
-GITHUB_TOKEN=<pat-with-models:read> npm run eval:intent
-```
-
 **Runner (local, OpenRouter):**
 
 ```bash
@@ -178,5 +172,5 @@ The intent eval checks what goes *into* the engine. This second eval checks what
 Grading prose against a data structure is awkward to do with string matching, so this eval uses a second model as the grader. That pattern is called **LLM-as-judge**. The judge is shown the `ScenarioResult` and the narrative, and returns a verdict.
 
 - **Judge:** `server/evals/faithfulness-judge.ts`. Its verdict is validated against a strict Zod schema, and it returns typed failure codes. The model call is injectable, so the judge's own unit tests never touch the network. This file is eval-side only and is never imported by production request-handling code.
-- **Runner:** `GITHUB_TOKEN=<pat> npm run eval:faithfulness`. It runs representative operations through the real `executeScenario()` → `generateNarrative()` path at a fixed reference date, then judges each narrative. Results land in `server/evals/results/faithfulness-latest.json` (gitignored).
-- **ADVISORY ONLY — this judge gates nothing.** It has not been calibrated against human-labeled data, so how often its verdicts are correct is simply unmeasured — its precision and recall are unknown. Treat its output as a hint, not as evidence. The runner exits 0 regardless of the verdicts. A missing `GITHUB_TOKEN` skips cleanly, or fails under `EVAL_FAITHFULNESS_GATED=1`, mirroring the intent eval. A pass/fail threshold may only be introduced by a deliberate calibration PR that follows the procedure documented in `server/evals/eval-config.ts`.
+- **Runner:** `npm run eval:faithfulness` with a configured provider (for example, local Ollama). It runs representative operations through the real `executeScenario()` → `generateNarrative()` path at a fixed reference date, then judges each narrative. Results land in `server/evals/results/faithfulness-latest.json` (gitignored).
+- **ADVISORY ONLY — this judge gates nothing.** It has not been calibrated against human-labeled data, so how often its verdicts are correct is simply unmeasured — its precision and recall are unknown. Treat its output as a hint, not as evidence. The runner exits 0 regardless of the verdicts. An unconfigured provider skips cleanly, or fails under `EVAL_FAITHFULNESS_GATED=1`, mirroring the intent eval. A pass/fail threshold may only be introduced by a deliberate calibration PR that follows the procedure documented in `server/evals/eval-config.ts`.
