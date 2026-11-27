@@ -63,7 +63,7 @@ Once running, the app provides four tabs:
 | **Dashboard** | Portfolio-level budget overview, stat cards, per-project burn rate bars |
 | **AI Analyst** | Ask natural-language questions — swap staff, check burn rates, compare margins |
 | **Staffing** | CRUD staffing assignments + view labor rate card |
-| **Settings** | Configure LLM provider, PAT, model selection, Ollama endpoint |
+| **Settings** | Configure the AI provider, model, and provider credentials or endpoint |
 
 ### Example Queries
 
@@ -81,8 +81,7 @@ Try these in the AI Analyst tab:
 | Runtime | Node.js 22+ | Portable, no compilation step |
 | Server | Express + TypeScript | Minimal, well-known |
 | Database | SQLite (better-sqlite3) | Zero-config, single file, portable |
-| AI (cloud) | GitHub Models API | Multi-model, PAT auth |
-| AI (cloud) | OpenRouter | Cloud replacement as GitHub Models retires |
+| AI (cloud) | OpenRouter | Optional hosted models; API key required |
 | AI (local) | Ollama | Fully offline alternative |
 | Calc Engine | Pure TypeScript | Deterministic, fully tested |
 | Frontend | React 19 + Vite + Tailwind | Fast dev, small bundle |
